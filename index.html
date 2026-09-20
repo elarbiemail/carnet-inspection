@@ -1,0 +1,2504 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Carnet d'Inspection</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#2F6F62">
+<meta name="application-name" content="Carnet Inspection">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Carnet Inspection">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="icon-180.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+  :root{
+    --bg:#F6F4EE; --surface:#FFFFFF; --surface-2:#FBF9F4;
+    --ink:#1E2A3A; --ink-soft:#5B6675; --ink-faint:#8B94A0;
+    --line:#DDD7C8; --line-soft:#E9E4D8;
+    --accent:#2F6F62; --accent-ink:#FFFFFF; --accent-soft:#E4EEEA;
+    --warn:#B5762A; --warn-soft:#F5E9D8;
+    --danger:#B14A3D; --danger-soft:#F6E3DF;
+    --done:#3F7D53; --done-soft:#E3EFE4;
+    --violet:#5B5A9C; --violet-soft:#E7E6F2;
+    --radius:14px; --radius-sm:9px;
+    --shadow:0 1px 2px rgba(30,42,58,.07), 0 6px 20px rgba(30,42,58,.07);
+    --font-ui:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+    --font-mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#161C24; --surface:#1E2530; --surface-2:#232B37;
+      --ink:#EDEBE3; --ink-soft:#A8AFB8; --ink-faint:#77808C;
+      --line:#303947; --line-soft:#2A3240;
+      --accent:#6FB3A2; --accent-ink:#0E1A17; --accent-soft:#223834;
+      --warn:#D69B57; --warn-soft:#3A2E1D;
+      --danger:#D97C6C; --danger-soft:#3B2420;
+      --done:#7BC090; --done-soft:#1F3123;
+      --violet:#9C9BE0; --violet-soft:#2A2A45;
+      --shadow:0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.3);
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#161C24; --surface:#1E2530; --surface-2:#232B37;
+    --ink:#EDEBE3; --ink-soft:#A8AFB8; --ink-faint:#77808C;
+    --line:#303947; --line-soft:#2A3240;
+    --accent:#6FB3A2; --accent-ink:#0E1A17; --accent-soft:#223834;
+    --warn:#D69B57; --warn-soft:#3A2E1D;
+    --danger:#D97C6C; --danger-soft:#3B2420;
+    --done:#7BC090; --done-soft:#1F3123;
+    --violet:#9C9BE0; --violet-soft:#2A2A45;
+    --shadow:0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.3);
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:var(--font-ui); font-size:15px; line-height:1.45;
+    -webkit-tap-highlight-color:transparent;
+  }
+  [hidden]{display:none!important;}
+  img{max-width:100%;}
+  button, input, textarea, select{ font-family:inherit; font-size:inherit; color:inherit; }
+  ::selection{ background:var(--accent-soft); }
+  :focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+  h1,h2,h3{ text-wrap:balance; margin:0; }
+  .tnum{ font-variant-numeric:tabular-nums; }
+
+  #app{ max-width:640px; margin:0 auto; min-height:100%; display:flex; flex-direction:column; }
+
+  /* --- Topbar --- */
+  .topbar{
+    position:sticky; top:env(safe-area-inset-top,0px); z-index:20;
+    background:var(--bg); border-bottom:1px solid var(--line);
+    padding:14px 16px 10px;
+  }
+  .topbar-row{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .brand{ display:flex; align-items:center; gap:9px; min-width:0; }
+  .brand-mark{ width:30px; height:30px; border-radius:8px; background:var(--accent); color:var(--accent-ink);
+    display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .brand h1{ font-size:17px; font-weight:700; letter-spacing:-.01em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .brand-sub{ font-size:11.5px; color:var(--ink-faint); margin-top:1px; }
+  .topbar-actions{ display:flex; align-items:center; gap:4px; flex-shrink:0; }
+  .icon-btn{
+    width:36px; height:36px; border-radius:10px; border:1px solid transparent;
+    background:transparent; display:flex; align-items:center; justify-content:center;
+    cursor:pointer; color:var(--ink-soft); transition:background .15s; flex-shrink:0;
+  }
+  .icon-btn:hover{ background:var(--surface-2); }
+  .icon-btn:active{ background:var(--line-soft); }
+  .icon-btn.spin svg{ animation:spin 1s linear infinite; }
+  .icon-btn[disabled]{ opacity:.4; cursor:default; }
+  @keyframes spin{ to{ transform:rotate(360deg); } }
+  @media (prefers-reduced-motion:reduce){ .icon-btn.spin svg{ animation:none; } }
+
+  .topbar-left{ display:flex; align-items:center; gap:4px; min-width:0; }
+
+  .syncbar{ display:flex; align-items:center; gap:8px; margin-top:10px; font-size:12px; color:var(--ink-faint); }
+  .syncbar .dot{ width:6px; height:6px; border-radius:50%; background:var(--line); flex-shrink:0; }
+  .syncbar .dot.ok{ background:var(--done); }
+  .syncbar .dot.err{ background:var(--danger); }
+  .syncbar-link{ background:none; border:none; padding:0; color:var(--accent); font-weight:600; font-size:12px; cursor:pointer; }
+
+  /* --- Main / views --- */
+  main{ flex:1; padding:14px 16px calc(152px + env(safe-area-inset-bottom,0px)); }
+  .view{ display:flex; flex-direction:column; gap:12px; }
+
+  /* --- Sidebar --- */
+  .sidebar-backdrop{ position:fixed; inset:0; background:rgba(20,24,30,.44); z-index:40; opacity:0; pointer-events:none; transition:opacity .18s; }
+  .sidebar-backdrop.open{ opacity:1; pointer-events:auto; }
+  .sidebar{
+    position:fixed; top:0; left:0; bottom:0; width:284px; max-width:84vw; background:var(--surface);
+    z-index:41; transform:translateX(-100%); transition:transform .22s ease; box-shadow:0 0 34px rgba(0,0,0,.18);
+    display:flex; flex-direction:column; padding:calc(16px + env(safe-area-inset-top,0px)) 12px calc(14px + env(safe-area-inset-bottom,0px));
+    overflow-y:auto;
+  }
+  .sidebar.open{ transform:translateX(0); }
+  .sidebar-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; padding:0 4px; }
+  .side-nav{ display:flex; flex-direction:column; gap:2px; }
+  .side-nav button{ display:flex; align-items:center; gap:12px; padding:11px 12px; border-radius:10px; border:none; background:none;
+    color:var(--ink-soft); font-weight:600; font-size:13.5px; cursor:pointer; text-align:left; width:100%; }
+  .side-nav button svg{ flex-shrink:0; }
+  .side-nav button[aria-current="true"]{ background:var(--accent-soft); color:var(--accent); }
+  .side-divider{ height:1px; background:var(--line-soft); margin:12px 4px; }
+  .side-section-label{ font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-faint); padding:0 12px; margin-bottom:4px; }
+  .side-foot{ margin-top:auto; padding:12px 12px 2px; font-size:11px; color:var(--ink-faint); border-top:1px solid var(--line-soft); line-height:1.5; }
+
+  /* --- Bottom tab bar --- */
+  .bottom-tabs{
+    position:fixed; left:50%; transform:translateX(-50%); bottom:0; width:100%; max-width:640px; z-index:21;
+    background:var(--surface); border-top:1px solid var(--line); display:flex;
+    padding-bottom:env(safe-area-inset-bottom,0px);
+  }
+  .bottom-tabs .bt-item{
+    flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px;
+    padding:8px 2px 7px; border:none; background:none; color:var(--ink-faint); font-size:10px; font-weight:600; cursor:pointer;
+  }
+  .bottom-tabs .bt-item[aria-current="true"]{ color:var(--accent); }
+  .bottom-tabs .bt-item svg{ flex-shrink:0; }
+
+  .banner{ border-radius:var(--radius-sm); padding:11px 13px; font-size:13px; display:flex; gap:9px; align-items:flex-start; }
+  .banner svg{ flex-shrink:0; margin-top:1px; }
+  .banner.warn{ background:var(--warn-soft); color:var(--warn); }
+  .banner.err{ background:var(--danger-soft); color:var(--danger); }
+  .banner.info{ background:var(--accent-soft); color:var(--accent); }
+  .banner-actions{ margin-top:6px; display:flex; gap:8px; }
+  .banner a, .banner-actions button{ font-weight:700; }
+
+  .setup-card{
+    background:var(--surface); border:1px solid var(--line); border-radius:var(--radius);
+    padding:16px; box-shadow:var(--shadow);
+  }
+  .setup-card h2{ font-size:15.5px; margin-bottom:4px; }
+  .setup-card p{ color:var(--ink-soft); font-size:13px; margin:0 0 12px; }
+  .setup-actions{ display:flex; flex-wrap:wrap; gap:8px; }
+
+  .preview-card{ opacity:.55; filter:saturate(.6); pointer-events:none; }
+  .preview-tag{
+    position:absolute; top:10px; right:10px; font-size:10px; font-weight:700; text-transform:uppercase;
+    letter-spacing:.05em; color:var(--ink-faint); background:var(--surface-2); padding:3px 7px; border-radius:99px;
+  }
+
+  .stats-row{ display:flex; gap:8px; overflow-x:auto; padding-bottom:2px; }
+  .stat{
+    flex:1; min-width:78px; background:var(--surface); border:1px solid var(--line); border-radius:var(--radius-sm);
+    padding:9px 10px;
+  }
+  .stat b{ display:block; font-size:19px; font-family:var(--font-mono); }
+  .stat span{ font-size:11px; color:var(--ink-soft); }
+
+  .chips{ display:flex; gap:7px; overflow-x:auto; padding-bottom:2px; }
+  .chip{
+    flex-shrink:0; padding:6px 13px; border-radius:99px; border:1px solid var(--line); background:var(--surface);
+    color:var(--ink-soft); font-size:12.5px; font-weight:600; cursor:pointer; white-space:nowrap;
+  }
+  .chip[aria-pressed="true"]{ background:var(--ink); color:var(--bg); border-color:var(--ink); }
+
+  .task-list{ display:flex; flex-direction:column; gap:9px; }
+  .task-card{
+    position:relative; background:var(--surface); border:1px solid var(--line); border-radius:var(--radius);
+    padding:12px 13px 12px 15px; cursor:pointer; display:flex; flex-direction:column; gap:7px;
+    box-shadow:var(--shadow);
+  }
+  .task-card::before{
+    content:""; position:absolute; left:0; top:10px; bottom:10px; width:3px; border-radius:3px;
+    background:var(--prio,var(--line));
+  }
+  .task-card.done{ opacity:.62; }
+  .task-title{ font-weight:600; font-size:14.5px; text-wrap:balance; }
+  .task-title.strike{ text-decoration:line-through; text-decoration-color:var(--ink-faint); }
+  .task-meta{ font-size:12px; color:var(--ink-soft); display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+  .type-badge{ font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; padding:2px 7px; border-radius:5px; }
+  .type-badge.violet{ background:var(--violet-soft); color:var(--violet); }
+  .type-badge.accent{ background:var(--accent-soft); color:var(--accent); }
+  .type-badge.warn{ background:var(--warn-soft); color:var(--warn); }
+  .type-badge.neutral{ background:var(--surface-2); color:var(--ink-soft); }
+  .task-foot{ display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; }
+  .pill{
+    display:inline-flex; align-items:center; gap:4px; padding:4px 9px; border-radius:99px; font-size:11.5px; font-weight:700;
+    border:none; cursor:pointer;
+  }
+  .pill.wf-a_planifier{ background:var(--surface-2); color:var(--ink-soft); }
+  .pill.wf-planifiee{ background:var(--accent-soft); color:var(--accent); }
+  .pill.wf-realisee{ background:var(--violet-soft); color:var(--violet); }
+  .pill.wf-rapport{ background:var(--warn-soft); color:var(--warn); }
+  .pill.wf-cloturee{ background:var(--done-soft); color:var(--done); }
+  .due-chip{ font-size:11.5px; color:var(--ink-faint); font-family:var(--font-mono); }
+  .due-chip.late{ color:var(--danger); font-weight:700; }
+  .doc-chip{
+    display:inline-flex; align-items:center; gap:4px; font-size:11.5px; color:var(--accent); font-weight:600;
+    background:none; border:none; padding:0; cursor:pointer; max-width:200px;
+  }
+  .doc-chip span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+  .empty{ text-align:center; padding:30px 10px; color:var(--ink-faint); font-size:13px; }
+
+  /* --- stepper --- */
+  .stepper{ display:flex; gap:5px; overflow-x:auto; padding:2px 0 6px; }
+  .step{ flex-shrink:0; display:flex; align-items:center; gap:5px; padding:6px 11px; border-radius:99px; border:1.5px solid var(--line);
+    background:var(--surface); color:var(--ink-faint); font-size:11.5px; font-weight:700; cursor:pointer; white-space:nowrap; }
+  .step .n{ width:16px; height:16px; border-radius:50%; background:var(--line); color:var(--surface); display:flex; align-items:center;
+    justify-content:center; font-size:9.5px; flex-shrink:0; }
+  .step.done{ border-color:var(--done); color:var(--done); background:var(--done-soft); }
+  .step.done .n{ background:var(--done); }
+  .step.current{ border-color:var(--accent); color:var(--accent); background:var(--accent-soft); }
+  .step.current .n{ background:var(--accent); }
+
+  /* --- Rows: generic list (enseignants / etablissements / documents) --- */
+  .rec-list{ display:flex; flex-direction:column; gap:8px; }
+  .rec-row{ display:flex; align-items:center; gap:11px; background:var(--surface); border:1px solid var(--line);
+    border-radius:var(--radius-sm); padding:10px 11px; cursor:pointer; }
+  .avatar{ width:38px; height:38px; border-radius:50%; background:var(--accent-soft); color:var(--accent); flex-shrink:0;
+    display:flex; align-items:center; justify-content:center; font-weight:700; font-size:13.5px; overflow:hidden; }
+  .avatar img{ width:100%; height:100%; object-fit:cover; }
+  .rec-info{ flex:1; min-width:0; }
+  .rec-info .t{ font-size:13.5px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .rec-info .s{ font-size:11.5px; color:var(--ink-faint); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .zone-head{ font-size:12px; font-weight:700; color:var(--ink-faint); text-transform:uppercase; letter-spacing:.05em;
+    margin:6px 0 -2px; display:flex; align-items:center; gap:8px; }
+  .zone-head .line{ flex:1; height:1px; background:var(--line-soft); }
+
+  /* --- Documents view (Drive) --- */
+  .search-row{ display:flex; gap:8px; }
+  .search-row input{
+    flex:1; border:1px solid var(--line); background:var(--surface); border-radius:var(--radius-sm);
+    padding:10px 12px; color:var(--ink);
+  }
+  .search-row button{
+    border:1px solid var(--line); background:var(--surface); border-radius:var(--radius-sm); padding:0 13px;
+    color:var(--ink-soft); cursor:pointer;
+  }
+  .doc-list{ display:flex; flex-direction:column; gap:7px; }
+  .doc-row{
+    display:flex; align-items:center; gap:10px; background:var(--surface); border:1px solid var(--line);
+    border-radius:var(--radius-sm); padding:9px 10px;
+  }
+  .doc-ico{ width:34px; height:34px; border-radius:8px; background:var(--surface-2); display:flex; align-items:center;
+    justify-content:center; color:var(--ink-soft); flex-shrink:0; }
+  .doc-info{ flex:1; min-width:0; }
+  .doc-info .t{ font-size:13px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .doc-info .s{ font-size:11px; color:var(--ink-faint); }
+  .doc-actions{ display:flex; gap:2px; flex-shrink:0; }
+  .section-label{ font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-faint); }
+
+  /* --- Bilan --- */
+  .bar-row{ display:flex; align-items:center; gap:9px; font-size:12.5px; }
+  .bar-row .l{ width:118px; flex-shrink:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--ink-soft); }
+  .bar-track{ flex:1; height:9px; border-radius:5px; background:var(--surface-2); overflow:hidden; }
+  .bar-fill{ height:100%; border-radius:5px; background:var(--accent); }
+  .bar-row .v{ width:26px; text-align:right; flex-shrink:0; font-family:var(--font-mono); font-size:12px; }
+  .period-seg{ display:flex; gap:6px; overflow-x:auto; }
+  .period-seg button{ flex-shrink:0; padding:7px 12px; border-radius:99px; border:1px solid var(--line); background:var(--surface);
+    color:var(--ink-soft); font-weight:600; font-size:12.5px; cursor:pointer; }
+  .period-seg button[aria-pressed="true"]{ background:var(--ink); color:var(--bg); border-color:var(--ink); }
+
+  /* --- FAB --- */
+  .fab{
+    position:fixed; right:calc(50% - 320px + 20px); bottom:calc(78px + env(safe-area-inset-bottom,0px)); z-index:25;
+    width:54px; height:54px; border-radius:16px; background:var(--accent); color:var(--accent-ink);
+    border:none; box-shadow:0 8px 24px rgba(47,111,98,.35); display:flex; align-items:center; justify-content:center;
+    cursor:pointer;
+  }
+  @media (max-width:680px){ .fab{ right:20px; } }
+
+  /* --- Overlays / modals --- */
+  .overlay{
+    position:fixed; inset:0; z-index:50; background:rgba(20,24,30,.44);
+    display:flex; align-items:flex-end; justify-content:center;
+    padding-top:env(safe-area-inset-top,0px);
+  }
+  @media (min-width:560px){ .overlay{ align-items:center; } }
+  .sheet{
+    width:100%; max-width:560px; max-height:88vh; overflow-y:auto; background:var(--surface);
+    border-radius:18px 18px 0 0; box-shadow:0 -8px 30px rgba(0,0,0,.2);
+    padding:16px 18px calc(20px + env(safe-area-inset-bottom,0px));
+  }
+  @media (min-width:560px){ .sheet{ border-radius:18px; max-height:86vh; } }
+  .sheet-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:14px; gap:10px; }
+  .sheet-head h2{ font-size:16.5px; }
+  .field{ margin-bottom:13px; }
+  .field label{ display:block; font-size:12px; font-weight:700; color:var(--ink-soft); margin-bottom:5px; }
+  .field input[type="text"], .field input[type="date"], .field input[type="time"], .field input[type="tel"],
+  .field input[type="email"], .field textarea, .field select{
+    width:100%; border:1px solid var(--line); background:var(--surface-2); border-radius:var(--radius-sm);
+    padding:10px 11px; color:var(--ink);
+  }
+  .field textarea{ resize:vertical; min-height:64px; }
+  .field-row{ display:flex; gap:9px; }
+  .field-row .field{ flex:1; min-width:0; }
+  .seg{ display:flex; gap:6px; flex-wrap:wrap; }
+  .seg button{
+    flex:1; min-width:64px; padding:9px 6px; border-radius:9px; border:1px solid var(--line); background:var(--surface-2);
+    color:var(--ink-soft); font-weight:600; font-size:12.5px; cursor:pointer;
+  }
+  .seg button[aria-pressed="true"]{ border-color:var(--accent); background:var(--accent-soft); color:var(--accent); }
+  .pickbtn{ display:flex; align-items:center; gap:9px; border:1px dashed var(--line); border-radius:var(--radius-sm);
+    padding:9px 10px; width:100%; background:none; cursor:pointer; text-align:left; }
+  .pickbtn .t{ flex:1; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .pickbtn .t.ph{ color:var(--ink-faint); }
+  .btn{
+    border:none; border-radius:10px; padding:10px 16px; font-weight:700; font-size:13.5px; cursor:pointer;
+  }
+  .btn.primary{ background:var(--accent); color:var(--accent-ink); }
+  .btn.ghost{ background:var(--surface-2); color:var(--ink); }
+  .btn.danger{ background:var(--danger-soft); color:var(--danger); }
+  .btn.ai{ background:var(--violet-soft); color:var(--violet); }
+  .btn.sm{ padding:7px 11px; font-size:12px; }
+  .btn[disabled]{ opacity:.5; cursor:default; }
+  .btn-row{ display:flex; gap:8px; margin-top:16px; flex-wrap:wrap; }
+  .btn-row .btn{ flex:1; }
+
+  .settings-row{
+    display:flex; align-items:center; justify-content:space-between; gap:10px; padding:11px 0; border-bottom:1px solid var(--line-soft);
+  }
+  .settings-row:last-of-type{ border-bottom:none; }
+  .settings-row .l{ font-size:13.5px; font-weight:600; }
+  .settings-row .s{ font-size:11.5px; color:var(--ink-faint); margin-top:2px; }
+  .settings-nav{ display:flex; flex-direction:column; gap:6px; }
+  .settings-nav button{ display:flex; align-items:center; justify-content:space-between; width:100%; text-align:left;
+    padding:11px 12px; border-radius:var(--radius-sm); border:1px solid var(--line); background:var(--surface-2);
+    color:var(--ink); font-weight:600; font-size:13.5px; cursor:pointer; }
+  .toast{
+    position:fixed; left:50%; bottom:calc(146px + env(safe-area-inset-bottom,0px)); transform:translateX(-50%);
+    background:var(--ink); color:var(--bg); padding:10px 16px; border-radius:99px; font-size:12.5px; font-weight:600;
+    z-index:80; box-shadow:var(--shadow); max-width:88%; text-align:center;
+  }
+  :root[data-theme="dark"] .toast, :root:not([data-theme="light"]) .toast{ background:var(--surface); color:var(--ink); border:1px solid var(--line); }
+
+  /* --- rows editors (horaire / participants / criteres / actions) --- */
+  .rowline{ display:flex; gap:7px; align-items:flex-start; margin-bottom:7px; }
+  .rowline > *{ min-width:0; }
+  .rowline .rm{ flex-shrink:0; width:32px; height:38px; border-radius:8px; border:1px solid var(--line); background:var(--surface-2);
+    color:var(--danger); cursor:pointer; display:flex; align-items:center; justify-content:center; }
+  .addline{ width:100%; padding:9px; border-radius:9px; border:1.5px dashed var(--line); background:none; color:var(--ink-soft);
+    font-weight:600; font-size:12.5px; cursor:pointer; }
+  .crit-card{ border:1px solid var(--line); border-radius:var(--radius-sm); padding:10px; margin-bottom:8px; background:var(--surface-2); }
+  .crit-card .cn{ font-weight:700; font-size:13px; margin-bottom:7px; }
+  .attach-row{ display:flex; align-items:center; gap:9px; padding:7px 0; }
+  .attach-row .t{ flex:1; font-size:12.5px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .photo-picker{ display:flex; align-items:center; gap:12px; }
+  .photo-picker .avatar{ width:56px; height:56px; font-size:18px; }
+
+  /* --- print --- */
+  #printRoot{ display:none; }
+  @media print{
+    #app, #overlayRoot, #toastRoot{ display:none !important; }
+    #printRoot{ display:block !important; }
+    body{ background:#fff; color:#111; font-size:12px; }
+    .p-page{ padding:0; }
+    .p-head{ text-align:center; margin-bottom:14px; border-bottom:2px solid #111; padding-bottom:8px; }
+    .p-head .org{ font-size:11px; white-space:pre-line; }
+    .p-head h1{ font-size:16px; margin-top:6px; }
+    .p-meta{ display:flex; justify-content:space-between; font-size:11px; margin-bottom:10px; flex-wrap:wrap; gap:6px; }
+    table.p-table{ width:100%; border-collapse:collapse; margin-bottom:12px; }
+    table.p-table th, table.p-table td{ border:1px solid #999; padding:5px 7px; font-size:11px; text-align:left; }
+    .p-section{ margin-bottom:12px; }
+    .p-section h3{ font-size:12.5px; border-bottom:1px solid #bbb; padding-bottom:3px; margin-bottom:6px; }
+    .p-sign{ display:flex; justify-content:space-between; margin-top:40px; font-size:11px; }
+    .p-page[dir="rtl"]{ text-align:right; }
+    .p-page[dir="rtl"] table.p-table th, .p-page[dir="rtl"] table.p-table td{ text-align:right; }
+    .p-page[dir="rtl"] .p-meta{ flex-direction:row-reverse; }
+  }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <header class="topbar">
+    <div class="topbar-row">
+      <div class="topbar-left">
+        <button class="icon-btn" id="btnMenu" type="button" title="Menu" aria-label="Ouvrir le menu">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M9 11l3 3 6-6M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </span>
+          <div style="min-width:0;">
+            <h1>Carnet d'Inspection</h1>
+            <div class="brand-sub" id="brandSub">Tâches &amp; documents</div>
+          </div>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <button class="icon-btn" id="btnSync" type="button" title="Synchroniser" aria-label="Synchroniser avec Google Sheets">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none"><path d="M20 11a8 8 0 1 0-2.3 5.6M20 11V5m0 6h-6" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <button class="icon-btn" id="btnSettings" type="button" title="Paramètres" aria-label="Paramètres">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" stroke="currentColor" stroke-width="2"/><path d="M19.4 13.5a1.7 1.7 0 0 0 .34 1.87l.06.06a2.06 2.06 0 1 1-2.9 2.9l-.07-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V20a2.06 2.06 0 1 1-4.12 0v-.1a1.7 1.7 0 0 0-1.1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2.06 2.06 0 1 1-2.9-2.9l.06-.07a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H4a2.06 2.06 0 1 1 0-4.12h.1a1.7 1.7 0 0 0 1.55-1.1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2.06 2.06 0 1 1 2.9-2.9l.07.06a1.7 1.7 0 0 0 1.87.34H10a1.7 1.7 0 0 0 1-1.55V4a2.06 2.06 0 1 1 4.12 0v.1a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2.06 2.06 0 1 1 2.9 2.9l-.06.07a1.7 1.7 0 0 0-.34 1.87V10a1.7 1.7 0 0 0 1.55 1H20a2.06 2.06 0 1 1 0 4.12h-.1a1.7 1.7 0 0 0-1.55 1Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </div>
+    <div class="syncbar">
+      <span class="dot" id="syncDot"></span>
+      <span id="syncLabel">Non synchronisé</span>
+      <button class="syncbar-link" id="syncLink" type="button" hidden>Configurer</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="view" id="viewTasks"></section>
+    <section class="view" id="viewEnseignants" hidden></section>
+    <section class="view" id="viewEtablissements" hidden></section>
+    <section class="view" id="viewBilan" hidden></section>
+    <section class="view" id="viewDocs" hidden></section>
+  </main>
+
+  <nav class="bottom-tabs" role="tablist" aria-label="Navigation principale">
+    <button class="bt-item" data-tab="tasks" role="tab" aria-current="true" type="button">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M9 11l2 2 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><rect x="3.5" y="3.5" width="17" height="17" rx="4" stroke="currentColor" stroke-width="1.7"/></svg>
+      <span>Tâches</span>
+    </button>
+    <button class="bt-item" data-tab="enseignants" role="tab" aria-current="false" type="button">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="3.6" stroke="currentColor" stroke-width="1.7"/><path d="M4.5 20c0-3.9 3.4-6.8 7.5-6.8s7.5 2.9 7.5 6.8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      <span>Enseignants</span>
+    </button>
+    <button class="bt-item" data-tab="etablissements" role="tab" aria-current="false" type="button">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M4 21V5.5a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1V21M4 21h16M13 21v-8a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v8" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M7 8h1M7 12h1M7 16h1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      <span>Établ.</span>
+    </button>
+    <button class="bt-item" data-tab="bilan" role="tab" aria-current="false" type="button">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M4.5 20V11M11 20V4M17.5 20v-6.5M3.5 20h17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span>Bilan</span>
+    </button>
+    <button class="bt-item" data-tab="docs" role="tab" aria-current="false" type="button">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M7 17.5a4 4 0 0 1-.6-7.95 5.5 5.5 0 0 1 10.7-2.05A4.2 4.2 0 0 1 17.4 17.5H7Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+      <span>Documents</span>
+    </button>
+  </nav>
+
+  <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
+  <nav class="sidebar" id="sidebar" aria-label="Menu">
+    <div class="sidebar-head">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M9 11l3 3 6-6M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </span>
+        <div style="min-width:0;"><h1 style="font-size:15.5px;">Carnet d'Inspection</h1></div>
+      </div>
+      <button class="icon-btn" id="btnSidebarClose" type="button" aria-label="Fermer le menu">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+    <div class="side-nav">
+      <button type="button" data-tab="tasks" aria-current="true">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M9 11l2 2 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><rect x="3.5" y="3.5" width="17" height="17" rx="4" stroke="currentColor" stroke-width="1.7"/></svg>
+        Tâches
+      </button>
+      <button type="button" data-tab="enseignants" aria-current="false">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="3.6" stroke="currentColor" stroke-width="1.7"/><path d="M4.5 20c0-3.9 3.4-6.8 7.5-6.8s7.5 2.9 7.5 6.8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+        Enseignants
+      </button>
+      <button type="button" data-tab="etablissements" aria-current="false">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4 21V5.5a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1V21M4 21h16M13 21v-8a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v8" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        Établissements
+      </button>
+      <button type="button" data-tab="bilan" aria-current="false">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4.5 20V11M11 20V4M17.5 20v-6.5M3.5 20h17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Bilan
+      </button>
+      <button type="button" data-tab="docs" aria-current="false">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M7 17.5a4 4 0 0 1-.6-7.95 5.5 5.5 0 0 1 10.7-2.05A4.2 4.2 0 0 1 17.4 17.5H7Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        Documents Drive
+      </button>
+    </div>
+    <div class="side-divider"></div>
+    <div class="side-section-label">Outils</div>
+    <div class="side-nav">
+      <button type="button" id="btnSideSync">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M20 11a8 8 0 1 0-2.3 5.6M20 11V5m0 6h-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Synchroniser
+      </button>
+      <button type="button" id="btnSideSettings">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" stroke="currentColor" stroke-width="1.8"/><path d="M4 12h2m12 0h2M12 4v2m0 12v2M6.3 6.3l1.4 1.4m8.6 8.6 1.4 1.4M6.3 17.7l1.4-1.4m8.6-8.6 1.4-1.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        Paramètres &amp; connexion
+      </button>
+      <button type="button" id="btnSideTemplates">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M7 3h7l5 5v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        Modèles de documents
+      </button>
+    </div>
+    <div class="side-foot" id="sideFolderStatus">Dossier Drive : non configuré</div>
+  </nav>
+
+  <button class="fab" id="fabAdd" type="button" aria-label="Ajouter">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg>
+  </button>
+</div>
+
+<div id="overlayRoot"></div>
+<div id="toastRoot"></div>
+<div id="printRoot"></div>
+<input type="file" id="fileImportInput" accept=".csv,text/csv" hidden>
+<input type="file" id="filePhotoInput" accept="image/png,image/jpeg,image/webp" hidden>
+<input type="file" id="fileAttachInput" accept="image/png,image/jpeg,image/webp,application/pdf" hidden>
+<input type="file" id="fileLogoInput" accept="image/png,image/jpeg" hidden>
+<input type="file" id="fileCachetInput" accept="image/png,image/jpeg" hidden>
+<input type="file" id="fileSignatureInput" accept="image/png,image/jpeg" hidden>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ================= helpers ================= */
+  var $ = function(id){ return document.getElementById(id); };
+  var esc = function(s){ return (s==null?'':String(s)).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  }); };
+  var uid = function(){ return (self.crypto && crypto.randomUUID) ? crypto.randomUUID() : 'id-'+Date.now()+'-'+Math.random().toString(16).slice(2); };
+  var nowIso = function(){ return new Date().toISOString(); };
+  var todayStr = function(){ var d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
+  function fmtDate(iso){
+    if(!iso) return '';
+    var d = new Date(iso.length<=10 ? iso+'T00:00:00' : iso);
+    if(isNaN(d)) return '';
+    var dd = String(d.getDate()).padStart(2,'0'), mm = String(d.getMonth()+1).padStart(2,'0');
+    return dd+'/'+mm+'/'+d.getFullYear();
+  }
+  function fmtWhen(iso){
+    if(!iso) return '';
+    var d = new Date(iso);
+    if(isNaN(d)) return '';
+    var diff = (Date.now()-d.getTime())/1000;
+    if(diff < 60) return "à l'instant";
+    if(diff < 3600) return Math.floor(diff/60)+' min';
+    if(diff < 86400) return Math.floor(diff/3600)+' h';
+    return fmtDate(iso);
+  }
+  function isLate(iso, statut){
+    if(!iso || statut==='cloturee') return false;
+    var d = new Date(iso.length<=10 ? iso+'T23:59:59' : iso);
+    return d.getTime() < Date.now();
+  }
+  function toast(msg){
+    var el = document.createElement('div');
+    el.className = 'toast'; el.textContent = msg;
+    $('toastRoot').appendChild(el);
+    setTimeout(function(){ el.remove(); }, 3200);
+  }
+  function initials(name){
+    var parts = (name||'').trim().split(/\s+/).filter(Boolean);
+    if(!parts.length) return '?';
+    return (parts[0][0]+(parts[1]?parts[1][0]:'')).toUpperCase();
+  }
+
+  /* ================= CSV ================= */
+  function csvField(v){
+    var s = (v==null?'':String(v));
+    if(/[",\n\r]/.test(s)) return '"'+s.replace(/"/g,'""')+'"';
+    return s;
+  }
+  function parseCSV(text){
+    var rows = [], row = [], field = '', inQ = false;
+    for(var i=0;i<text.length;i++){
+      var c = text[i];
+      if(inQ){
+        if(c === '"'){ if(text[i+1]==='"'){ field+='"'; i++; } else inQ=false; }
+        else field += c;
+      } else {
+        if(c === '"') inQ = true;
+        else if(c === ',') { row.push(field); field=''; }
+        else if(c === '\r') { /* skip */ }
+        else if(c === '\n') { row.push(field); rows.push(row); row=[]; field=''; }
+        else field += c;
+      }
+    }
+    if(field.length || row.length){ row.push(field); rows.push(row); }
+    return rows.filter(function(r){ return r.length>1 || (r[0]||'').trim()!==''; });
+  }
+  function objectsToCSV(headers, objs){
+    var lines = [headers.map(csvField).join(',')];
+    objs.forEach(function(o){ lines.push(headers.map(function(h){ return csvField(o[h]); }).join(',')); });
+    return lines.join('\r\n');
+  }
+  function csvToObjects(text){
+    var rows = parseCSV(text);
+    if(!rows.length) return [];
+    var header = rows[0].map(function(h){ return h.trim().toLowerCase(); });
+    var out = [];
+    for(var i=1;i<rows.length;i++){
+      var r = rows[i], o = {};
+      header.forEach(function(h,idx){ o[h] = r[idx]!=null ? r[idx] : ''; });
+      out.push(o);
+    }
+    return out;
+  }
+  function b64ToUtf8(b64){
+    var bin = atob(b64);
+    var bytes = new Uint8Array(bin.length);
+    for(var i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
+    return new TextDecoder('utf-8').decode(bytes);
+  }
+  function utf8ToB64(str){
+    var bytes = new TextEncoder().encode(str);
+    var bin = ''; bytes.forEach(function(b){ bin += String.fromCharCode(b); });
+    return btoa(bin);
+  }
+  /* ================= téléchargement de fichiers (natif navigateur, sans capacité Claude) ================= */
+  function saveBlob(filename, data){
+    return new Promise(function(resolve){
+      var blob = (data instanceof Blob) ? data : new Blob([data], {type:'text/plain'});
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url; a.download = filename; a.style.display = 'none';
+      document.body.appendChild(a); a.click();
+      setTimeout(function(){ document.body.removeChild(a); URL.revokeObjectURL(url); resolve(); }, 150);
+    });
+  }
+  function dataUrlToUint8Array(dataUrl){
+    var b64 = String(dataUrl||'').split(',')[1] || '';
+    var bin = atob(b64);
+    var bytes = new Uint8Array(bin.length);
+    for(var i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  }
+
+  /* ================= constants ================= */
+  var WORKFLOW = [
+    {v:'a_planifier', l:'À planifier'}, {v:'planifiee', l:'Planifiée'}, {v:'realisee', l:'Réalisée'},
+    {v:'rapport', l:'CR rédigé'}, {v:'cloturee', l:'Clôturée'}
+  ];
+  var WF_LABEL = {}; WORKFLOW.forEach(function(w){ WF_LABEL[w.v]=w.l; });
+  var LEGACY_STATUT = {a_faire:'a_planifier', en_cours:'realisee', termine:'cloturee'};
+  function normStatut(v){ if(WF_LABEL[v]) return v; if(LEGACY_STATUT[v]) return LEGACY_STATUT[v]; return 'a_planifier'; }
+  var TASK_TYPES = [
+    {v:'inspection', l:'Inspection'}, {v:'visite_conseil', l:'Visite conseil'},
+    {v:'reunion_pedagogique', l:'Réunion pédagogique'}, {v:'cours_experimental', l:'Cours expérimental'},
+    {v:'recherche_action', l:'Recherche action'}, {v:'observation_examen', l:"Observation d'examen"},
+    {v:'conception_examen', l:"Conception d'examen"}, {v:'autre', l:'Autre'}
+  ];
+  var TT_LABEL = {}; TASK_TYPES.forEach(function(t){ TT_LABEL[t.v]=t.l; });
+  var LEGACY_TASKTYPE = {visite:'inspection', reunion:'reunion_pedagogique'};
+  function normTaskType(v){ if(TT_LABEL[v]) return v; if(LEGACY_TASKTYPE[v]) return LEGACY_TASKTYPE[v]; return 'autre'; }
+  var TASK_TYPES_GRADED = {inspection:true};
+  var TASK_TYPES_NOTIFY = {reunion_pedagogique:true, cours_experimental:true};
+  var DOCS_FOR_TYPE = {
+    inspection:['lettre_information','observation','rapport_inspection','bordereau'],
+    visite_conseil:['lettre_information','observation','rapport','bordereau'],
+    reunion_pedagogique:['lettre_information','presence','compte_rendu','attestation','bordereau'],
+    cours_experimental:['lettre_information','presence','compte_rendu','attestation','bordereau'],
+    recherche_action:['rapport','bordereau'],
+    observation_examen:['observation','rapport','bordereau'],
+    conception_examen:['rapport','bordereau'],
+    autre:['rapport','bordereau']
+  };
+  var DOC_TYPE_INFO = {
+    presence: {label:'Liste de présence'}, compte_rendu: {label:'Compte-rendu de réunion'},
+    observation: {label:"Grille d'observation"}, rapport: {label:'Rapport de synthèse'},
+    attestation: {label:'Attestation de présence'}, lettre_information: {label:"Lettre d'information"},
+    rapport_inspection: {label:"Rapport d'inspection"}, bordereau: {label:'Bordereau de transmission'}
+  };
+  /* La plupart des documents administratifs sont rédigés en arabe (langue de l'administration
+     marocaine) ; seul le rapport de visite/d'inspection reste en français. */
+  var RTL_DOC_TYPES = { presence:true, compte_rendu:true, observation:true, attestation:true, lettre_information:true, bordereau:true };
+  var TT_BADGE_CLASS = { inspection:'violet', visite_conseil:'violet', observation_examen:'violet',
+    reunion_pedagogique:'accent', cours_experimental:'accent',
+    recherche_action:'warn', conception_examen:'warn', autre:'neutral' };
+  function taskBadgeClass(v){ return TT_BADGE_CLASS[v] || 'neutral'; }
+  var DEFAULT_PROFIL = { nom:'', grade:'', doti:'', cin:'', rib:'', telephone:'', email:'',
+    dateRecrutement:'', dateCadre:'', dateAffectation:'', logoAssetId:null, cachetAssetId:null, signatureAssetId:null };
+  var STATUT_ENS = [{v:'titulaire', l:'Titulaire'}, {v:'stagiaire', l:'Stagiaire'}];
+  var TITU_SESSIONS = [{v:'s1', l:'Session 1 (avril–mai)'}, {v:'s2', l:'Session 2 (octobre–novembre)'}];
+  function isoDate(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+  function titularisationWindow(sessionCode){
+    var now = new Date(), year = now.getFullYear();
+    function win(y){ return sessionCode==='s1' ? {start:new Date(y,3,1), end:new Date(y,4,31)} : {start:new Date(y,9,1), end:new Date(y,10,30)}; }
+    if(sessionCode!=='s1' && sessionCode!=='s2') return null;
+    var w = win(year);
+    if(now > w.end) w = win(year+1);
+    return w;
+  }
+  var JOURS = ['Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
+  var DEFAULT_CRITERES = ['Préparation de la séance','Maîtrise des contenus','Démarche pédagogique','Gestion de la classe',
+    'Utilisation des supports didactiques','Évaluation et rétroaction','Participation des élèves','Respect du timing'];
+  var NOTE_SCALE = ['Insuffisant','Satisfaisant','Bien','Très bien'];
+  var DEFAULT_ENTETE = "Académie Régionale d'Éducation et de Formation – Fès-Meknès\nDirection Provinciale de Sefrou";
+  var DEFAULT_FOLDER_NAME = "Carnet d'Inspection — Données";
+  var ETAB_TYPES = [{v:'public', l:'Public'}, {v:'prive', l:'Privé'}];
+  var ETAB_CYCLES = [{v:'primaire', l:'Primaire'}, {v:'college', l:'Collégial'}, {v:'qualifiant', l:'Qualifiant'}, {v:'college_qualifiant', l:'Collégial + Qualifiant'}];
+  var ETAB_CYCLE_LABEL = {}; ETAB_CYCLES.forEach(function(c){ ETAB_CYCLE_LABEL[c.v]=c.l; });
+  var ETAB_TYPE_LABEL = {}; ETAB_TYPES.forEach(function(t){ ETAB_TYPE_LABEL[t.v]=t.l; });
+
+  /* ================= icons ================= */
+  var ICONS = {
+    doc: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M7 3h7l5 5v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M14 3v5h5" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>',
+    sheet: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none"><rect x="4" y="3" width="16" height="18" rx="1.5" stroke="currentColor" stroke-width="1.7"/><path d="M4 9h16M4 15h16M10 9v12" stroke="currentColor" stroke-width="1.7"/></svg>',
+    pdf: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M7 3h7l5 5v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M9 17v-4h1.4a1.3 1.3 0 1 1 0 2.6H9M13 13v4h1.2a1.9 1.9 0 0 0 0-4H13Z" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    folder: '<svg width="17" height="17" viewBox="0 0 24 24" fill="none"><path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H10l2 2h7.5A1.5 1.5 0 0 1 21 8.5v9A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5v-11Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>',
+    ext: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M14 4h6v6M20 4 11 13M19 14v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    dl: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M12 4v11m0 0 4-4m-4 4-4-4M5 19h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    close: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/></svg>',
+    check: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M20 6 9 17l-5-5" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    link: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M10 14a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1M14 10a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>',
+    warn: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 9v4m0 4h.01M10.3 3.9 2.5 17.5A1.8 1.8 0 0 0 4.1 20h15.8a1.8 1.8 0 0 0 1.6-2.5L13.7 3.9a1.8 1.8 0 0 0-3.4 0Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>',
+    print: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M6 9V4h12v5M6 18H4a1 1 0 0 1-1-1v-5a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-2M6 14h12v7H6z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>',
+    ai: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M6 6l2.5 2.5M15.5 15.5 18 18M18 6l-2.5 2.5M8.5 15.5 6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8"/></svg>',
+    cam: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="12" cy="13.5" r="3.2" stroke="currentColor" stroke-width="1.7"/></svg>',
+    plus: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>',
+    trash: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m-8 0 1 13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1l1-13" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    upload: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M12 16V5m0 0 4 4m-4-4L8 9M5 19h14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    back: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M15 6l-6 6 6 6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+  };
+  function docIcon(mime, ext){
+    if(mime==='application/vnd.google-apps.spreadsheet') return ICONS.sheet;
+    if(mime==='application/pdf' || ext==='pdf') return ICONS.pdf;
+    if(mime==='application/vnd.google-apps.folder') return ICONS.folder;
+    return ICONS.doc;
+  }
+
+  /* ================= state ================= */
+  var state = {
+    view: 'tasks', filter: 'all',
+    tasks: [], zones: [], etablissements: [], enseignants: [], documents: [], assets: {},
+    templates: { entete: DEFAULT_ENTETE, criteres: DEFAULT_CRITERES.slice(), profil: Object.assign({}, DEFAULT_PROFIL) },
+    config: {}, docs: [], docsQuery: '', docsLoading: false, docsError: null,
+    dbReady: false, mcpReady: false, downloadsReady: false, sampleReady: false, assetsReady: false,
+    syncing: false, syncError: null,
+    modalStack: [], draftTask: null, draftRecord: null, draftDoc: null,
+    setupBusy: false, setupError: null,
+    ensQuery: '', ensHoraireMode: false, horaireJour: 'Lundi', horaireHeure: '09:00',
+    bilanPeriod: 'mois', bilanCustomFrom: '', bilanCustomTo: '',
+    pickTarget: null // {kind:'enseignant'|'etablissement'|'zone', onPick}
+  };
+  /* L'app est autonome : stockage 100% local (navigateur), aucune dépendance à Claude.
+     mcpNs reste un objet non-nul en permanence — l'accès Drive réel est géré par mcpCall()
+     via l'authentification Google directe (voir plus bas), pas par une capacité Claude. */
+  var mcpNs = {};
+  var localMode = true;
+
+  /* ================= démarrage (stockage local uniquement) ================= */
+  function initCapabilities(){
+    loadLocalAll();
+    state.dbReady = true; state.downloadsReady = true; state.assetsReady = true; state.sampleReady = false;
+    render();
+  }
+
+  /* ---- stockage local (localStorage) — seul et unique moteur de persistance ---- */
+  var LS_KEYS = {tasks:'ci_tasks_fallback', zones:'ci_zones_fallback', etablissements:'ci_etabs_fallback',
+    enseignants:'ci_ens_fallback', documents:'ci_docs_fallback', config:'ci_config_fallback', templates:'ci_tmpl_fallback', assets:'ci_assets_fallback'};
+  function loadLocalAll(){
+    try{
+      state.tasks = JSON.parse(localStorage.getItem(LS_KEYS.tasks)||'[]').map(function(t){ t.statut=normStatut(t.statut); t.taskType=normTaskType(t.taskType); return t; });
+      state.zones = JSON.parse(localStorage.getItem(LS_KEYS.zones)||'[]');
+      state.etablissements = JSON.parse(localStorage.getItem(LS_KEYS.etablissements)||'[]');
+      state.enseignants = JSON.parse(localStorage.getItem(LS_KEYS.enseignants)||'[]');
+      state.documents = JSON.parse(localStorage.getItem(LS_KEYS.documents)||'[]');
+      state.config = JSON.parse(localStorage.getItem(LS_KEYS.config)||'{}');
+      state.assets = JSON.parse(localStorage.getItem(LS_KEYS.assets)||'{}');
+      var t = JSON.parse(localStorage.getItem(LS_KEYS.templates)||'null');
+      if(t){ t.profil = Object.assign({}, DEFAULT_PROFIL, t.profil||{}); state.templates = t; }
+    }catch(e){}
+  }
+  function saveLocal(coll){
+    try{
+      var map = {tasks:state.tasks, zones:state.zones, etablissements:state.etablissements, enseignants:state.enseignants,
+        documents:state.documents, config:state.config, templates:state.templates, assets:state.assets};
+      localStorage.setItem(LS_KEYS[coll], JSON.stringify(map[coll]));
+    }catch(e){
+      console.warn('storage error', e);
+      toast("Espace de stockage local plein — supprimez d'anciennes pièces jointes ou photos.");
+    }
+  }
+
+  /* ================= generic record store ================= */
+  function collFor(kind){ return {task:'tasks', zone:'zones', etablissement:'etablissements', enseignant:'enseignants', document:'documents'}[kind]; }
+  function stateArr(kind){ return {task:state.tasks, zone:state.zones, etablissement:state.etablissements, enseignant:state.enseignants, document:state.documents}[kind]; }
+  function recordSet(kind, obj, opts){
+    opts = opts || {};
+    if(!opts.skipTouch) obj.updatedAt = nowIso();
+    if(!obj.createdAt) obj.createdAt = obj.updatedAt || nowIso();
+    var coll = collFor(kind);
+    var arr = stateArr(kind);
+    var i = arr.findIndex(function(x){ return x.id===obj.id; });
+    if(i>=0) arr[i]=obj; else arr.push(obj);
+    saveLocal(coll); render();
+    return Promise.resolve();
+  }
+  function recordDelete(kind, id){
+    var coll = collFor(kind);
+    var arr = stateArr(kind);
+    var filtered = arr.filter(function(x){ return x.id!==id; });
+    if(kind==='task') state.tasks = filtered; else if(kind==='zone') state.zones=filtered; else if(kind==='etablissement') state.etablissements=filtered;
+    else if(kind==='enseignant') state.enseignants=filtered; else if(kind==='document') state.documents=filtered;
+    saveLocal(coll); render();
+    return Promise.resolve();
+  }
+  function configSet(patch){
+    state.config = Object.assign({}, state.config, patch);
+    saveLocal('config'); render();
+    return Promise.resolve();
+  }
+  function templatesSet(patch){
+    state.templates = Object.assign({}, state.templates, patch);
+    saveLocal('templates'); render();
+    return Promise.resolve();
+  }
+
+  function etabName(id){ var e = state.etablissements.find(function(x){ return x.id===id; }); return e?e.nom:''; }
+  function zoneName(id){ var z = state.zones.find(function(x){ return x.id===id; }); return z?z.nom:''; }
+  function ensName(id){ var e = state.enseignants.find(function(x){ return x.id===id; }); return e?e.nom:''; }
+
+  /* ================= Google Drive — connexion directe (sans passer par Claude) =================
+     L'app utilise Google Identity Services (OAuth côté navigateur) avec le champ d'application
+     restreint "drive.file" : l'app ne voit QUE les fichiers qu'elle a elle-même créés dans Drive,
+     jamais le reste du compte Google de l'utilisateur. Aucun serveur intermédiaire, aucune
+     facturation Claude — uniquement le quota Google gratuit de l'utilisateur. */
+  var GOOGLE_CLIENT_ID = 'VOTRE_CLIENT_ID.apps.googleusercontent.com'; // <-- à remplacer, voir GUIDE-GOOGLE-DRIVE.md
+  var GOOGLE_DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+  var gisTokenClient = null, gisLoaded = false, driveAccessToken = null, driveTokenExpiresAt = 0;
+  function loadGisScript(){
+    if(gisLoaded) return Promise.resolve();
+    return loadScript('https://accounts.google.com/gsi/client').then(function(){ gisLoaded = true; });
+  }
+  function ensureGoogleAuth(interactive){
+    if(!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID.indexOf('VOTRE_CLIENT_ID')===0) return Promise.reject({code:'not_configured'});
+    return loadGisScript().then(function(){
+      return new Promise(function(resolve, reject){
+        if(!window.google || !window.google.accounts || !window.google.accounts.oauth2){ reject({code:'server_unavailable'}); return; }
+        if(driveAccessToken && Date.now() < driveTokenExpiresAt - 30000){ resolve(driveAccessToken); return; }
+        if(!interactive){ reject({code:'consent_required'}); return; }
+        if(!gisTokenClient){
+          gisTokenClient = window.google.accounts.oauth2.initTokenClient({
+            client_id: GOOGLE_CLIENT_ID, scope: GOOGLE_DRIVE_SCOPE,
+            callback: function(resp){
+              var cb = gisTokenClient.__resolve, eb = gisTokenClient.__reject;
+              gisTokenClient.__resolve = null; gisTokenClient.__reject = null;
+              if(resp && resp.access_token){
+                driveAccessToken = resp.access_token; driveTokenExpiresAt = Date.now() + ((resp.expires_in||3300)*1000);
+                state.mcpReady = true; render();
+                if(cb) cb(driveAccessToken);
+              } else if(eb) eb({code:'consent_required'});
+            },
+            error_callback: function(err){
+              var eb = gisTokenClient.__reject; gisTokenClient.__reject = null; gisTokenClient.__resolve = null;
+              if(eb) eb({code: (err && err.type==='popup_closed') ? 'cancelled' : 'consent_required'});
+            }
+          });
+        }
+        gisTokenClient.__resolve = resolve; gisTokenClient.__reject = reject;
+        gisTokenClient.requestAccessToken({prompt: driveAccessToken ? '' : 'consent'});
+      });
+    });
+  }
+  function connectGoogleDrive(){
+    ensureGoogleAuth(true).then(function(){ toast('Google Drive connecté.'); }).catch(function(err){ toast(mcpErrorMessage(err)); render(); });
+  }
+  function disconnectGoogleDrive(){
+    if(driveAccessToken && window.google && window.google.accounts && window.google.accounts.oauth2){
+      try{ window.google.accounts.oauth2.revoke(driveAccessToken, function(){}); }catch(e){}
+    }
+    driveAccessToken = null; driveTokenExpiresAt = 0; state.mcpReady = false; render(); toast('Google Drive déconnecté.');
+  }
+  function driveFetch(url, opts){
+    opts = opts || {};
+    return ensureGoogleAuth(true).then(function(token){
+      var headers = Object.assign({}, opts.headers||{}, {Authorization:'Bearer '+token});
+      return fetch(url, Object.assign({}, opts, {headers:headers}));
+    }).then(function(res){
+      if(res.status===401){ driveAccessToken=null; state.mcpReady=false; render(); return Promise.reject({code:'needs_reauth'}); }
+      if(!res.ok){
+        return res.json().catch(function(){ return {}; }).then(function(j){
+          return Promise.reject({code:'tool_error', message:(j.error&&j.error.message)||res.statusText});
+        });
+      }
+      return res;
+    });
+  }
+  function driveQueryTranslate(q){ return String(q||'').replace(/\btitle\b/g, 'name'); }
+  function driveFileToPayload(f){ return {id:f.id, title:f.name, mimeType:f.mimeType, modifiedTime:f.modifiedTime, fileExtension:f.fileExtension||'', parentId:(f.parents&&f.parents[0])||null}; }
+  var DRIVE_FILES_API = 'https://www.googleapis.com/drive/v3/files';
+  var DRIVE_UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3/files';
+  function mcpCall(tool, input){
+    input = input || {};
+    if(tool==='search_files' || tool==='list_recent_files'){
+      var params = new URLSearchParams();
+      if(tool==='search_files' && input.query) params.set('q', driveQueryTranslate(input.query));
+      params.set('pageSize', String(input.pageSize||10));
+      params.set('fields', 'files(id,name,mimeType,modifiedTime,fileExtension,parents)');
+      params.set('spaces', 'drive');
+      if(tool==='list_recent_files') params.set('orderBy', 'modifiedTime desc');
+      return driveFetch(DRIVE_FILES_API+'?'+params.toString()).then(function(res){ return res.json(); }).then(function(data){
+        return {payload:{files:(data.files||[]).map(driveFileToPayload)}};
+      });
+    }
+    if(tool==='create_file'){
+      var isFolder = input.contentMimeType==='application/vnd.google-apps.folder' && !input.textContent && !input.base64Content;
+      var meta = {name: input.title};
+      if(input.parentId) meta.parents = [input.parentId];
+      if(isFolder){
+        meta.mimeType = 'application/vnd.google-apps.folder';
+        return driveFetch(DRIVE_FILES_API+'?fields=id,name,parents', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(meta)})
+          .then(function(res){ return res.json(); }).then(function(data){ return {payload:{id:data.id, title:data.name, parentId:input.parentId||null}}; });
+      }
+      var mime = input.contentMimeType || 'text/plain';
+      meta.mimeType = input.disableConversionToGoogleType ? mime : (mime==='text/csv' ? 'application/vnd.google-apps.spreadsheet' : mime);
+      var body = input.base64Content ? atob(input.base64Content) : (input.textContent||'');
+      var boundary = 'ciBoundary'+Date.now();
+      var multipart = '--'+boundary+'\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'+JSON.stringify(meta)+
+        '\r\n--'+boundary+'\r\nContent-Type: '+mime+'\r\n\r\n'+body+'\r\n--'+boundary+'--';
+      return driveFetch(DRIVE_UPLOAD_API+'?uploadType=multipart&fields=id,name,parents', {
+        method:'POST', headers:{'Content-Type':'multipart/related; boundary='+boundary}, body: multipart
+      }).then(function(res){ return res.json(); }).then(function(data){
+        return {payload:{id:data.id, title:data.name, parentId:(data.parents&&data.parents[0])||input.parentId||null}};
+      });
+    }
+    if(tool==='update_file'){
+      var fileId = input.fileId;
+      var doPatch = function(addParents, removeParents){
+        var params2 = new URLSearchParams(); params2.set('fields','id,name,parents');
+        if(addParents) params2.set('addParents', addParents);
+        if(removeParents) params2.set('removeParents', removeParents);
+        var body2 = {}; if(input.title) body2.name = input.title;
+        return driveFetch(DRIVE_FILES_API+'/'+fileId+'?'+params2.toString(), {method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body2)})
+          .then(function(res){ return res.json(); });
+      };
+      if(input.parentId){
+        return driveFetch(DRIVE_FILES_API+'/'+fileId+'?fields=parents').then(function(res){ return res.json(); }).then(function(cur){
+          return doPatch(input.parentId, (cur.parents||[]).join(','));
+        }).then(function(data){ return {payload:{id:data.id, title:data.name, parentId:(data.parents&&data.parents[0])||null}}; });
+      }
+      return doPatch(null, null).then(function(data){ return {payload:{id:data.id, title:data.name, parentId:(data.parents&&data.parents[0])||null}}; });
+    }
+    if(tool==='trash_file'){
+      return driveFetch(DRIVE_FILES_API+'/'+input.fileId, {method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({trashed:true})})
+        .then(function(){ return {payload:{id:input.fileId}}; });
+    }
+    if(tool==='download_file_content'){
+      var url = input.exportMimeType ? DRIVE_FILES_API+'/'+input.fileId+'/export?mimeType='+encodeURIComponent(input.exportMimeType) : DRIVE_FILES_API+'/'+input.fileId+'?alt=media';
+      return driveFetch(url).then(function(res){ return res.text(); }).then(function(text){ return {payload:{content: utf8ToB64(text)}}; });
+    }
+    return Promise.reject({code:'tool_error', message:'outil inconnu : '+tool});
+  }
+  function mcpErrorMessage(err){
+    var code = err && err.code;
+    switch(code){
+      case 'needs_reauth': return "Reconnectez Google Drive, puis réessayez.";
+      case 'not_configured': return "Google Drive n'est pas encore configuré (voir GUIDE-GOOGLE-DRIVE.md pour créer votre identifiant gratuit).";
+      case 'consent_required': return "Autorisez l'accès à Google Drive, puis réessayez.";
+      case 'server_unavailable': return "Google Drive est temporairement indisponible (vérifiez votre connexion).";
+      case 'tool_error': return "Google Drive a refusé cette opération" + (err&&err.message?' : '+err.message:'') + ".";
+      case 'cancelled': return "Connexion à Google Drive annulée.";
+      default: return "Erreur Google Drive" + (code ? ' ('+code+')' : '') + ".";
+    }
+  }
+
+  /* ================= sample (AI drafting) ================= */
+  function sampleErrorMessage(err){
+    var code = err && err.code;
+    switch(code){
+      case 'not_granted': return "L'assistant de rédaction n'est pas autorisé pour cette page.";
+      case 'sampling_disabled': return "L'assistant IA n'est pas disponible pour ce compte.";
+      case 'rate_limited': return "Trop de demandes à la fois : réessayez dans un instant.";
+      case 'session_expired': return "Reconnectez-vous pour utiliser l'assistant IA.";
+      case 'refused': return "La demande a été refusée. Reformulez votre requête.";
+      case 'empty_completion': return "Aucun texte généré. Essayez une demande plus précise.";
+      case 'prompt_too_large': return "Le contenu est trop long pour l'assistant IA.";
+      case 'cancelled': return "Rédaction annulée.";
+      case 'capability_disabled': case 'capability_removed': case 'not_declared':
+        return "L'assistant IA n'est pas disponible dans cet aperçu.";
+      default: return "Erreur de l'assistant IA" + (code?' ('+code+')':'') + ".";
+    }
+  }
+  /* L'assistant de rédaction IA nécessitait la capacité Claude "sample" ; l'app étant maintenant
+     autonome, state.sampleReady reste à false et les boutons IA ne s'affichent plus (voir les
+     conditions `state.sampleReady ?` dans les formulaires). Cette fonction reste en place, inerte,
+     au cas où une clé d'API IA serait branchée plus tard. */
+  function aiDraft(btn, statusEl, targetTextarea, prompt){
+    toast("L'assistant de rédaction IA n'est pas disponible dans cette version autonome.");
+  }
+
+  /* ================= assets (photos / pièces jointes / logo / cachet / signature) =================
+     Stockage 100% local : chaque fichier est encodé en data URL (base64) et conservé dans
+     localStorage aux côtés des autres données de l'app — aucun service externe requis. */
+  var ASSET_SIZE_LIMIT = 1.5 * 1024 * 1024; // 1.5 Mo par fichier, pour rester dans le quota du navigateur
+  function assetsErrorMessage(err){
+    var code = err && err.code;
+    switch(code){
+      case 'too_large': return "Fichier trop volumineux (max. 1,5 Mo — réduisez la taille de l'image).";
+      case 'unsupported_type': return "Type de fichier non pris en charge.";
+      case 'quota_or_state': return "Espace de stockage de l'application atteint.";
+      default: return "Erreur d'envoi du fichier" + (code?' ('+code+')':'') + ".";
+    }
+  }
+  function uploadAsset(file){
+    if(!file) return Promise.reject({code:'unsupported_type'});
+    if(file.size > ASSET_SIZE_LIMIT) return Promise.reject({code:'too_large'});
+    return new Promise(function(resolve, reject){
+      var reader = new FileReader();
+      reader.onload = function(){
+        var id = uid();
+        state.assets[id] = { dataUrl: reader.result, type: file.type||'', name: file.name||'' };
+        try{ saveLocal('assets'); }catch(e){ delete state.assets[id]; reject({code:'quota_or_state'}); return; }
+        resolve({id: id, contentType: file.type||''});
+      };
+      reader.onerror = function(){ reject({code:'unsupported_type'}); };
+      reader.readAsDataURL(file);
+    });
+  }
+  function assetUrl(id){ return (id && state.assets[id]) ? state.assets[id].dataUrl : ''; }
+  function removeAsset(id){ if(id && state.assets[id]){ delete state.assets[id]; saveLocal('assets'); } }
+
+  /* ================= sync (tasks <-> Google Sheet) ================= */
+  var CSV_HEADERS = ['id','titre','statut','priorite','type','enseignant','etablissement','echeance','description','document_titre','document_url','maj'];
+  function tasksToCSV(tasks){
+    return objectsToCSV(CSV_HEADERS, tasks.map(function(t){
+      return { id:t.id, titre:t.titre, statut:t.statut, priorite:t.priorite, type:t.taskType||'autre',
+        enseignant: t.enseignantNom||t.enseignant||'', etablissement: t.etablissementNom||t.etablissement||'',
+        echeance:t.echeance, description:t.description, document_titre:t.docTitre, document_url:t.docUrl, maj:t.updatedAt };
+    }));
+  }
+  function csvToTasks(text){
+    return csvToObjects(text).map(function(o){
+      return {
+        id: o.id || uid(), titre: o.titre || '(sans titre)', statut: normStatut(o.statut),
+        priorite: ['basse','moyenne','haute'].indexOf(o.priorite)>=0 ? o.priorite : 'moyenne',
+        taskType: normTaskType(o.type),
+        enseignantNom: o.enseignant||'', etablissementNom: o.etablissement||'',
+        echeance: o.echeance||'', description: o.description||'',
+        docTitre: o.document_titre||'', docUrl: o.document_url||'', updatedAt: o.maj || nowIso()
+      };
+    });
+  }
+  /* ---- dossier Drive dédié à l'application ---- */
+  function ensureAppFolder(){
+    if(!mcpNs) return Promise.reject({code:'not_granted'});
+    if(state.config.folderId) return Promise.resolve({id:state.config.folderId, title:state.config.folderName});
+    var name = DEFAULT_FOLDER_NAME;
+    var q = "title = '"+name.replace(/'/g,"\\'")+"' and mimeType = 'application/vnd.google-apps.folder'";
+    return mcpCall('search_files', {query:q, pageSize:5, excludeContentSnippets:true}).then(function(res){
+      var files = (res.payload && res.payload.files) || [];
+      if(files.length) return files[0];
+      return mcpCall('create_file', {title:name, contentMimeType:'application/vnd.google-apps.folder'}).then(function(r){ return r.payload || {}; });
+    }).then(function(folder){
+      return configSet({ folderId: folder.id, folderName: folder.title || name }).then(function(){ return folder; });
+    });
+  }
+  function pushJsonBackup(folderId){
+    if(!folderId) return Promise.resolve();
+    var data = {
+      exportedAt: nowIso(), zones: state.zones, etablissements: state.etablissements,
+      enseignants: state.enseignants, tasks: state.tasks, documents: state.documents, templates: state.templates
+    };
+    return mcpCall('create_file', {
+      title: 'sauvegarde-donnees.json', textContent: JSON.stringify(data, null, 2), contentMimeType:'application/json',
+      parentId: folderId, disableConversionToGoogleType:true
+    }).then(function(res){
+      var payload = res.payload || {};
+      var newId = payload.id, oldId = state.config.backupFileId;
+      var p = (newId && oldId && newId!==oldId) ? mcpCall('trash_file', {fileId:oldId}).catch(function(){}) : Promise.resolve();
+      return p.then(function(){ return configSet({ backupFileId: newId || oldId, lastBackupAt: nowIso() }); });
+    }).catch(function(err){ console.warn('backup error', err); });
+  }
+  function doSync(){
+    if(!state.config.sheetFileId){ openSettings(); return; }
+    state.syncing = true; state.syncError = null; render();
+    var folderRef = null;
+    ensureAppFolder().catch(function(){ return null; }).then(function(folder){
+      folderRef = folder;
+      var move = (folder && state.config.sheetFileId && state.config.sheetParentId !== folder.id)
+        ? mcpCall('update_file', {fileId: state.config.sheetFileId, parentId: folder.id}).catch(function(){})
+        : Promise.resolve();
+      return move;
+    })
+    .then(function(){
+      return mcpCall('download_file_content', {fileId: state.config.sheetFileId, exportMimeType:'text/csv'});
+    })
+      .then(function(res){
+        var payload = res.payload || {};
+        var csv = payload.content ? b64ToUtf8(payload.content) : '';
+        var remote = csvToTasks(csv);
+        var merged = mergeTasks(state.tasks, remote);
+        return persistMergedLocally(merged).then(function(){ return merged; });
+      })
+      .then(function(merged){
+        var csv = tasksToCSV(merged);
+        return mcpCall('create_file', {
+          title: state.config.sheetTitle || 'Tâches - Carnet Inspection',
+          textContent: csv, contentMimeType: 'text/csv',
+          parentId: (folderRef && folderRef.id) || state.config.sheetParentId || undefined
+        });
+      })
+      .then(function(createRes){
+        var payload = createRes.payload || {};
+        var newId = payload.id;
+        var oldId = state.config.sheetFileId;
+        var p = newId ? mcpCall('trash_file', {fileId: oldId}).catch(function(){}) : Promise.resolve();
+        return p.then(function(){
+          return configSet({ sheetFileId: newId || oldId, sheetTitle: payload.title || state.config.sheetTitle,
+            sheetParentId: payload.parentId || (folderRef && folderRef.id) || state.config.sheetParentId, lastSyncAt: nowIso() });
+        });
+      })
+      .then(function(){ return folderRef ? pushJsonBackup(folderRef.id) : Promise.resolve(); })
+      .then(function(){ state.syncing = false; render(); toast('Synchronisation réussie.'); })
+      .catch(function(err){ console.warn('sync error', err); state.syncing = false; state.syncError = mcpErrorMessage(err); render(); });
+  }
+  function mergeTasks(local, remote){
+    var byId = {}; local.forEach(function(t){ byId[t.id] = t; });
+    remote.forEach(function(r){
+      var l = byId[r.id];
+      if(!l){ byId[r.id] = r; return; }
+      var lt = new Date(l.updatedAt||0).getTime(), rt = new Date(r.updatedAt||0).getTime();
+      if(rt > lt) byId[r.id] = r;
+    });
+    return Object.keys(byId).map(function(k){ return byId[k]; });
+  }
+  function persistMergedLocally(merged){
+    state.tasks = merged; saveLocal('tasks'); render();
+    return Promise.resolve();
+  }
+  function openSettings(){ state.modalStack.push({type:'settings', tab:'sync'}); render(); }
+  function createSheet(){
+    state.setupBusy = true; state.setupError = null; render();
+    var title = 'Tâches - Carnet Inspection';
+    ensureAppFolder().catch(function(){ return null; }).then(function(folder){
+      return mcpCall('create_file', {title: title, textContent: objectsToCSV(CSV_HEADERS,[]), contentMimeType:'text/csv', parentId: folder?folder.id:undefined});
+    })
+      .then(function(res){
+        var p = res.payload || {};
+        return configSet({ sheetFileId: p.id, sheetTitle: p.title || title, sheetParentId: p.parentId || null, lastSyncAt: null });
+      })
+      .then(function(){ state.setupBusy = false; render(); toast('Feuille créée dans le dossier Drive de l\'application.'); doSync(); })
+      .catch(function(err){ state.setupBusy = false; state.setupError = mcpErrorMessage(err); render(); });
+  }
+  function linkExistingSheet(file){
+    configSet({ sheetFileId: file.id, sheetTitle: file.title, sheetParentId: file.parentId || null, lastSyncAt: null })
+      .then(function(){ toast('Feuille liée.'); doSync(); });
+  }
+  function unlinkSheet(){ configSet({ sheetFileId: null, sheetTitle: null, sheetParentId: null, lastSyncAt: null }); }
+
+  /* ================= Drive documents browser ================= */
+  function loadRecentDocs(){
+    state.docsLoading = true; state.docsError = null; render();
+    mcpCall('list_recent_files', {pageSize: 12, excludeContentSnippets: true})
+      .then(function(res){ state.docs = (res.payload && res.payload.files) || []; state.docsLoading = false; render(); })
+      .catch(function(err){ state.docsLoading = false; state.docsError = mcpErrorMessage(err); render(); });
+  }
+  function searchDocs(q){
+    state.docsLoading = true; state.docsError = null; render();
+    var query = q ? "title contains '"+q.replace(/'/g,"\\'")+"'" : '';
+    mcpCall('search_files', {query: query, pageSize: 15, excludeContentSnippets: true})
+      .then(function(res){ state.docs = (res.payload && res.payload.files) || []; state.docsLoading = false; render(); })
+      .catch(function(err){ state.docsLoading = false; state.docsError = mcpErrorMessage(err); render(); });
+  }
+  function downloadDriveDoc(file){
+    mcpCall('download_file_content', {fileId: file.id}).then(function(res){
+      var payload = res.payload || {};
+      if(!payload.content){ toast('Contenu introuvable.'); return; }
+      var bin = atob(payload.content);
+      var bytes = new Uint8Array(bin.length);
+      for(var i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
+      var ext = (file.fileExtension) ? file.fileExtension : (file.title.split('.').pop()||'bin');
+      var name = /\.[a-zA-Z0-9]{2,4}$/.test(file.title) ? file.title : (file.title+'.'+ext);
+      saveBlob(name, new Blob([bytes])).then(function(){ toast('Téléchargement enregistré.'); });
+    }).catch(function(err){ toast(mcpErrorMessage(err)); });
+  }
+
+  /* ================= modal stack ================= */
+  function closeTopModal(){ state.modalStack.pop(); render(); }
+  function pushModal(m){ state.modalStack.push(m); render(); }
+
+  function openTaskEditor(task){
+    state.draftTask = task ? Object.assign({}, task) : {
+      id: uid(), titre:'', statut:'a_planifier', priorite:'moyenne', taskType:'inspection',
+      enseignantId:null, enseignantNom:'', etablissementId:null, etablissementNom:'',
+      echeance:'', description:'', docTitre:'', docUrl:'', noteGlobale:'', notificationEnvoyee:false
+    };
+    pushModal({type:'task', isNew: !task});
+  }
+  function openTaskEditorPrefilled(partial){
+    state.draftTask = Object.assign({
+      id: uid(), titre:'', statut:'a_planifier', priorite:'moyenne', taskType:'inspection',
+      enseignantId:null, enseignantNom:'', etablissementId:null, etablissementNom:'',
+      echeance:'', description:'', docTitre:'', docUrl:'', noteGlobale:'', notificationEnvoyee:false
+    }, partial);
+    pushModal({type:'task', isNew:true});
+  }
+  function openTaskDetail(task){ pushModal({type:'taskdetail', taskId: task.id}); }
+
+  function openPicker(kind, onPick, filterFn){
+    state.pickTarget = {kind:kind, onPick:onPick, filterFn:filterFn};
+    pushModal({type:'picker', kind:kind});
+  }
+
+  function openEnseignantEditor(rec){
+    state.draftRecord = rec ? Object.assign({statut:'titulaire', sessionTitularisation:'', cadre:''}, JSON.parse(JSON.stringify(rec))) : {
+      id: uid(), nom:'', etablissementId:null, matiere:'', cycle:'', telephone:'', email:'',
+      statut:'titulaire', sessionTitularisation:'', cadre:'',
+      photoAssetId:null, horaire:[], attachments:[], notes:''
+    };
+    pushModal({type:'enseignant', isNew: !rec});
+  }
+  function openEtablissementEditor(rec){
+    state.draftRecord = rec ? Object.assign({type:'public', cycle:'primaire'}, rec) : { id: uid(), nom:'', zoneId:null, type:'public', cycle:'primaire', adresse:'', telephone:'', notes:'' };
+    pushModal({type:'etablissement', isNew: !rec});
+  }
+  function openZoneEditor(rec){
+    state.draftRecord = rec ? Object.assign({directionProvinciale:''}, rec) : { id: uid(), nom:'', directionProvinciale:'', notes:'' };
+    pushModal({type:'zone', isNew: !rec});
+  }
+  function openDocEditor(taskId, docType, existingDoc){
+    var task = state.tasks.find(function(t){ return t.id===taskId; });
+    var d = existingDoc ? JSON.parse(JSON.stringify(existingDoc)) : buildDefaultDoc(task, docType);
+    state.draftDoc = d;
+    pushModal({type:'docedit', docType: docType, taskId: taskId, isNew: !existingDoc});
+  }
+  function buildDefaultDoc(task, type){
+    var base = { id: uid(), taskId: task.id, type: type, titre: DOC_TYPE_INFO[type].label, date: task.echeance || todayStr() };
+    if(type==='presence'){
+      var parts = state.enseignants.filter(function(e){ return e.etablissementId===task.etablissementId; })
+        .map(function(e){ return {nom:e.nom, fonction:'Enseignant(e)'}; });
+      base.objet = task.titre; base.lieu = task.etablissementNom||''; base.participants = parts;
+    } else if(type==='compte_rendu'){
+      base.lieu = task.etablissementNom||''; base.presents=''; base.absents=''; base.ordreJour=''; base.pointsDiscutes='';
+      base.decisions=''; base.actions=[];
+    } else if(type==='observation'){
+      base.enseignantNom = task.enseignantNom||''; base.classe=''; base.matiere=''; base.duree='';
+      base.criteres = state.templates.criteres.map(function(c){ return {nom:c, note:'', commentaire:''}; });
+      base.pointsForts=''; base.axesAmelioration=''; base.synthese='';
+    } else if(type==='rapport'){
+      base.texte='';
+    } else if(type==='attestation'){
+      base.beneficiaireNom = task.enseignantNom||''; base.fonction='Enseignant(e)'; base.objet = task.titre; base.lieu = task.etablissementNom||'';
+    } else if(type==='lettre_information'){
+      base.destinataire = "Monsieur/Madame le/la Directeur(trice) de "+(task.etablissementNom||"l'établissement");
+      base.objet = task.titre; base.lieu = task.etablissementNom||'';
+      base.corps = "J'ai l'honneur de vous informer que "+(TT_LABEL[task.taskType]||'une visite').toLowerCase()+" aura lieu le "+fmtDate(task.echeance)+(task.enseignantNom?" concernant l'enseignant(e) "+task.enseignantNom:"")+". Je vous prie de bien vouloir prendre les dispositions nécessaires à cet effet.";
+    } else if(type==='rapport_inspection'){
+      base.enseignantNom = task.enseignantNom||''; base.lieu = task.etablissementNom||''; base.classe=''; base.matiere='';
+      base.appreciation = task.noteGlobale || ''; base.constats=''; base.recommandations='';
+    } else if(type==='bordereau'){
+      base.destinataire = 'Monsieur le Directeur Provincial'; base.reference=''; base.objet = task.titre;
+      base.pieces = [{designation: task.titre, nombre:'1'}]; base.observations='';
+    }
+    return base;
+  }
+  function saveDoc(){
+    var d = state.draftDoc;
+    d.updatedAt = nowIso();
+    recordSet('document', d).then(function(){ closeTopModal(); toast('Document enregistré.'); });
+  }
+
+  /* ================= import / export ================= */
+  var importTarget = null; // 'enseignants' | 'etablissements'
+  var profilImageTarget = null; // 'logo' | 'cachet' | 'signature'
+  function exportCSV(kind){
+    var headers, rows;
+    if(kind==='enseignants'){
+      headers = ['nom','etablissement','matiere','cycle','cadre','statut','session_titularisation','telephone','email','notes'];
+      rows = state.enseignants.map(function(e){ return {nom:e.nom, etablissement:etabName(e.etablissementId), matiere:e.matiere, cycle:e.cycle,
+        cadre:e.cadre||'', statut: (STATUT_ENS.find(function(s){return s.v===e.statut;})||{}).l || 'Titulaire',
+        session_titularisation: e.sessionTitularisation||'', telephone:e.telephone, email:e.email, notes:e.notes}; });
+    } else {
+      headers = ['nom','zone','type','cycle','adresse','telephone','notes'];
+      rows = state.etablissements.map(function(e){ return {nom:e.nom, zone:zoneName(e.zoneId), type:ETAB_TYPE_LABEL[e.type]||e.type||'', cycle:ETAB_CYCLE_LABEL[e.cycle]||e.cycle||'', adresse:e.adresse, telephone:e.telephone, notes:e.notes}; });
+    }
+    var csv = objectsToCSV(headers, rows);
+    saveBlob(kind+'.csv', new Blob([csv], {type:'text/csv'})).then(function(){ toast('Export enregistré.'); });
+  }
+  function parseEtabType(v){
+    if(!v) return 'public';
+    var s = String(v).trim().toLowerCase();
+    var found = ETAB_TYPES.find(function(t){ return t.v===s || t.l.toLowerCase()===s; });
+    return found ? found.v : 'public';
+  }
+  function parseEtabCycle(v){
+    if(!v) return 'primaire';
+    var s = String(v).trim().toLowerCase();
+    var found = ETAB_CYCLES.find(function(c){ return c.v===s || c.l.toLowerCase()===s; });
+    return found ? found.v : 'primaire';
+  }
+  function parseEnsStatut(v){
+    if(!v) return 'titulaire';
+    var s = String(v).trim().toLowerCase();
+    var found = STATUT_ENS.find(function(t){ return t.v===s || t.l.toLowerCase()===s; });
+    return found ? found.v : 'titulaire';
+  }
+  function findOrCreateZone(name){
+    if(!name) return null;
+    var z = state.zones.find(function(x){ return x.nom.toLowerCase()===name.toLowerCase(); });
+    if(z) return z.id;
+    var nz = {id:uid(), nom:name, directionProvinciale:'', notes:''};
+    recordSet('zone', nz); return nz.id;
+  }
+  function findOrCreateEtab(name, zoneName2){
+    if(!name) return null;
+    var e = state.etablissements.find(function(x){ return x.nom.toLowerCase()===name.toLowerCase(); });
+    if(e) return e.id;
+    var ne = {id:uid(), nom:name, zoneId: zoneName2?findOrCreateZone(zoneName2):null, type:'public', cycle:'primaire', adresse:'', telephone:'', notes:''};
+    recordSet('etablissement', ne); return ne.id;
+  }
+  function importCSVFile(file, kind){
+    var reader = new FileReader();
+    reader.onload = function(){
+      var objs = csvToObjects(String(reader.result));
+      if(!objs.length){ toast('Fichier vide ou illisible.'); return; }
+      var count = 0;
+      if(kind==='enseignants'){
+        objs.forEach(function(o){
+          if(!o.nom) return;
+          var etId = findOrCreateEtab(o.etablissement, null);
+          recordSet('enseignant', { id: uid(), nom:o.nom, etablissementId: etId, matiere:o.matiere||'', cycle:o.cycle||'',
+            cadre:o.cadre||'', statut: parseEnsStatut(o.statut), sessionTitularisation: ['s1','s2'].indexOf(o.session_titularisation)>=0 ? o.session_titularisation : '',
+            telephone:o.telephone||'', email:o.email||'', photoAssetId:null, horaire:[], attachments:[], notes:o.notes||'' });
+          count++;
+        });
+      } else {
+        objs.forEach(function(o){
+          if(!o.nom) return;
+          var zId = findOrCreateZone(o.zone);
+          recordSet('etablissement', { id: uid(), nom:o.nom, zoneId:zId, type:parseEtabType(o.type), cycle:parseEtabCycle(o.cycle), adresse:o.adresse||'', telephone:o.telephone||'', notes:o.notes||'' });
+          count++;
+        });
+      }
+      toast(count+' enregistrement(s) importé(s).');
+      render();
+    };
+    reader.onerror = function(){ toast('Échec de la lecture du fichier.'); };
+    reader.readAsText(file, 'utf-8');
+  }
+
+  /* ================= print ================= */
+  function printHTML(bodyHtml, rtl){
+    $('printRoot').innerHTML = '<div class="p-page" dir="'+(rtl?'rtl':'ltr')+'" lang="'+(rtl?'ar':'fr')+'">'+bodyHtml+'</div>';
+    setTimeout(function(){ window.print(); }, 60);
+  }
+  function printHead(titre, meta){
+    return '<div class="p-head"><div class="org">'+esc(state.templates.entete)+'</div><h1>'+esc(titre)+'</h1></div>'+
+      '<div class="p-meta">'+meta.map(function(m){ return '<span><b>'+esc(m[0])+' :</b> '+esc(m[1]||'—')+'</span>'; }).join('')+'</div>';
+  }
+
+  function printFromSpec(spec){
+    var html = printHead(spec.titre, spec.meta);
+    (spec.tables||[]).forEach(function(tb){
+      if(tb.heading) html += '<div class="p-section"><h3>'+esc(tb.heading)+'</h3></div>';
+      html += '<table class="p-table"><thead><tr>'+tb.headers.map(function(h){ return '<th>'+esc(h)+'</th>'; }).join('')+'</tr></thead><tbody>';
+      (tb.rows.length ? tb.rows : [tb.headers.map(function(){ return '—'; })]).forEach(function(r){ html += '<tr>'+r.map(function(c){ return '<td>'+esc(c)+'</td>'; }).join('')+'</tr>'; });
+      html += '</tbody></table>';
+    });
+    (spec.sections||[]).forEach(function(sec){
+      html += '<div class="p-section">'+(sec.heading?'<h3>'+esc(sec.heading)+'</h3>':'')+'<p style="white-space:pre-line;">'+esc(sec.text||'—')+'</p></div>';
+    });
+    if(spec.signatures && spec.signatures.length) html += '<div class="p-sign">'+spec.signatures.map(function(s){ return '<span>'+esc(s)+'</span>'; }).join('')+'</div>';
+    printHTML(html, !!spec.rtl);
+  }
+  function doPrint(){
+    var d = state.draftDoc, task = state.tasks.find(function(t){ return t.id===d.taskId; });
+    printFromSpec(buildDocSpec(d, task));
+  }
+
+  /* ================= génération de fichiers PDF / Word ================= */
+  function buildDocSpec(d, task){
+    if(d.type==='presence'){
+      return { rtl:true, titre:'لائحة الحضور', meta:[['المؤسسة',d.lieu],['التاريخ',fmtDate(d.date)],['الموضوع',d.objet]],
+        tables:[{headers:['#','الاسم الكامل','الصفة','التوقيع'], rows:(d.participants||[]).map(function(p,i){ return [String(i+1), p.nom||'', p.fonction||'', '']; })}],
+        sections:[], signatures:null };
+    }
+    if(d.type==='compte_rendu'){
+      var sections = [{heading:'جدول الأعمال', text:d.ordreJour||'—'},{heading:'النقط التي تمت مناقشتها', text:d.pointsDiscutes||'—'},{heading:'القرارات المتخذة', text:d.decisions||'—'}];
+      var tables = [];
+      if((d.actions||[]).length) tables.push({heading:'خطة العمل', headers:['الإجراء','المسؤول','الأجل'], rows:d.actions.map(function(a){ return [a.action||'', a.responsable||'', fmtDate(a.echeance)]; })});
+      return { rtl:true, titre:'محضر اجتماع', meta:[['المؤسسة',d.lieu],['التاريخ',fmtDate(d.date)],['الحاضرون',d.presents]], tables:tables, sections:sections,
+        signatures:['رئيس(ة) الجلسة','كاتب(ة) الجلسة'] };
+    }
+    if(d.type==='observation'){
+      return { rtl:true, titre:'شبكة ملاحظة الحصة', meta:[['الأستاذ(ة)',d.enseignantNom],['المؤسسة',task?task.etablissementNom:''],['القسم',d.classe],['المادة',d.matiere],['التاريخ',fmtDate(d.date)],['المدة',d.duree]],
+        tables:[{headers:['المعيار','التقدير','الملاحظة'], rows:(d.criteres||[]).map(function(c){ return [c.nom, c.note||'—', c.commentaire||'']; })}],
+        sections:[{heading:'نقط القوة', text:d.pointsForts||'—'},{heading:'محاور التحسين', text:d.axesAmelioration||'—'},{heading:'الخلاصة', text:d.synthese||'—'}],
+        signatures:['توقيع المفتش(ة)','توقيع الأستاذ(ة)'] };
+    }
+    if(d.type==='rapport'){
+      return { titre:'Rapport de synthèse', meta:[['Objet',task?task.titre:d.titre],['Établissement',task?task.etablissementNom:''],['Date',fmtDate(d.date)]],
+        tables:[], sections:[{heading:null, text:d.texte||'—'}], signatures:null };
+    }
+    if(d.type==='attestation'){
+      return { rtl:true, titre:'شهادة حضور', meta:[['المؤسسة',d.lieu],['التاريخ',fmtDate(d.date)],['الموضوع',d.objet]],
+        tables:[], sections:[{heading:null, text:'يشهد الموقع(ة) أسفله، مفتش(ة) تربوي(ة)، بأن السيد(ة) '+(d.beneficiaireNom||'')+'، '+(d.fonction||'')+'، قد حضر(ت) '+(d.objet||(task?task.titre:''))+' بتاريخ '+fmtDate(d.date)+(d.lieu?' ب'+d.lieu:'')+'.'}],
+        signatures:['توقيع المفتش(ة)'] };
+    }
+    if(d.type==='lettre_information'){
+      return { rtl:true, titre:'رسالة إخبارية', meta:[['المرسل إليه',d.destinataire],['الموضوع',d.objet],['التاريخ',fmtDate(d.date)]],
+        tables:[], sections:[{heading:null, text:d.corps||'—'}], signatures:['توقيع المفتش(ة)'] };
+    }
+    if(d.type==='rapport_inspection'){
+      return { titre:"Rapport d'inspection", meta:[['Enseignant(e)',d.enseignantNom],['Établissement',d.lieu],['Classe',d.classe],['Matière',d.matiere],['Date',fmtDate(d.date)],['Appréciation générale',d.appreciation||'—']],
+        tables:[], sections:[{heading:'Constats', text:d.constats||'—'},{heading:'Recommandations', text:d.recommandations||'—'}],
+        signatures:["Signature de l'inspecteur(trice)","Signature de l'enseignant(e)"] };
+    }
+    if(d.type==='bordereau'){
+      return { rtl:true, titre:'بيان إرسال الوثائق', meta:[['المرسل إليه',d.destinataire],['المرجع',d.reference||'—'],['التاريخ',fmtDate(d.date)],['الموضوع',d.objet]],
+        tables:[{headers:['بيان الوثائق','العدد'], rows:(d.pieces||[]).map(function(p){ return [p.designation||'', p.nombre||'']; })}],
+        sections: d.observations ? [{heading:'ملاحظات', text:d.observations}] : [], signatures:['توقيع المفتش(ة)'] };
+    }
+    return { titre:d.titre||'Document', meta:[['Date',fmtDate(d.date)]], tables:[], sections:[], signatures:null };
+  }
+  function buildBilanSpec(){
+    var s = bilanStats(), r = periodRange();
+    var synth = $('bilanSynthText') ? $('bilanSynthText').value : '';
+    return { titre:"Bilan des activités d'inspection", meta:[['Période', fmtDate(r.from.toISOString())+' – '+fmtDate(r.to.toISOString())],['Total tâches', String(s.list.length)]],
+      tables:[
+        {heading:'Par établissement', headers:['Établissement','Nb. tâches'], rows:Object.keys(s.byEtab).map(function(k){ return [k, String(s.byEtab[k])]; })},
+        {heading:'Par type', headers:['Type','Nb.'], rows:Object.keys(s.byType).map(function(k){ return [TT_LABEL[k]||k, String(s.byType[k])]; })}
+      ],
+      sections: synth ? [{heading:'Synthèse', text:synth}] : [], signatures:null };
+  }
+
+  /* ---- chargement paresseux des bibliothèques (CDN) ---- */
+  var LIBS_LOADED = {jspdf:false, docx:false};
+  function loadScript(src){
+    return new Promise(function(resolve, reject){
+      if(document.querySelector('script[data-lib="'+src+'"]')){ resolve(); return; }
+      var s = document.createElement('script'); s.src = src; s.setAttribute('data-lib', src); s.async = true;
+      s.onload = function(){ resolve(); }; s.onerror = function(){ reject(new Error('load-failed:'+src)); };
+      document.head.appendChild(s);
+    });
+  }
+  function ensureJsPDF(){
+    if(LIBS_LOADED.jspdf) return Promise.resolve();
+    return loadScript('https://cdn.jsdelivr.net/npm/jspdf@4.2.1/dist/jspdf.umd.min.js')
+      .then(function(){ return loadScript('https://cdn.jsdelivr.net/npm/jspdf-autotable@5.0.8/dist/jspdf.plugin.autotable.min.js'); })
+      .then(function(){ LIBS_LOADED.jspdf = true; });
+  }
+  function ensureDocx(){
+    if(LIBS_LOADED.docx) return Promise.resolve();
+    return loadScript('https://cdn.jsdelivr.net/npm/docx@9.7.1/dist/index.iife.js').then(function(){ LIBS_LOADED.docx = true; });
+  }
+
+  /* ---- PDF (jsPDF + autoTable) ---- */
+  function pdfImageFormat(dataUrl){
+    if(/^data:image\/png/i.test(dataUrl||'')) return 'PNG';
+    if(/^data:image\/jpe?g/i.test(dataUrl||'')) return 'JPEG';
+    return null;
+  }
+  function isInspectorLabel(label){ return /inspecteur|مفتش/i.test(label||''); }
+  function specToPdfBlob(spec){
+    if(spec.rtl) throw {code:'rtl-pdf-unsupported'};
+    var jsPDF = window.jspdf.jsPDF;
+    var doc = new jsPDF({unit:'mm', format:'a4'});
+    var margin = 16, y = 18, pageW = doc.internal.pageSize.getWidth(), maxW = pageW - margin*2;
+    var profil = state.templates.profil || {};
+    var logoUrl = profil.logoAssetId ? assetUrl(profil.logoAssetId) : '';
+    var logoFmt = logoUrl ? pdfImageFormat(logoUrl) : null;
+    if(logoUrl && logoFmt){ try{ doc.addImage(logoUrl, logoFmt, margin, 9, 15, 15); }catch(e){} }
+    doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(100);
+    var enteteLines = doc.splitTextToSize(state.templates.entete||'', maxW);
+    doc.text(enteteLines, pageW/2, y, {align:'center'}); y += enteteLines.length*4 + 4;
+    doc.setFont('helvetica','bold'); doc.setFontSize(15); doc.setTextColor(20);
+    doc.text(spec.titre, pageW/2, y, {align:'center'}); y += 8;
+    doc.setFont('helvetica','normal'); doc.setFontSize(9.5); doc.setTextColor(70);
+    var metaLine = spec.meta.map(function(m){ return m[0]+' : '+(m[1]||'—'); }).join('    ');
+    var metaLines = doc.splitTextToSize(metaLine, maxW);
+    doc.text(metaLines, margin, y); y += metaLines.length*4.6 + 6;
+    (spec.tables||[]).forEach(function(tb){
+      if(y > 265){ doc.addPage(); y = 18; }
+      if(tb.heading){ doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.setTextColor(20); doc.text(tb.heading, margin, y); y += 5.5; doc.setFont('helvetica','normal'); }
+      doc.autoTable({ startY:y, margin:{left:margin,right:margin}, head:[tb.headers],
+        body: tb.rows.length ? tb.rows : [tb.headers.map(function(){ return '—'; })],
+        styles:{fontSize:9, cellPadding:2.4, textColor:30}, headStyles:{fillColor:[47,111,98], textColor:255}, theme:'grid' });
+      y = doc.lastAutoTable.finalY + 8;
+    });
+    (spec.sections||[]).forEach(function(sec){
+      if(y > 262){ doc.addPage(); y = 18; }
+      if(sec.heading){ doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.setTextColor(20); doc.text(sec.heading, margin, y); y += 5.5; doc.setFont('helvetica','normal'); }
+      doc.setFontSize(10); doc.setTextColor(45);
+      var lines = doc.splitTextToSize(sec.text||'—', maxW);
+      if(y + lines.length*5 > 280){ doc.addPage(); y = 18; }
+      doc.text(lines, margin, y); y += lines.length*5 + 6;
+    });
+    if(spec.signatures && spec.signatures.length){
+      y += 16; if(y > 250){ doc.addPage(); y = 22; }
+      doc.setFontSize(9.5); doc.setTextColor(70);
+      doc.text(spec.signatures[0]||'', margin, y);
+      if(spec.signatures[1]) doc.text(spec.signatures[1], pageW-margin, y, {align:'right'});
+      if(isInspectorLabel(spec.signatures[0])){
+        var cachetUrl = profil.cachetAssetId ? assetUrl(profil.cachetAssetId) : '';
+        var sigUrl = profil.signatureAssetId ? assetUrl(profil.signatureAssetId) : '';
+        var cFmt = cachetUrl ? pdfImageFormat(cachetUrl) : null, sFmt = sigUrl ? pdfImageFormat(sigUrl) : null;
+        try{ if(sigUrl && sFmt) doc.addImage(sigUrl, sFmt, margin, y+3, 28, 15); }catch(e){}
+        try{ if(cachetUrl && cFmt) doc.addImage(cachetUrl, cFmt, margin+30, y+3, 20, 20); }catch(e){}
+      }
+    }
+    return doc.output('blob');
+  }
+  function downloadPdf(spec, filenameBase){
+    return ensureJsPDF().then(function(){ return specToPdfBlob(spec); })
+      .then(function(blob){ return saveBlob(filenameBase+'.pdf', blob); })
+      .then(function(){ toast('PDF enregistré.'); })
+      .catch(function(err){
+        console.warn('pdf error', err);
+        if(err && err.code==='rtl-pdf-unsupported') toast("Ce document est en arabe : utilisez « Word » ou « Imprimer » pour un rendu correct.");
+        else if(err && /load-failed/.test(err.message||'')) toast('Impossible de charger le générateur PDF (vérifiez la connexion).');
+        else toast('Échec de la génération du PDF.');
+      });
+  }
+
+  /* ---- Word (.docx via docx.js) — prend en charge le rendu arabe (RTL) ---- */
+  function specToDocxBlob(spec){
+    var d = window.docx;
+    var rtl = !!spec.rtl;
+    var align = rtl ? d.AlignmentType.RIGHT : d.AlignmentType.LEFT;
+    var children = [];
+    var profil = state.templates.profil || {};
+    var logoUrl = profil.logoAssetId ? assetUrl(profil.logoAssetId) : '';
+    if(logoUrl){
+      try{
+        children.push(new d.Paragraph({ alignment:d.AlignmentType.CENTER, spacing:{after:120},
+          children:[ new d.ImageRun({ data: dataUrlToUint8Array(logoUrl), transformation:{width:60,height:60} }) ] }));
+      }catch(e){}
+    }
+    (state.templates.entete||'').split('\n').forEach(function(line){
+      children.push(new d.Paragraph({ alignment:d.AlignmentType.CENTER, bidirectional:rtl, spacing:{after:40}, children:[ new d.TextRun({text:line, size:18, color:'666666', rightToLeft:rtl}) ] }));
+    });
+    children.push(new d.Paragraph({ alignment:d.AlignmentType.CENTER, bidirectional:rtl, spacing:{before:120, after:200}, children:[ new d.TextRun({text:spec.titre, bold:true, size:30, rightToLeft:rtl}) ] }));
+    var metaLine = spec.meta.map(function(m){ return m[0]+' : '+(m[1]||'—'); }).join('   ·   ');
+    children.push(new d.Paragraph({ bidirectional:rtl, alignment:align, spacing:{after:240}, children:[ new d.TextRun({text:metaLine, size:19, color:'444444', rightToLeft:rtl}) ] }));
+    (spec.tables||[]).forEach(function(tb){
+      if(tb.heading) children.push(new d.Paragraph({ bidirectional:rtl, alignment:align, spacing:{before:160, after:80}, children:[ new d.TextRun({text:tb.heading, bold:true, size:24, rightToLeft:rtl}) ] }));
+      var headerRow = new d.TableRow({ tableHeader:true, children: tb.headers.map(function(h){
+        return new d.TableCell({ shading:{fill:'2F6F62'}, children:[ new d.Paragraph({bidirectional:rtl, alignment: rtl?d.AlignmentType.CENTER:undefined, children:[new d.TextRun({text:h, bold:true, color:'FFFFFF', size:19, rightToLeft:rtl})]}) ] });
+      }) });
+      var rows = (tb.rows.length ? tb.rows : [tb.headers.map(function(){ return '—'; })]).map(function(r){
+        return new d.TableRow({ children:r.map(function(c){ return new d.TableCell({ children:[ new d.Paragraph({bidirectional:rtl, alignment:align, children:[new d.TextRun({text:String(c||''), rightToLeft:rtl})]}) ] }); }) });
+      });
+      children.push(new d.Table({ width:{size:100, type:d.WidthType.PERCENTAGE}, rows:[headerRow].concat(rows) }));
+      children.push(new d.Paragraph({ text:'', spacing:{after:200} }));
+    });
+    (spec.sections||[]).forEach(function(sec){
+      if(sec.heading) children.push(new d.Paragraph({ bidirectional:rtl, alignment:align, spacing:{before:160, after:80}, children:[ new d.TextRun({text:sec.heading, bold:true, size:24, rightToLeft:rtl}) ] }));
+      (sec.text||'—').split('\n').forEach(function(line){
+        children.push(new d.Paragraph({ bidirectional:rtl, alignment:align, spacing:{after:60}, children:[ new d.TextRun({text:line, size:20, rightToLeft:rtl}) ] }));
+      });
+    });
+    if(spec.signatures && spec.signatures.length){
+      children.push(new d.Paragraph({ text:'', spacing:{before:400} }));
+      if(isInspectorLabel(spec.signatures[0])){
+        var cachetUrl = profil.cachetAssetId ? assetUrl(profil.cachetAssetId) : '';
+        var sigUrl = profil.signatureAssetId ? assetUrl(profil.signatureAssetId) : '';
+        var imgRuns = [];
+        try{ if(sigUrl) imgRuns.push(new d.ImageRun({ data: dataUrlToUint8Array(sigUrl), transformation:{width:110,height:55} })); }catch(e){}
+        try{ if(cachetUrl) imgRuns.push(new d.ImageRun({ data: dataUrlToUint8Array(cachetUrl), transformation:{width:75,height:75} })); }catch(e){}
+        if(imgRuns.length) children.push(new d.Paragraph({ alignment: rtl?d.AlignmentType.RIGHT:d.AlignmentType.LEFT, children: imgRuns, spacing:{after:80} }));
+      }
+      children.push(new d.Paragraph({ bidirectional:rtl, alignment: rtl?d.AlignmentType.RIGHT:d.AlignmentType.LEFT, children:[new d.TextRun({text:spec.signatures[0]||'', size:19, rightToLeft:rtl})] }));
+      if(spec.signatures[1]) children.push(new d.Paragraph({ bidirectional:rtl, spacing:{before:300}, alignment: rtl?d.AlignmentType.LEFT:d.AlignmentType.RIGHT, children:[new d.TextRun({text:spec.signatures[1], size:19, rightToLeft:rtl})] }));
+    }
+    var docx = new d.Document({ sections:[{ properties:{}, children:children }] });
+    return d.Packer.toBlob(docx);
+  }
+  function downloadDocx(spec, filenameBase){
+    return ensureDocx().then(function(){ return specToDocxBlob(spec); })
+      .then(function(blob){ return saveBlob(filenameBase+'.docx', blob); })
+      .then(function(){ toast('Document Word enregistré.'); })
+      .catch(function(err){
+        console.warn('docx error', err);
+        if(err && /load-failed/.test(err.message||'')) toast('Impossible de charger le générateur Word (vérifiez la connexion).');
+        else toast(err && err.code==='declined' ? 'Téléchargement annulé.' : 'Échec de la génération du document Word.');
+      });
+  }
+  function safeFileName(s){ return (s||'document').replace(/[\\/:*?"<>|]+/g,'_').slice(0,80); }
+
+  /* ================= bilan ================= */
+  function periodRange(){
+    var now = new Date(), from, to;
+    if(state.bilanPeriod==='mois'){ from = new Date(now.getFullYear(), now.getMonth(), 1); to = new Date(now.getFullYear(), now.getMonth()+1, 1); }
+    else if(state.bilanPeriod==='trimestre'){ var q = Math.floor(now.getMonth()/3); from = new Date(now.getFullYear(), q*3, 1); to = new Date(now.getFullYear(), q*3+3, 1); }
+    else if(state.bilanPeriod==='annee'){ from = new Date(now.getFullYear(),0,1); to = new Date(now.getFullYear()+1,0,1); }
+    else { from = state.bilanCustomFrom ? new Date(state.bilanCustomFrom) : new Date(0); to = state.bilanCustomTo ? new Date(state.bilanCustomTo+'T23:59:59') : new Date(); }
+    return {from:from, to:to};
+  }
+  function tasksInPeriod(){
+    var r = periodRange();
+    return state.tasks.filter(function(t){
+      var d = new Date(t.echeance || t.createdAt || t.updatedAt);
+      return !isNaN(d) && d>=r.from && d<r.to;
+    });
+  }
+  function bilanStats(){
+    var list = tasksInPeriod();
+    var byType={}, byWf={}, byEtab={};
+    list.forEach(function(t){
+      byType[t.taskType]=(byType[t.taskType]||0)+1;
+      byWf[t.statut]=(byWf[t.statut]||0)+1;
+      var en = t.etablissementNom || etabName(t.etablissementId) || 'Non renseigné';
+      byEtab[en]=(byEtab[en]||0)+1;
+    });
+    return {list:list, byType:byType, byWf:byWf, byEtab:byEtab};
+  }
+  function generateBilanDoc(){
+    var s = bilanStats(), r = periodRange();
+    var html = printHead('Bilan des activités d\'inspection', [['Période', fmtDate(r.from.toISOString())+' – '+fmtDate(r.to.toISOString())], ['Total tâches', s.list.length]]);
+    html += '<table class="p-table"><thead><tr><th>Établissement</th><th>Nb. tâches</th></tr></thead><tbody>';
+    Object.keys(s.byEtab).forEach(function(k){ html += '<tr><td>'+esc(k)+'</td><td>'+s.byEtab[k]+'</td></tr>'; });
+    html += '</tbody></table>';
+    html += '<table class="p-table"><thead><tr><th>Type</th><th>Nb.</th></tr></thead><tbody>';
+    Object.keys(s.byType).forEach(function(k){ html += '<tr><td>'+esc(TT_LABEL[k]||k)+'</td><td>'+s.byType[k]+'</td></tr>'; });
+    html += '</tbody></table>';
+    var synth = $('bilanSynthText') ? $('bilanSynthText').value : '';
+    if(synth) html += '<div class="p-section"><h3>Synthèse</h3><p style="white-space:pre-line;">'+esc(synth)+'</p></div>';
+    printHTML(html);
+  }
+
+  /* ================= RENDER ================= */
+  function render(){
+    renderTopbar();
+    ['tasks','enseignants','etablissements','bilan','docs'].forEach(function(v){
+      $('view'+v.charAt(0).toUpperCase()+v.slice(1)).hidden = (state.view!==v);
+    });
+    if(state.view==='tasks') renderTasksView();
+    else if(state.view==='enseignants') renderEnseignantsView();
+    else if(state.view==='etablissements') renderEtablissementsView();
+    else if(state.view==='bilan') renderBilanView();
+    else renderDocsView();
+    renderModals();
+  }
+
+  function renderTopbar(){
+    document.querySelectorAll('[data-tab]').forEach(function(t){ t.setAttribute('aria-current', t.getAttribute('data-tab')===state.view); });
+    var dot = $('syncDot'), label = $('syncLabel'), link = $('syncLink'), btnSync = $('btnSync');
+    btnSync.classList.toggle('spin', state.syncing);
+    if(!state.mcpReady && !state.syncing){ dot.className='dot'; label.textContent='Google Drive non connecté'; link.hidden = false; link.textContent='Connecter'; }
+    else if(state.syncing){ dot.className='dot'; label.textContent='Synchronisation…'; link.hidden = true; }
+    else if(state.syncError){ dot.className='dot err'; label.textContent = state.syncError; link.hidden = true; }
+    else if(!state.config.sheetFileId){ dot.className='dot'; label.textContent='Aucune feuille liée'; link.hidden = false; link.textContent='Configurer'; }
+    else if(state.config.lastSyncAt){ dot.className='dot ok'; label.textContent='Synchronisé il y a '+fmtWhen(state.config.lastSyncAt); link.hidden=false; link.textContent = state.config.sheetTitle||'Feuille'; }
+    else { dot.className='dot'; label.textContent='Pas encore synchronisé'; link.hidden=false; link.textContent='Synchroniser'; }
+    var foot = $('sideFolderStatus');
+    if(foot) foot.textContent = 'Dossier Drive : ' + (state.config.folderName || 'non configuré');
+  }
+
+  /* ---- Tâches ---- */
+  function statsFor(tasks){
+    var s = {a_planifier:0, planifiee:0, realisee:0, rapport:0, cloturee:0, late:0};
+    tasks.forEach(function(t){ if(s[t.statut]!=null) s[t.statut]++; if(isLate(t.echeance, t.statut)) s.late++; });
+    return s;
+  }
+  function renderTasksView(){
+    var host = $('viewTasks');
+    var tasks = state.tasks.slice().sort(function(a,b){ return (b.updatedAt||'').localeCompare(a.updatedAt||''); });
+    var filtered = tasks.filter(function(t){
+      if(state.filter==='all') return true;
+      if(state.filter==='late') return isLate(t.echeance, t.statut);
+      return t.statut===state.filter;
+    });
+    var s = statsFor(tasks);
+    var html = '';
+    if(!state.config.sheetFileId && state.mcpReady){
+      html += '<div class="setup-card"><h2>Connecter Google Sheets</h2><p>Liez une feuille existante ou créez-en une pour synchroniser vos tâches d\'inspection.</p>'+
+        '<div class="setup-actions"><button class="btn primary" id="btnCreateSheetInline" type="button">Créer une feuille</button>'+
+        '<button class="btn ghost" id="btnLinkSheetInline" type="button">Lier une feuille existante</button></div></div>';
+    } else if(!state.mcpReady){
+      html += '<div class="setup-card"><h2>Synchroniser avec Google Drive</h2><p>Vos tâches sont déjà enregistrées sur cet appareil. Connectez votre compte Google (gratuit, à vous) pour les sauvegarder aussi dans votre Drive et les retrouver sur un autre appareil.</p>'+
+        '<div class="setup-actions"><button class="btn primary" id="btnConnectDriveInline" type="button">Connecter Google Drive</button></div></div>';
+    }
+    if(tasks.length){
+      html += '<div class="stats-row">'+
+        '<div class="stat"><b class="tnum">'+s.a_planifier+'</b><span>À planifier</span></div>'+
+        '<div class="stat"><b class="tnum">'+(s.planifiee+s.realisee)+'</b><span>En cours</span></div>'+
+        '<div class="stat"><b class="tnum">'+s.cloturee+'</b><span>Clôturées</span></div>'+
+        '<div class="stat"><b class="tnum" style="color:var(--danger)">'+s.late+'</b><span>En retard</span></div></div>';
+      html += '<div class="chips">'+chip('all','Tout')+WORKFLOW.map(function(w){ return chip(w.v,w.l); }).join('')+chip('late','En retard')+'</div>';
+    }
+    if(!tasks.length){
+      html += '<div style="position:relative;"><div class="task-card preview-card" style="--prio:var(--warn)"><div class="preview-tag">Aperçu</div>'+
+        '<div class="task-meta"><span class="type-badge violet">Inspection</span></div>'+
+        '<div class="task-title">Inspection — 2AC Période 5</div><div class="task-meta">Mme Ilham · Établissement Chorouk</div>'+
+        '<div class="task-foot"><span class="pill wf-a_planifier">À planifier</span><span class="due-chip">18/09</span></div></div></div>'+
+        '<div class="empty">Aucune tâche pour l\'instant. Touchez « + » pour créer la première.</div>';
+    } else if(!filtered.length){
+      html += '<div class="empty">Aucune tâche dans ce filtre.</div>';
+    } else {
+      html += '<div class="task-list">'+filtered.map(taskCardHtml).join('')+'</div>';
+    }
+    host.innerHTML = html;
+    var bc = $('btnCreateSheetInline'); if(bc) bc.onclick = createSheet;
+    var bl = $('btnLinkSheetInline'); if(bl) bl.onclick = function(){ pushModal({type:'settings', tab:'sync', linkMode:true}); };
+    var bcd = $('btnConnectDriveInline'); if(bcd) bcd.onclick = connectGoogleDrive;
+    host.querySelectorAll('.chip').forEach(function(el){ el.onclick = function(){ state.filter = el.getAttribute('data-f'); render(); }; });
+    host.querySelectorAll('.task-card:not(.preview-card)').forEach(function(el){
+      el.onclick = function(){ var t = state.tasks.find(function(x){ return x.id===el.getAttribute('data-id'); }); if(t) openTaskDetail(t); };
+    });
+  }
+  function chip(f, label){ return '<button class="chip" data-f="'+f+'" aria-pressed="'+(state.filter===f)+'">'+esc(label)+'</button>'; }
+  var PRIO_VAR = {basse:'var(--line)', moyenne:'var(--warn)', haute:'var(--danger)'};
+  function taskCardHtml(t){
+    var late = isLate(t.echeance, t.statut);
+    var enNom = t.enseignantNom || ensName(t.enseignantId);
+    var etNom = t.etablissementNom || etabName(t.etablissementId);
+    var meta = [enNom, etNom].filter(Boolean).join(' · ');
+    return '<article class="task-card'+(t.statut==='cloturee'?' done':'')+'" style="--prio:'+PRIO_VAR[t.priorite]+'" data-id="'+t.id+'">'+
+      '<div class="task-meta"><span class="type-badge '+taskBadgeClass(t.taskType)+'">'+esc(TT_LABEL[t.taskType]||'Autre')+'</span></div>'+
+      '<div class="task-title'+(t.statut==='cloturee'?' strike':'')+'">'+esc(t.titre)+'</div>'+
+      (meta ? '<div class="task-meta">'+esc(meta)+'</div>' : '')+
+      '<div class="task-foot"><span class="pill wf-'+t.statut+'">'+WF_LABEL[t.statut]+'</span>'+
+      (t.echeance ? '<span class="due-chip'+(late?' late':'')+'">'+(late?'En retard · ':'')+fmtDate(t.echeance)+'</span>' : '<span></span>')+'</div>'+
+      '</article>';
+  }
+
+  /* ---- Enseignants ---- */
+  function slotMatches(slot, jour, heure){
+    if(slot.jour!==jour) return false;
+    return slot.debut<=heure && heure<=slot.fin;
+  }
+  function renderEnseignantsView(){
+    var host = $('viewEnseignants');
+    var html = '';
+    html += '<div class="search-row"><input type="text" id="ensSearchInput" placeholder="Rechercher un(e) enseignant(e)…" value="'+esc(state.ensQuery)+'">'+
+      '<button type="button" id="ensHoraireBtn" title="Recherche par horaire">'+ICONS.doc.replace('17','17')+'</button></div>';
+    html += '<div class="setup-actions"><button class="btn ghost sm" id="btnExportEns" type="button">Exporter CSV</button><button class="btn ghost sm" id="btnImportEns" type="button">Importer CSV</button></div>';
+    if(state.ensHoraireMode){
+      html += '<div class="setup-card"><h2>Qui est en classe à quel moment ?</h2>'+
+        '<div class="field"><label>Jour</label><div class="seg" id="horJourSeg">'+JOURS.map(function(j){ return '<button type="button" data-v="'+j+'" aria-pressed="'+(state.horaireJour===j)+'">'+j.slice(0,3)+'</button>'; }).join('')+'</div></div>'+
+        '<div class="field"><label for="horHeure">Heure</label><input type="time" id="horHeure" value="'+esc(state.horaireHeure)+'"></div></div>';
+      var matches = state.enseignants.filter(function(e){ return (e.horaire||[]).some(function(sl){ return slotMatches(sl, state.horaireJour, state.horaireHeure); }); });
+      html += '<div class="section-label">'+matches.length+' enseignant(s) en séance</div>';
+      html += matches.length ? '<div class="rec-list">'+matches.map(function(e){
+        var sl = (e.horaire||[]).find(function(sl){ return slotMatches(sl, state.horaireJour, state.horaireHeure); });
+        return ensRowHtml(e, sl ? (sl.matiere||'')+(sl.classe?' · '+sl.classe:'')+(sl.salle?' · '+sl.salle:'') : '');
+      }).join('')+'</div>' : '<div class="empty">Personne en séance à ce créneau.</div>';
+    } else {
+      var q = state.ensQuery.toLowerCase();
+      var list = state.enseignants.filter(function(e){ return !q || e.nom.toLowerCase().indexOf(q)>=0 || (e.matiere||'').toLowerCase().indexOf(q)>=0; })
+        .sort(function(a,b){ return a.nom.localeCompare(b.nom); });
+      html += !list.length ? '<div class="empty">Aucun enseignant enregistré. Touchez « + » pour en ajouter un.</div>' :
+        '<div class="rec-list">'+list.map(function(e){ return ensRowHtml(e, [e.matiere, etabName(e.etablissementId)].filter(Boolean).join(' · ')); }).join('')+'</div>';
+    }
+    host.innerHTML = html;
+    var si = $('ensSearchInput'); if(si) si.oninput = function(){ state.ensQuery = si.value; render(); setTimeout(function(){ var el=$('ensSearchInput'); if(el){ el.focus(); el.selectionStart=el.selectionEnd=el.value.length; } },0); };
+    var hb = $('ensHoraireBtn'); if(hb) hb.onclick = function(){ state.ensHoraireMode = !state.ensHoraireMode; render(); };
+    var jseg = $('horJourSeg'); if(jseg) jseg.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ state.horaireJour=b.getAttribute('data-v'); render(); }; });
+    var hh = $('horHeure'); if(hh) hh.onchange = function(){ state.horaireHeure = hh.value; render(); };
+    var be = $('btnExportEns'); if(be) be.onclick = function(){ exportCSV('enseignants'); };
+    var bi = $('btnImportEns'); if(bi) bi.onclick = function(){ importTarget='enseignants'; $('fileImportInput').click(); };
+    host.querySelectorAll('.rec-row').forEach(function(el){
+      el.onclick = function(){ var e = state.enseignants.find(function(x){ return x.id===el.getAttribute('data-id'); }); if(e) openEnseignantEditor(e); };
+    });
+  }
+  function ensRowHtml(e, sub){
+    var av = e.photoAssetId ? '<img src="'+assetUrl(e.photoAssetId)+'" alt="">' : initials(e.nom);
+    var tags = [e.statut==='stagiaire' ? 'Stagiaire' : '', e.cadre].filter(Boolean).join(' · ');
+    return '<div class="rec-row" data-id="'+e.id+'"><div class="avatar">'+av+'</div>'+
+      '<div class="rec-info"><div class="t">'+esc(e.nom)+'</div><div class="s">'+(tags?esc(tags)+' · ':'')+esc(sub||'')+'</div></div></div>';
+  }
+
+  /* ---- Établissements ---- */
+  function renderEtablissementsView(){
+    var host = $('viewEtablissements');
+    var html = '';
+    html += '<div class="setup-actions"><button class="btn primary sm" id="btnAddZone" type="button">+ Zone</button>'+
+      '<button class="btn ghost sm" id="btnExportEtab" type="button">Exporter CSV</button><button class="btn ghost sm" id="btnImportEtab" type="button">Importer CSV</button></div>';
+    if(!state.zones.length && !state.etablissements.length){
+      html += '<div class="empty">Aucune zone ni établissement. Créez une zone, puis ajoutez des établissements.</div>';
+    } else {
+      var groups = state.zones.slice().sort(function(a,b){ return a.nom.localeCompare(b.nom); });
+      var noZone = state.etablissements.filter(function(e){ return !e.zoneId || !state.zones.find(function(z){ return z.id===e.zoneId; }); });
+      groups.forEach(function(z){
+        html += '<div class="zone-head"><span>'+esc(z.nom)+(z.directionProvinciale?' · '+esc(z.directionProvinciale):'')+'</span><span class="line"></span><button class="icon-btn" data-editzone="'+z.id+'" style="width:26px;height:26px;">'+ICONS.doc.replace(/width="17" height="17"/,'width="13" height="13"')+'</button></div>';
+        var ets = state.etablissements.filter(function(e){ return e.zoneId===z.id; });
+        html += ets.length ? '<div class="rec-list">'+ets.map(etabRowHtml).join('')+'</div>' : '<div class="empty" style="padding:10px;">Aucun établissement.</div>';
+      });
+      if(noZone.length){
+        html += '<div class="zone-head"><span>Sans zone</span><span class="line"></span></div><div class="rec-list">'+noZone.map(etabRowHtml).join('')+'</div>';
+      }
+      html += '<button class="addline" id="btnAddEtab">'+ICONS.plus+' Ajouter un établissement</button>';
+    }
+    host.innerHTML = html;
+    var ba = $('btnAddZone'); if(ba) ba.onclick = function(){ openZoneEditor(null); };
+    var bae = $('btnAddEtab'); if(bae) bae.onclick = function(){ openEtablissementEditor(null); };
+    var bxe = $('btnExportEtab'); if(bxe) bxe.onclick = function(){ exportCSV('etablissements'); };
+    var bie = $('btnImportEtab'); if(bie) bie.onclick = function(){ importTarget='etablissements'; $('fileImportInput').click(); };
+    host.querySelectorAll('[data-editzone]').forEach(function(el){ el.onclick = function(ev){ ev.stopPropagation(); var z=state.zones.find(function(x){return x.id===el.getAttribute('data-editzone');}); if(z) openZoneEditor(z); }; });
+    host.querySelectorAll('.rec-row').forEach(function(el){ el.onclick = function(){ var e=state.etablissements.find(function(x){return x.id===el.getAttribute('data-id');}); if(e) openEtablissementEditor(e); }; });
+  }
+  function etabRowHtml(e){
+    var nEns = state.enseignants.filter(function(x){ return x.etablissementId===e.id; }).length;
+    var tags = [ETAB_CYCLE_LABEL[e.cycle], ETAB_TYPE_LABEL[e.type]].filter(Boolean).join(' · ');
+    return '<div class="rec-row" data-id="'+e.id+'"><div class="avatar">'+ICONS.folder+'</div>'+
+      '<div class="rec-info"><div class="t">'+esc(e.nom)+'</div><div class="s">'+(tags?esc(tags)+' · ':'')+nEns+' enseignant(s)'+(e.adresse?' · '+esc(e.adresse):'')+'</div></div></div>';
+  }
+
+  /* ---- Bilan ---- */
+  function renderBilanView(){
+    var host = $('viewBilan');
+    var s = bilanStats();
+    var html = '<div class="period-seg">'+
+      ['mois','trimestre','annee','custom'].map(function(p){ return '<button data-p="'+p+'" aria-pressed="'+(state.bilanPeriod===p)+'">'+({mois:'Ce mois',trimestre:'Trimestre',annee:'Année',custom:'Personnalisé'})[p]+'</button>'; }).join('')+'</div>';
+    if(state.bilanPeriod==='custom'){
+      html += '<div class="field-row"><div class="field"><label>Du</label><input type="date" id="bilanFrom" value="'+esc(state.bilanCustomFrom)+'"></div>'+
+        '<div class="field"><label>Au</label><input type="date" id="bilanTo" value="'+esc(state.bilanCustomTo)+'"></div></div>';
+    }
+    html += '<div class="stats-row"><div class="stat"><b class="tnum">'+s.list.length+'</b><span>Tâches</span></div>'+
+      '<div class="stat"><b class="tnum">'+(s.byWf.cloturee||0)+'</b><span>Clôturées</span></div>'+
+      '<div class="stat"><b class="tnum">'+(state.enseignants.length)+'</b><span>Enseignants</span></div>'+
+      '<div class="stat"><b class="tnum">'+(state.etablissements.length)+'</b><span>Établissements</span></div></div>';
+
+    html += '<div class="setup-card"><h2>Par établissement</h2>'+barList(s.byEtab)+'</div>';
+    html += '<div class="setup-card"><h2>Par statut</h2>'+barList(objKeysLabel(s.byWf, WF_LABEL))+'</div>';
+    html += '<div class="setup-card"><h2>Par type</h2>'+barList(objKeysLabel(s.byType, TT_LABEL))+'</div>';
+
+    html += '<div class="setup-card"><h2>Générer un bilan</h2><p>Rédigez une courte synthèse (ou laissez l\'IA la proposer) puis générez le document.</p>'+
+      '<div class="field"><textarea id="bilanSynthText" placeholder="Synthèse de la période…"></textarea></div>'+
+      (state.sampleReady ? '<div class="btn-row"><button class="btn ai" id="btnAiBilan" type="button">'+ICONS.ai+' Proposer une synthèse</button></div><div class="banner info" id="bilanAiStatus" hidden style="margin-top:8px;"></div>' : '')+
+      '<div class="setup-actions"><button class="btn ghost sm" id="btnGenBilan" type="button">'+ICONS.print+' Imprimer</button>'+
+      '<button class="btn ghost sm" id="btnBilanPdf" type="button">'+ICONS.pdf+' PDF</button>'+
+      '<button class="btn primary sm" id="btnBilanDocx" type="button">'+ICONS.doc+' Word (.docx)</button></div>'+
+      '<div class="banner info" id="bilanGenStatus" hidden style="margin-top:8px;"></div></div>';
+
+    host.innerHTML = html;
+    host.querySelectorAll('.period-seg button').forEach(function(b){ b.onclick = function(){ state.bilanPeriod = b.getAttribute('data-p'); render(); }; });
+    var bf = $('bilanFrom'); if(bf) bf.onchange = function(){ state.bilanCustomFrom = bf.value; render(); };
+    var bt = $('bilanTo'); if(bt) bt.onchange = function(){ state.bilanCustomTo = bt.value; render(); };
+    $('btnGenBilan').onclick = generateBilanDoc;
+    function runBilanGen(kind, btn){
+      var spec = buildBilanSpec();
+      var statusEl = $('bilanGenStatus');
+      if(statusEl){ statusEl.hidden = false; statusEl.textContent = kind==='pdf' ? 'Génération du PDF…' : 'Génération du document Word…'; }
+      if(btn) btn.disabled = true;
+      var p = kind==='pdf' ? downloadPdf(spec, 'Bilan_'+todayStr()) : downloadDocx(spec, 'Bilan_'+todayStr());
+      p.then(function(){ if(btn) btn.disabled = false; if(statusEl) statusEl.hidden = true; });
+    }
+    var bilanPdfBtn = $('btnBilanPdf'); if(bilanPdfBtn) bilanPdfBtn.onclick = function(){ runBilanGen('pdf', bilanPdfBtn); };
+    var bilanDocxBtn = $('btnBilanDocx'); if(bilanDocxBtn) bilanDocxBtn.onclick = function(){ runBilanGen('docx', bilanDocxBtn); };
+    var aiBtn = $('btnAiBilan');
+    if(aiBtn) aiBtn.onclick = function(){
+      var r = periodRange();
+      var lines = s.list.map(function(t){ return '- '+t.titre+' ('+(TT_LABEL[t.taskType]||'')+', '+(WF_LABEL[t.statut]||'')+', '+(t.etablissementNom||etabName(t.etablissementId)||'')+')'; }).join('\n');
+      var prompt = "Tu es un inspecteur pédagogique au Maroc. Rédige une courte synthèse (6-10 lignes, en français, style administratif sobre) du bilan d'activité d'inspection pour la période du "+fmtDate(r.from.toISOString())+" au "+fmtDate(r.to.toISOString())+". Voici les tâches réalisées :\n"+lines+"\nMets en avant les tendances, les établissements les plus visités, et une remarque générale sur l'avancement.";
+      aiDraft(aiBtn, $('bilanAiStatus'), $('bilanSynthText'), prompt);
+    };
+  }
+  function objKeysLabel(obj, labelMap){
+    var out = {}; Object.keys(obj).forEach(function(k){ out[labelMap[k]||k] = obj[k]; }); return out;
+  }
+  function barList(obj){
+    var entries = Object.keys(obj).map(function(k){ return [k, obj[k]]; }).sort(function(a,b){ return b[1]-a[1]; });
+    if(!entries.length) return '<div class="empty">Aucune donnée.</div>';
+    var max = Math.max.apply(null, entries.map(function(e){ return e[1]; }));
+    return entries.map(function(e){ return '<div class="bar-row"><span class="l">'+esc(e[0])+'</span><span class="bar-track"><span class="bar-fill" style="width:'+(max?Math.round(e[1]/max*100):0)+'%"></span></span><span class="v tnum">'+e[1]+'</span></div>'; }).join('');
+  }
+
+  /* ---- Documents (Drive) ---- */
+  function renderDocsView(){
+    var host = $('viewDocs');
+    var html = '';
+    if(!state.mcpReady){ host.innerHTML = '<div class="setup-card"><h2>Documents Google Drive</h2><p>Connectez votre compte Google pour parcourir et télécharger les documents de votre Drive depuis l\'application.</p>'+
+      '<div class="setup-actions"><button class="btn primary" id="btnConnectDriveDocs" type="button">Connecter Google Drive</button></div></div>';
+      var bcdd = $('btnConnectDriveDocs'); if(bcdd) bcdd.onclick = connectGoogleDrive; return; }
+    html += '<div class="search-row"><input type="text" id="docSearchInput" placeholder="Rechercher un document…" value="'+esc(state.docsQuery)+'">'+
+      '<button type="button" id="docSearchBtn" aria-label="Rechercher"><svg width="17" height="17" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button></div>';
+    html += '<div class="section-label">'+(state.docsQuery ? 'Résultats' : 'Récents')+'</div>';
+    if(state.docsError) html += '<div class="banner err">'+ICONS.warn+'<div>'+esc(state.docsError)+'<div class="banner-actions"><button class="btn ghost" id="docsRetry" type="button">Réessayer</button></div></div></div>';
+    else if(state.docsLoading) html += '<div class="empty">Chargement…</div>';
+    else if(!state.docs.length) html += '<div class="empty">Aucun document trouvé.</div>';
+    else html += '<div class="doc-list">'+state.docs.map(docRowHtml).join('')+'</div>';
+    host.innerHTML = html;
+    var input = $('docSearchInput');
+    var runSearch = function(){ state.docsQuery = input.value.trim(); (state.docsQuery ? searchDocs(state.docsQuery) : loadRecentDocs()); };
+    $('docSearchBtn').onclick = runSearch;
+    input.onkeydown = function(e){ if(e.key==='Enter') runSearch(); };
+    var retry = $('docsRetry'); if(retry) retry.onclick = function(){ state.docsQuery ? searchDocs(state.docsQuery) : loadRecentDocs(); };
+    host.querySelectorAll('[data-open]').forEach(function(el){ el.onclick = function(){ window.open(el.getAttribute('data-open'), '_blank', 'noopener'); }; });
+    host.querySelectorAll('[data-dl]').forEach(function(el){ el.onclick = function(){ var f = state.docs.find(function(d){ return d.id===el.getAttribute('data-dl'); }); if(f) downloadDriveDoc(f); }; });
+  }
+  function docRowHtml(f){
+    return '<div class="doc-row"><div class="doc-ico">'+docIcon(f.mimeType, f.fileExtension)+'</div>'+
+      '<div class="doc-info"><div class="t">'+esc(f.title)+'</div><div class="s tnum">'+fmtDate(f.modifiedTime)+'</div></div>'+
+      '<div class="doc-actions"><button class="icon-btn" data-open="'+esc(f.viewUrl||'')+'" title="Ouvrir" aria-label="Ouvrir">'+ICONS.ext+'</button>'+
+      '<button class="icon-btn" data-dl="'+f.id+'" title="Télécharger" aria-label="Télécharger">'+ICONS.dl+'</button></div></div>';
+  }
+
+  /* ================= MODALS ================= */
+  function renderModals(){
+    var root = $('overlayRoot');
+    if(!state.modalStack.length){ root.innerHTML=''; return; }
+    root.innerHTML = state.modalStack.map(function(m, idx){
+      if(m.type==='task') return taskModalHtml(idx);
+      if(m.type==='taskdetail') return taskDetailModalHtml(idx, m);
+      if(m.type==='settings') return settingsModalHtml(idx, m);
+      if(m.type==='picker') return pickerModalHtml(idx, m);
+      if(m.type==='enseignant') return enseignantModalHtml(idx);
+      if(m.type==='etablissement') return etablissementModalHtml(idx);
+      if(m.type==='zone') return zoneModalHtml(idx);
+      if(m.type==='docedit') return docEditModalHtml(idx, m);
+      return '';
+    }).join('');
+    wireModalEvents();
+  }
+
+  /* ---- Task editor ---- */
+  function taskModalHtml(idx){
+    var t = state.draftTask;
+    return '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
+      '<div class="sheet-head"><h2>'+(state.modalStack[idx].isNew?'Nouvelle tâche':'Modifier la tâche')+'</h2>'+
+        '<button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
+      '<div class="field"><label for="fTypeSel">Type de tâche</label><select id="fTypeSel" style="width:100%;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:10px 11px;">'+
+      TASK_TYPES.map(function(tt){ return '<option value="'+tt.v+'"'+(t.taskType===tt.v?' selected':'')+'>'+tt.l+'</option>'; }).join('')+'</select></div>'+
+      '<div class="field"><label for="fTitre">Titre</label><input type="text" id="fTitre" value="'+esc(t.titre)+'" placeholder="Ex. Visite de classe 1BAC"></div>'+
+      '<div class="field"><label>Établissement</label><button type="button" class="pickbtn" id="btnPickEtab"><span class="'+(t.etablissementNom||etabName(t.etablissementId)?'':'ph')+' t">'+esc(t.etablissementNom||etabName(t.etablissementId)||'Choisir un établissement…')+'</span></button></div>'+
+      '<div class="field"><label>Enseignant(e)</label><button type="button" class="pickbtn" id="btnPickEns"><span class="'+(t.enseignantNom||ensName(t.enseignantId)?'':'ph')+' t">'+esc(t.enseignantNom||ensName(t.enseignantId)||'Choisir un(e) enseignant(e)…')+'</span></button></div>'+
+      '<div class="field"><label>Priorité</label><div class="seg" id="fPrioSeg">'+['basse','moyenne','haute'].map(function(v){ return '<button type="button" data-v="'+v+'" aria-pressed="'+(t.priorite===v)+'">'+v.charAt(0).toUpperCase()+v.slice(1)+'</button>'; }).join('')+'</div></div>'+
+      '<div class="field"><label for="fEcheance">Échéance</label><input type="date" id="fEcheance" value="'+esc(t.echeance)+'"></div>'+
+      (TASK_TYPES_GRADED[t.taskType] ? '<div class="field"><label>Note globale de l\'inspection</label><div class="seg" id="fNoteSeg">'+NOTE_SCALE.map(function(n){ return '<button type="button" data-v="'+n+'" aria-pressed="'+(t.noteGlobale===n)+'">'+n+'</button>'; }).join('')+'</div></div>' : '')+
+      (TASK_TYPES_NOTIFY[t.taskType] ? '<div class="field"><label class="chk-row" style="display:flex;align-items:center;gap:8px;font-weight:500;"><input type="checkbox" id="fNotif"'+(t.notificationEnvoyee?' checked':'')+'> Notification envoyée à l\'administration</label></div>' : '')+
+      '<div class="field"><label for="fDesc">Notes</label><textarea id="fDesc" placeholder="Détails, observations…">'+esc(t.description)+'</textarea></div>'+
+      '<div class="btn-row">'+(state.modalStack[idx].isNew ? '' : '<button class="btn danger" id="btnDeleteTask" type="button">Supprimer</button>')+
+      '<button class="btn primary" id="btnSaveTask" type="button">Enregistrer</button></div></div></div>';
+  }
+
+  /* ---- Task detail (workflow + documents) ---- */
+  function taskDetailModalHtml(idx, m){
+    var t = state.tasks.find(function(x){ return x.id===m.taskId; });
+    if(!t) return '';
+    var enNom = t.enseignantNom || ensName(t.enseignantId), etNom = t.etablissementNom || etabName(t.etablissementId);
+    var curIdx = WORKFLOW.findIndex(function(w){ return w.v===t.statut; });
+    var docs = state.documents.filter(function(d){ return d.taskId===t.id; });
+    var avail = DOCS_FOR_TYPE[t.taskType] || ['rapport'];
+    var html = '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
+      '<div class="sheet-head"><h2 style="text-wrap:balance;">'+esc(t.titre)+'</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
+      '<div class="task-meta" style="margin-bottom:10px;"><span class="type-badge '+taskBadgeClass(t.taskType)+'">'+esc(TT_LABEL[t.taskType])+'</span>'+
+      (enNom?'<span>'+esc(enNom)+'</span>':'')+(etNom?'<span>· '+esc(etNom)+'</span>':'')+(t.echeance?'<span>· '+fmtDate(t.echeance)+'</span>':'')+'</div>'+
+      (t.description ? '<p style="font-size:13px;color:var(--ink-soft);white-space:pre-line;margin:0 0 12px;">'+esc(t.description)+'</p>' : '')+
+      '<div class="section-label">Suivi</div><div class="stepper" id="wfStepper">'+WORKFLOW.map(function(w,i){
+        return '<button type="button" class="step '+(i<curIdx?'done':(i===curIdx?'current':''))+'" data-v="'+w.v+'"><span class="n">'+(i<curIdx?'✓':(i+1))+'</span>'+w.l+'</button>';
+      }).join('')+'</div>'+
+      '<div class="section-label" style="margin-top:6px;">Documents</div>'+
+      '<div class="setup-actions" style="margin-bottom:8px;">'+avail.map(function(dt){ return '<button class="btn ghost sm" data-newdoc="'+dt+'" type="button">'+ICONS.plus+' '+DOC_TYPE_INFO[dt].label+'</button>'; }).join('')+'</div>'+
+      (docs.length ? '<div class="doc-list">'+docs.map(function(d){ return '<div class="doc-row" data-opendoc="'+d.id+'" style="cursor:pointer;"><div class="doc-ico">'+ICONS.doc+'</div>'+
+        '<div class="doc-info"><div class="t">'+esc(DOC_TYPE_INFO[d.type].label)+'</div><div class="s">'+fmtDate(d.date)+'</div></div></div>'; }).join('')+'</div>' : '<div class="empty">Aucun document généré pour cette tâche.</div>')+
+      '<div class="btn-row" style="margin-top:16px;"><button class="btn ghost" id="btnEditTask" type="button">Modifier</button><button class="btn danger" id="btnDeleteTask2" type="button">Supprimer</button></div>'+
+      '</div></div>';
+    return html;
+  }
+
+  /* ---- Settings (sync + templates) ---- */
+  function settingsModalHtml(idx, m){
+    var tab = m.tab || 'sync';
+    var c = state.config;
+    var html = '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
+      '<div class="sheet-head"><h2>Paramètres</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
+      '<div class="chips" style="margin-bottom:14px;"><button class="chip" data-stab="sync" aria-pressed="'+(tab==='sync')+'">Synchronisation</button>'+
+      '<button class="chip" data-stab="profil" aria-pressed="'+(tab==='profil')+'">Profil inspecteur</button>'+
+      '<button class="chip" data-stab="templates" aria-pressed="'+(tab==='templates')+'">Modèles de documents</button></div>';
+
+    if(tab==='sync'){
+      html += '<div class="settings-row"><div><div class="l">Compte Google</div><div class="s">'+(state.mcpReady ? 'Connecté' : 'Non connecté')+'</div></div>'+
+        (state.mcpReady ? '<button class="btn ghost" id="btnDisconnectDrive" type="button">Déconnecter</button>' : '<button class="btn primary" id="btnConnectDrive" type="button">Connecter</button>')+'</div>';
+      if(state.mcpReady){
+        var showLink = !!m.linkMode || !c.sheetFileId;
+        html += '<div class="settings-row"><div><div class="l">Dossier Drive de l\'application</div><div class="s">'+(c.folderName ? esc(c.folderName) : 'Sera créé automatiquement à la première synchronisation')+'</div></div></div>'+
+          '<div class="settings-row"><div><div class="l">Feuille Google Sheets</div><div class="s">'+(c.sheetTitle ? esc(c.sheetTitle) : 'Aucune feuille liée')+'</div></div>'+
+          (c.sheetFileId ? '<button class="btn ghost" id="btnUnlink" type="button">Dissocier</button>' : '')+'</div>'+
+          (c.lastBackupAt ? '<div class="settings-row"><div><div class="l">Sauvegarde complète (JSON)</div><div class="s">Dernière copie : '+fmtWhen(c.lastBackupAt)+'</div></div></div>' : '');
+        if(state.setupError) html += '<div class="banner err" style="margin-top:10px;">'+ICONS.warn+'<div>'+esc(state.setupError)+'</div></div>';
+        html += '<div class="setup-actions" style="margin-top:12px;"><button class="btn primary" id="btnCreateSheet" type="button"'+(state.setupBusy?' disabled':'')+'>'+(state.setupBusy?'Création…':'Créer une nouvelle feuille')+'</button>'+
+          '<button class="btn ghost" id="btnShowLink" type="button">Lier une feuille existante</button></div>';
+        if(showLink) html += '<div class="field" style="margin-top:14px;"><label for="sheetSearch">Rechercher une feuille</label>'+
+          '<div class="search-row"><input type="text" id="sheetSearch" placeholder="Nom de la feuille…"><button type="button" id="sheetSearchBtn">OK</button></div>'+
+          '<div id="sheetResults" class="doc-list" style="margin-top:9px;"></div></div>';
+        html += '<p style="font-size:11.5px;color:var(--ink-faint);margin-top:8px;">La synchronisation fusionne vos tâches locales et celles de la feuille (version la plus récente conservée), puis réécrit entièrement la feuille — évitez de modifier les colonnes à la main entre deux synchronisations. Une copie complète de toutes les données de l\'application (tâches, enseignants, établissements, documents) est aussi enregistrée en JSON dans ce même dossier à chaque synchronisation. L\'application n\'accède qu\'aux fichiers qu\'elle crée elle-même dans votre Drive, jamais au reste de votre compte.</p>';
+      } else {
+        html += '<p style="font-size:11.5px;color:var(--ink-faint);margin-top:8px;">Toutes vos données restent d\'abord enregistrées sur cet appareil. La connexion à Google Drive est optionnelle : elle sert uniquement à sauvegarder une copie dans votre propre compte et à la retrouver sur un autre appareil. C\'est votre compte Google gratuit qui est utilisé — aucun frais ni passage par Claude.</p>';
+      }
+    } else if(tab==='profil'){
+      var p = state.templates.profil || DEFAULT_PROFIL;
+      html += '<p style="font-size:11.5px;color:var(--ink-faint);margin-bottom:10px;">Ces informations et images (cachet, signature) sont insérées automatiquement dans les documents administratifs que vous générez.</p>'+
+        '<div class="field"><label for="pNom">Nom complet</label><input type="text" id="pNom" value="'+esc(p.nom)+'"></div>'+
+        '<div class="field-row"><div class="field"><label for="pGrade">Grade</label><input type="text" id="pGrade" value="'+esc(p.grade)+'" placeholder="Ex. Inspecteur pédagogique"></div>'+
+        '<div class="field"><label for="pDoti">DOTI</label><input type="text" id="pDoti" value="'+esc(p.doti)+'"></div></div>'+
+        '<div class="field-row"><div class="field"><label for="pCin">CIN</label><input type="text" id="pCin" value="'+esc(p.cin)+'"></div>'+
+        '<div class="field"><label for="pRib">RIB</label><input type="text" id="pRib" value="'+esc(p.rib)+'"></div></div>'+
+        '<div class="field-row"><div class="field"><label for="pTel">Téléphone</label><input type="tel" id="pTel" value="'+esc(p.telephone)+'"></div>'+
+        '<div class="field"><label for="pEmail">Email</label><input type="email" id="pEmail" value="'+esc(p.email)+'"></div></div>'+
+        '<div class="field-row"><div class="field"><label for="pDateRec">Date de recrutement</label><input type="date" id="pDateRec" value="'+esc(p.dateRecrutement)+'"></div>'+
+        '<div class="field"><label for="pDateCadre">Date d\'accès au cadre</label><input type="date" id="pDateCadre" value="'+esc(p.dateCadre)+'"></div></div>'+
+        '<div class="field"><label for="pDateAff">Date d\'affectation actuelle</label><input type="date" id="pDateAff" value="'+esc(p.dateAffectation)+'"></div>'+
+        profilImageFieldHtml('logo', 'Logo / en-tête', p.logoAssetId)+
+        profilImageFieldHtml('cachet', 'Cachet', p.cachetAssetId)+
+        profilImageFieldHtml('signature', 'Signature', p.signatureAssetId)+
+        '<div class="btn-row"><button class="btn primary" id="btnSaveProfil" type="button">Enregistrer le profil</button></div>';
+    } else {
+      html += '<div class="field"><label for="tmplEntete">En-tête des documents (utilisé sur les impressions)</label><textarea id="tmplEntete" rows="2">'+esc(state.templates.entete)+'</textarea></div>'+
+        '<div class="field"><label>Critères de la grille d\'observation</label><div id="critList">'+
+        state.templates.criteres.map(function(c2,i){ return '<div class="rowline"><input type="text" class="crit-input" data-i="'+i+'" value="'+esc(c2)+'" style="flex:1;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;"><button class="rm" data-rmcrit="'+i+'" type="button">'+ICONS.trash+'</button></div>'; }).join('')+
+        '</div><button class="addline" id="btnAddCrit" type="button">'+ICONS.plus+' Ajouter un critère</button></div>'+
+        '<div class="btn-row"><button class="btn ghost" id="btnResetTmpl" type="button">Réinitialiser</button><button class="btn primary" id="btnSaveTmpl" type="button">Enregistrer les modèles</button></div>';
+    }
+    html += '</div></div>';
+    return html;
+  }
+  function profilImageFieldHtml(key, label, assetId){
+    var img = assetId ? '<img src="'+assetUrl(assetId)+'" alt="" style="max-height:60px;max-width:160px;border:1px solid var(--line);border-radius:8px;background:#fff;display:block;margin-bottom:8px;">' : '';
+    return '<div class="field"><label>'+label+'</label>'+img+
+      '<div class="btn-row"><button class="btn ghost sm" data-picprofil="'+key+'" type="button">'+ICONS.upload+' '+(assetId?'Remplacer':'Ajouter une image')+'</button>'+
+      (assetId ? '<button class="btn ghost sm" data-rmprofil="'+key+'" type="button">Retirer</button>' : '')+'</div></div>';
+  }
+
+  /* ---- generic record picker (enseignant / etablissement / zone) ---- */
+  function pickerModalHtml(idx, m){
+    var kind = m.kind;
+    var title = kind==='enseignant' ? 'Choisir un enseignant' : (kind==='etablissement' ? 'Choisir un établissement' : 'Choisir un document');
+    var html = '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
+      '<div class="sheet-head"><h2>'+title+'</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>';
+    if(kind==='drivedoc'){
+      html += '<div class="search-row"><input type="text" id="pickerSearch" placeholder="Rechercher…"><button type="button" id="pickerSearchBtn">OK</button></div><div class="doc-list" style="margin-top:10px;">';
+      if(state.docsLoading) html += '<div class="empty">Chargement…</div>';
+      else if(!state.docs.length) html += '<div class="empty">Aucun document.</div>';
+      else html += state.docs.map(function(f){ return '<div class="doc-row" data-pickfile="'+f.id+'" style="cursor:pointer;"><div class="doc-ico">'+docIcon(f.mimeType,f.fileExtension)+'</div><div class="doc-info"><div class="t">'+esc(f.title)+'</div><div class="s tnum">'+fmtDate(f.modifiedTime)+'</div></div></div>'; }).join('');
+      html += '</div>';
+    } else {
+      var list = kind==='enseignant' ? state.enseignants.slice().sort(function(a,b){return a.nom.localeCompare(b.nom);})
+        : state.etablissements.slice().sort(function(a,b){return a.nom.localeCompare(b.nom);});
+      html += '<div class="rec-list">'+list.map(function(r){
+        var sub = kind==='enseignant' ? etabName(r.etablissementId) : zoneName(r.zoneId);
+        var av = kind==='enseignant' ? (r.photoAssetId?'<img src="'+assetUrl(r.photoAssetId)+'" alt="">':initials(r.nom)) : ICONS.folder;
+        return '<div class="rec-row" data-pickrec="'+r.id+'"><div class="avatar">'+av+'</div><div class="rec-info"><div class="t">'+esc(r.nom)+'</div><div class="s">'+esc(sub||'')+'</div></div></div>';
+      }).join('')+'</div>';
+      if(!list.length) html += '<div class="empty">Aucun enregistrement. Ajoutez-en un depuis l\'onglet correspondant.</div>';
+    }
+    html += '</div></div>';
+    return html;
+  }
+
+  /* ---- Enseignant editor ---- */
+  function enseignantModalHtml(idx){
+    var e = state.draftRecord;
+    var av = e.photoAssetId ? '<img src="'+assetUrl(e.photoAssetId)+'" alt="">' : initials(e.nom);
+    var html = '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
+      '<div class="sheet-head"><h2>'+(state.modalStack[idx].isNew?'Nouvel enseignant':'Modifier')+'</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
+      '<div class="field photo-picker"><div class="avatar">'+av+'</div><button class="btn ghost sm" id="btnPickPhoto" type="button">'+ICONS.cam+' Photo</button>'+(e.photoAssetId?'<button class="btn ghost sm" id="btnRmPhoto" type="button">Retirer</button>':'')+'</div>'+
+      '<div class="field"><label for="eNom">Nom complet</label><input type="text" id="eNom" value="'+esc(e.nom)+'" placeholder="Nom et prénom"></div>'+
+      '<div class="field"><label>Établissement</label><button type="button" class="pickbtn" id="btnPickEtab2"><span class="'+(etabName(e.etablissementId)?'':'ph')+' t">'+esc(etabName(e.etablissementId)||'Choisir un établissement…')+'</span></button></div>'+
+      '<div class="field-row"><div class="field"><label for="eMatiere">Matière</label><input type="text" id="eMatiere" value="'+esc(e.matiere)+'"></div>'+
+      '<div class="field"><label for="eCycle">Cycle</label><input type="text" id="eCycle" value="'+esc(e.cycle)+'" placeholder="TC / 1BAC / 2BAC"></div></div>'+
+      '<div class="field-row"><div class="field"><label for="eTel">Téléphone</label><input type="tel" id="eTel" value="'+esc(e.telephone)+'"></div>'+
+      '<div class="field"><label for="eEmail">Email</label><input type="email" id="eEmail" value="'+esc(e.email)+'"></div></div>'+
+      '<div class="field"><label for="eCadre">Cadre / échelle</label><input type="text" id="eCadre" value="'+esc(e.cadre)+'" placeholder="Ex. PES, échelle 11"></div>'+
+      '<div class="field"><label>Statut</label><div class="seg" id="eStatutSeg">'+STATUT_ENS.map(function(s){ return '<button type="button" data-v="'+s.v+'" aria-pressed="'+(e.statut===s.v)+'">'+s.l+'</button>'; }).join('')+'</div></div>'+
+      (e.statut==='stagiaire' ? ('<div class="field"><label for="eSession">Session de titularisation visée</label><select id="eSession" style="width:100%;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:10px 11px;"><option value="">— Choisir —</option>'+
+        TITU_SESSIONS.map(function(s){ return '<option value="'+s.v+'"'+(e.sessionTitularisation===s.v?' selected':'')+'>'+s.l+'</option>'; }).join('')+'</select>'+
+        (function(){ var w = titularisationWindow(e.sessionTitularisation); return w ? '<p style="font-size:11.5px;color:var(--ink-faint);margin:6px 2px 0;">Prochaine fenêtre : '+fmtDate(isoDate(w.start))+' – '+fmtDate(isoDate(w.end))+'.</p><div class="btn-row" style="margin-top:8px;"><button class="btn ghost sm" id="btnPlanStagiaire" type="button">'+ICONS.plus+' Programmer une inspection pour cette session</button></div>' : ''; })()+
+        '</div>') : '')+
+      '<div class="field"><label>Horaire hebdomadaire</label><div id="horaireList">'+(e.horaire||[]).map(horaireLineHtml).join('')+'</div>'+
+      '<button class="addline" id="btnAddHoraire" type="button">'+ICONS.plus+' Ajouter un créneau</button></div>'+
+      '<div class="field"><label>Pièces jointes</label><div id="attachList">'+(e.attachments||[]).map(function(a,i){ return '<div class="attach-row"><span class="t">'+esc(a.titre)+'</span><a href="'+assetUrl(a.assetId)+'" target="_blank" rel="noopener" class="icon-btn" style="width:30px;height:30px;">'+ICONS.ext+'</a><button class="icon-btn" data-rmattach="'+i+'" style="width:30px;height:30px;color:var(--danger);">'+ICONS.trash+'</button></div>'; }).join('')+'</div>'+
+      '<button class="addline" id="btnAddAttach" type="button">'+ICONS.upload+' Joindre un document/photo</button></div>'+
+      '<div class="field"><label for="eNotes">Notes</label><textarea id="eNotes">'+esc(e.notes)+'</textarea></div>'+
+      '<div class="btn-row">'+(state.modalStack[idx].isNew?'':'<button class="btn danger" id="btnDeleteEns" type="button">Supprimer</button>')+'<button class="btn primary" id="btnSaveEns" type="button">Enregistrer</button></div>'+
+      '</div></div>';
+    return html;
+  }
+  function horaireLineHtml(sl, i){
+    return '<div class="rowline"><select data-hor="jour" data-i="'+i+'" style="flex:1.3;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 6px;">'+
+      JOURS.map(function(j){ return '<option value="'+j+'"'+(sl.jour===j?' selected':'')+'>'+j+'</option>'; }).join('')+'</select>'+
+      '<input type="time" data-hor="debut" data-i="'+i+'" value="'+esc(sl.debut||'08:00')+'" style="border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 4px;width:82px;">'+
+      '<input type="time" data-hor="fin" data-i="'+i+'" value="'+esc(sl.fin||'09:00')+'" style="border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 4px;width:82px;">'+
+      '<button class="rm" data-rmhor="'+i+'" type="button">'+ICONS.trash+'</button></div>'+
+      '<div class="rowline" style="margin-top:-3px;"><input type="text" data-hor="classe" data-i="'+i+'" value="'+esc(sl.classe||'')+'" placeholder="Classe" style="flex:1;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:8px 9px;font-size:12.5px;">'+
+      '<input type="text" data-hor="matiere" data-i="'+i+'" value="'+esc(sl.matiere||'')+'" placeholder="Matière" style="flex:1;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:8px 9px;font-size:12.5px;">'+
+      '<input type="text" data-hor="salle" data-i="'+i+'" value="'+esc(sl.salle||'')+'" placeholder="Salle" style="flex:1;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:8px 9px;font-size:12.5px;"></div>';
+  }
+
+  /* ---- Etablissement / Zone editors ---- */
+  function etablissementModalHtml(idx){
+    var e = state.draftRecord;
+    return '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
+      '<div class="sheet-head"><h2>'+(state.modalStack[idx].isNew?'Nouvel établissement':'Modifier')+'</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
+      '<div class="field"><label for="etNom">Nom</label><input type="text" id="etNom" value="'+esc(e.nom)+'"></div>'+
+      '<div class="field"><label>Zone</label><select id="etZone" style="width:100%;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:10px 11px;"><option value="">— Aucune —</option>'+
+      state.zones.map(function(z){ return '<option value="'+z.id+'"'+(e.zoneId===z.id?' selected':'')+'>'+esc(z.nom)+'</option>'; }).join('')+'</select></div>'+
+      '<div class="field"><label>Type</label><div class="seg" id="etTypeSeg">'+ETAB_TYPES.map(function(t){ return '<button type="button" data-v="'+t.v+'" aria-pressed="'+(e.type===t.v)+'">'+t.l+'</button>'; }).join('')+'</div></div>'+
+      '<div class="field"><label>Cycle</label><div class="seg" id="etCycleSeg">'+ETAB_CYCLES.map(function(c){ return '<button type="button" data-v="'+c.v+'" aria-pressed="'+(e.cycle===c.v)+'">'+c.l+'</button>'; }).join('')+'</div>'+
+      '<p style="font-size:11px;color:var(--ink-faint);margin:5px 2px 0;">Le primaire ne compte qu\'un seul cycle ; en secondaire, une même zone d\'inspection peut réunir des établissements collégiaux et qualifiants.</p></div>'+
+      '<div class="field"><label for="etAdr">Adresse</label><input type="text" id="etAdr" value="'+esc(e.adresse)+'"></div>'+
+      '<div class="field"><label for="etTel">Téléphone</label><input type="tel" id="etTel" value="'+esc(e.telephone)+'"></div>'+
+      '<div class="field"><label for="etNotes">Notes</label><textarea id="etNotes">'+esc(e.notes)+'</textarea></div>'+
+      '<div class="btn-row">'+(state.modalStack[idx].isNew?'':'<button class="btn danger" id="btnDeleteEtab" type="button">Supprimer</button>')+'<button class="btn primary" id="btnSaveEtab" type="button">Enregistrer</button></div>'+
+      '</div></div>';
+  }
+  function zoneModalHtml(idx){
+    var z = state.draftRecord;
+    return '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
+      '<div class="sheet-head"><h2>'+(state.modalStack[idx].isNew?'Nouvelle zone':'Modifier la zone')+'</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
+      '<div class="field"><label for="zNom">Nom de la zone d\'inspection</label><input type="text" id="zNom" value="'+esc(z.nom)+'"></div>'+
+      '<div class="field"><label for="zDP">Direction provinciale</label><input type="text" id="zDP" value="'+esc(z.directionProvinciale)+'" placeholder="Ex. DP Sefrou"></div>'+
+      '<div class="field"><label for="zNotes">Notes</label><textarea id="zNotes">'+esc(z.notes)+'</textarea></div>'+
+      '<div class="btn-row">'+(state.modalStack[idx].isNew?'':'<button class="btn danger" id="btnDeleteZone" type="button">Supprimer</button>')+'<button class="btn primary" id="btnSaveZone" type="button">Enregistrer</button></div>'+
+      '</div></div>';
+  }
+
+  /* ---- Document editor ---- */
+  function docEditModalHtml(idx, m){
+    var d = state.draftDoc, task = state.tasks.find(function(t){ return t.id===m.taskId; });
+    var body = '';
+    if(m.docType==='presence'){
+      body += '<div class="field"><label for="dObjet">Objet</label><input type="text" id="dObjet" value="'+esc(d.objet)+'"></div>'+
+        '<div class="field-row"><div class="field"><label for="dLieu">Lieu</label><input type="text" id="dLieu" value="'+esc(d.lieu)+'"></div><div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div></div>'+
+        '<div class="field"><label>Participants</label><div id="partList">'+(d.participants||[]).map(function(p,i){
+          return '<div class="rowline"><input type="text" data-part="nom" data-i="'+i+'" value="'+esc(p.nom)+'" placeholder="Nom" style="flex:1;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;">'+
+            '<input type="text" data-part="fonction" data-i="'+i+'" value="'+esc(p.fonction)+'" placeholder="Fonction" style="flex:1;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;"><button class="rm" data-rmpart="'+i+'" type="button">'+ICONS.trash+'</button></div>';
+        }).join('')+'</div><button class="addline" id="btnAddPart" type="button">'+ICONS.plus+' Ajouter un participant</button></div>';
+    } else if(m.docType==='compte_rendu'){
+      body += '<div class="field-row"><div class="field"><label for="dLieu">Lieu</label><input type="text" id="dLieu" value="'+esc(d.lieu)+'"></div><div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div></div>'+
+        '<div class="field"><label for="dPresents">Présents</label><input type="text" id="dPresents" value="'+esc(d.presents)+'"></div>'+
+        '<div class="field"><label for="dOJ">Ordre du jour</label><textarea id="dOJ">'+esc(d.ordreJour)+'</textarea></div>'+
+        '<div class="field"><label for="dPD">Points discutés</label><textarea id="dPD" rows="4">'+esc(d.pointsDiscutes)+'</textarea>'+
+        (state.sampleReady ? '<div class="btn-row"><button class="btn ai sm" id="btnAiPD" type="button">'+ICONS.ai+' Rédiger avec l\'IA (à partir de notes)</button></div><div class="banner info" id="aiPDStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>'+
+        '<div class="field"><label for="dDec">Décisions</label><textarea id="dDec">'+esc(d.decisions)+'</textarea></div>'+
+        '<div class="field"><label>Plan d\'action</label><div id="actList">'+(d.actions||[]).map(function(a,i){
+          return '<div class="rowline"><input type="text" data-act="action" data-i="'+i+'" value="'+esc(a.action)+'" placeholder="Action" style="flex:2;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;">'+
+            '<input type="text" data-act="responsable" data-i="'+i+'" value="'+esc(a.responsable)+'" placeholder="Responsable" style="flex:1;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;">'+
+            '<input type="date" data-act="echeance" data-i="'+i+'" value="'+esc(a.echeance)+'" style="border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 6px;"><button class="rm" data-rmact="'+i+'" type="button">'+ICONS.trash+'</button></div>';
+        }).join('')+'</div><button class="addline" id="btnAddAct" type="button">'+ICONS.plus+' Ajouter une action</button></div>';
+    } else if(m.docType==='observation'){
+      body += '<div class="field-row"><div class="field"><label for="dEns">Enseignant(e)</label><input type="text" id="dEns" value="'+esc(d.enseignantNom)+'"></div><div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div></div>'+
+        '<div class="field-row"><div class="field"><label for="dClasse">Classe</label><input type="text" id="dClasse" value="'+esc(d.classe)+'"></div><div class="field"><label for="dMat">Matière</label><input type="text" id="dMat" value="'+esc(d.matiere)+'"></div><div class="field"><label for="dDuree">Durée</label><input type="text" id="dDuree" value="'+esc(d.duree)+'" placeholder="50 min"></div></div>'+
+        '<div class="field"><label>Critères d\'observation</label>'+(d.criteres||[]).map(function(c,i){
+          return '<div class="crit-card"><div class="cn">'+esc(c.nom)+'</div><div class="seg" data-critnote="'+i+'">'+NOTE_SCALE.map(function(n){ return '<button type="button" data-v="'+n+'" aria-pressed="'+(c.note===n)+'">'+n+'</button>'; }).join('')+'</div>'+
+            '<textarea data-critcomment="'+i+'" placeholder="Commentaire" style="margin-top:7px;width:100%;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px 9px;min-height:44px;">'+esc(c.commentaire)+'</textarea></div>';
+        }).join('')+'</div>'+
+        '<div class="field"><label for="dPF">Points forts</label><textarea id="dPF">'+esc(d.pointsForts)+'</textarea></div>'+
+        '<div class="field"><label for="dAA">Axes d\'amélioration</label><textarea id="dAA">'+esc(d.axesAmelioration)+'</textarea></div>'+
+        '<div class="field"><label for="dSynth">Synthèse</label><textarea id="dSynth" rows="4">'+esc(d.synthese)+'</textarea>'+
+        (state.sampleReady ? '<div class="btn-row"><button class="btn ai sm" id="btnAiSynth" type="button">'+ICONS.ai+' Proposer une synthèse</button></div><div class="banner info" id="aiSynthStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>';
+    } else if(m.docType==='rapport'){
+      body += '<div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div>'+
+        '<div class="field"><label for="dTexte">Rapport</label><textarea id="dTexte" rows="8">'+esc(d.texte)+'</textarea>'+
+        (state.sampleReady ? '<div class="btn-row"><button class="btn ai sm" id="btnAiRapport" type="button">'+ICONS.ai+' Rédiger avec l\'IA</button></div><div class="banner info" id="aiRapportStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>';
+    } else if(m.docType==='attestation'){
+      body += '<div class="field-row"><div class="field"><label for="dBenef">Bénéficiaire</label><input type="text" id="dBenef" value="'+esc(d.beneficiaireNom)+'"></div><div class="field"><label for="dFonction">Fonction</label><input type="text" id="dFonction" value="'+esc(d.fonction)+'"></div></div>'+
+        '<div class="field-row"><div class="field"><label for="dLieu">Lieu</label><input type="text" id="dLieu" value="'+esc(d.lieu)+'"></div><div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div></div>'+
+        '<div class="field"><label for="dObjet">Objet</label><input type="text" id="dObjet" value="'+esc(d.objet)+'"></div>';
+    } else if(m.docType==='lettre_information'){
+      body += '<div class="field"><label for="dDestinataire">Destinataire</label><input type="text" id="dDestinataire" value="'+esc(d.destinataire)+'"></div>'+
+        '<div class="field-row"><div class="field"><label for="dObjet">Objet</label><input type="text" id="dObjet" value="'+esc(d.objet)+'"></div><div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div></div>'+
+        '<div class="field"><label for="dCorps">Corps de la lettre</label><textarea id="dCorps" rows="6">'+esc(d.corps)+'</textarea>'+
+        (state.sampleReady ? '<div class="btn-row"><button class="btn ai sm" id="btnAiLettre" type="button">'+ICONS.ai+' Rédiger avec l\'IA</button></div><div class="banner info" id="aiLettreStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>';
+    } else if(m.docType==='rapport_inspection'){
+      body += '<div class="field-row"><div class="field"><label for="dEns">Enseignant(e)</label><input type="text" id="dEns" value="'+esc(d.enseignantNom)+'"></div><div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div></div>'+
+        '<div class="field-row"><div class="field"><label for="dLieu">Établissement</label><input type="text" id="dLieu" value="'+esc(d.lieu)+'"></div><div class="field"><label for="dClasse">Classe</label><input type="text" id="dClasse" value="'+esc(d.classe)+'"></div><div class="field"><label for="dMat">Matière</label><input type="text" id="dMat" value="'+esc(d.matiere)+'"></div></div>'+
+        '<div class="field"><label>Appréciation générale</label><div class="seg" id="dAppSeg">'+NOTE_SCALE.map(function(n){ return '<button type="button" data-v="'+n+'" aria-pressed="'+(d.appreciation===n)+'">'+n+'</button>'; }).join('')+'</div></div>'+
+        '<div class="field"><label for="dConstats">Constats</label><textarea id="dConstats" rows="4">'+esc(d.constats)+'</textarea></div>'+
+        '<div class="field"><label for="dRecom">Recommandations</label><textarea id="dRecom" rows="4">'+esc(d.recommandations)+'</textarea>'+
+        (state.sampleReady ? '<div class="btn-row"><button class="btn ai sm" id="btnAiRecom" type="button">'+ICONS.ai+' Proposer des recommandations</button></div><div class="banner info" id="aiRecomStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>';
+    } else {
+      body += '<div class="field-row"><div class="field"><label for="dDestinataire">Destinataire</label><input type="text" id="dDestinataire" value="'+esc(d.destinataire)+'"></div><div class="field"><label for="dRef">Référence</label><input type="text" id="dRef" value="'+esc(d.reference)+'" placeholder="N° .../2026"></div></div>'+
+        '<div class="field-row"><div class="field"><label for="dObjet">Objet</label><input type="text" id="dObjet" value="'+esc(d.objet)+'"></div><div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div></div>'+
+        '<div class="field"><label>Pièces jointes</label><div id="piecesList">'+(d.pieces||[]).map(function(p,i){
+          return '<div class="rowline"><input type="text" data-piece="designation" data-i="'+i+'" value="'+esc(p.designation)+'" placeholder="Désignation" style="flex:2;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;">'+
+            '<input type="text" data-piece="nombre" data-i="'+i+'" value="'+esc(p.nombre)+'" placeholder="Nombre" style="width:70px;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;"><button class="rm" data-rmpiece="'+i+'" type="button">'+ICONS.trash+'</button></div>';
+        }).join('')+'</div><button class="addline" id="btnAddPiece" type="button">'+ICONS.plus+' Ajouter une pièce</button></div>'+
+        '<div class="field"><label for="dObs">Observations</label><textarea id="dObs">'+esc(d.observations)+'</textarea></div>';
+    }
+    var rtl = !!RTL_DOC_TYPES[m.docType];
+    return '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
+      '<div class="sheet-head"><h2>'+DOC_TYPE_INFO[m.docType].label+'</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
+      body+'<div class="btn-row">'+(m.isNew?'':'<button class="btn danger" id="btnDeleteDoc" type="button">Supprimer</button>')+
+      '<button class="btn primary" id="btnSaveDoc" type="button">Enregistrer</button></div>'+
+      '<div class="section-label" style="margin-top:14px;">Générer un fichier</div>'+
+      (rtl ? '<p style="font-size:11px;color:var(--ink-faint);margin:2px 0 6px;">Ce document est rédigé en arabe (عربي) : utilisez « Imprimer » ou « Word » pour un rendu correct — le PDF direct ne gère pas encore l\'arabe.</p>' : '')+
+      '<div class="setup-actions" style="margin-top:6px;">'+
+      '<button class="btn ghost sm" id="btnPrintDoc" type="button">'+ICONS.print+' Imprimer</button>'+
+      (rtl ? '' : '<button class="btn ghost sm" id="btnPdfDoc" type="button">'+ICONS.pdf+' PDF</button>')+
+      '<button class="btn ghost sm" id="btnDocxDoc" type="button">'+ICONS.doc+' Word (.docx)</button></div>'+
+      '<div class="banner info" id="genDocStatus" hidden style="margin-top:8px;"></div>'+
+      '</div></div>';
+  }
+
+  /* ================= wire modal events ================= */
+  function wireModalEvents(){
+    document.querySelectorAll('[data-close-modal]').forEach(function(el){ el.onclick = function(){ closeTopModal(); }; });
+    document.querySelectorAll('.overlay').forEach(function(el){ el.addEventListener('click', function(ev){ if(ev.target===el) closeTopModal(); }); });
+
+    /* -- task editor -- */
+    function syncTaskFields(){
+      var t = state.draftTask, el;
+      el=$('fTitre'); if(el) t.titre=el.value; el=$('fEcheance'); if(el) t.echeance=el.value; el=$('fDesc'); if(el) t.description=el.value;
+      el=$('fNotif'); if(el) t.notificationEnvoyee=el.checked;
+    }
+    var selType = $('fTypeSel'); if(selType) selType.onchange = function(){ syncTaskFields(); state.draftTask.taskType=selType.value; render(); };
+    var segP = $('fPrioSeg'); if(segP) segP.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ syncTaskFields(); state.draftTask.priorite=b.getAttribute('data-v'); render(); }; });
+    var segNote = $('fNoteSeg'); if(segNote) segNote.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ syncTaskFields(); state.draftTask.noteGlobale=b.getAttribute('data-v'); render(); }; });
+    var bpe = $('btnPickEtab'); if(bpe) bpe.onclick = function(){ syncTaskFields(); openPicker('etablissement', function(r){ state.draftTask.etablissementId=r.id; state.draftTask.etablissementNom=r.nom; }); };
+    var bpn = $('btnPickEns'); if(bpn) bpn.onclick = function(){ syncTaskFields(); openPicker('enseignant', function(r){ state.draftTask.enseignantId=r.id; state.draftTask.enseignantNom=r.nom; }); };
+    var saveBtn = $('btnSaveTask');
+    if(saveBtn) saveBtn.onclick = function(){
+      syncTaskFields();
+      var t = state.draftTask;
+      t.titre = (t.titre||'').trim() || '(sans titre)';
+      recordSet('task', t).then(function(){ closeTopModal(); toast('Tâche enregistrée.'); }).catch(function(){ toast('Échec de l\'enregistrement.'); });
+    };
+    var delBtn = $('btnDeleteTask'); if(delBtn) delBtn.onclick = function(){ recordDelete('task', state.draftTask.id).then(function(){ closeTopModal(); toast('Tâche supprimée.'); }); };
+
+    /* -- task detail -- */
+    var stepper = $('wfStepper');
+    if(stepper) stepper.querySelectorAll('.step').forEach(function(b){
+      b.onclick = function(){
+        var m = state.modalStack[state.modalStack.length-1];
+        var t = state.tasks.find(function(x){ return x.id===m.taskId; });
+        if(t){ var nt=Object.assign({},t,{statut:b.getAttribute('data-v')}); recordSet('task', nt); }
+      };
+    });
+    document.querySelectorAll('[data-newdoc]').forEach(function(el){ el.onclick = function(){ var m=state.modalStack[state.modalStack.length-1]; openDocEditor(m.taskId, el.getAttribute('data-newdoc'), null); }; });
+    document.querySelectorAll('[data-opendoc]').forEach(function(el){ el.onclick = function(){ var d=state.documents.find(function(x){ return x.id===el.getAttribute('data-opendoc'); }); if(d) openDocEditor(d.taskId, d.type, d); }; });
+    var editTaskBtn = $('btnEditTask'); if(editTaskBtn) editTaskBtn.onclick = function(){ var m=state.modalStack[state.modalStack.length-1]; var t=state.tasks.find(function(x){return x.id===m.taskId;}); openTaskEditor(t); };
+    var delTask2 = $('btnDeleteTask2'); if(delTask2) delTask2.onclick = function(){ var m=state.modalStack[state.modalStack.length-1]; recordDelete('task', m.taskId).then(function(){ closeTopModal(); toast('Tâche supprimée.'); }); };
+
+    /* -- settings -- */
+    document.querySelectorAll('[data-stab]').forEach(function(el){ el.onclick=function(){ var m=state.modalStack[state.modalStack.length-1]; m.tab=el.getAttribute('data-stab'); render(); }; });
+    var btnConnectDrive = $('btnConnectDrive'); if(btnConnectDrive) btnConnectDrive.onclick = connectGoogleDrive;
+    var btnDisconnectDrive = $('btnDisconnectDrive'); if(btnDisconnectDrive) btnDisconnectDrive.onclick = disconnectGoogleDrive;
+    var btnCreateSheet = $('btnCreateSheet'); if(btnCreateSheet) btnCreateSheet.onclick = createSheet;
+    var btnUnlink = $('btnUnlink'); if(btnUnlink) btnUnlink.onclick = unlinkSheet;
+    var btnShowLink = $('btnShowLink'); if(btnShowLink) btnShowLink.onclick = function(){ var m=state.modalStack[state.modalStack.length-1]; m.linkMode=true; render(); };
+    var sheetSearchBtn = $('sheetSearchBtn');
+    if(sheetSearchBtn) sheetSearchBtn.onclick = function(){
+      var q = $('sheetSearch').value.trim();
+      var query = "mimeType = 'application/vnd.google-apps.spreadsheet'" + (q ? " and title contains '"+q.replace(/'/g,"\\'")+"'" : '');
+      $('sheetResults').innerHTML = '<div class="empty">Recherche…</div>';
+      mcpCall('search_files', {query: query, pageSize: 10, excludeContentSnippets:true}).then(function(res){
+        var files = (res.payload && res.payload.files) || [];
+        $('sheetResults').innerHTML = files.length ? files.map(function(f){ return '<div class="doc-row" data-linksheet="'+f.id+'" style="cursor:pointer;"><div class="doc-ico">'+ICONS.sheet+'</div><div class="doc-info"><div class="t">'+esc(f.title)+'</div><div class="s tnum">'+fmtDate(f.modifiedTime)+'</div></div></div>'; }).join('') : '<div class="empty">Aucune feuille trouvée.</div>';
+        $('sheetResults').querySelectorAll('[data-linksheet]').forEach(function(el){ el.onclick = function(){ var f=files.find(function(x){return x.id===el.getAttribute('data-linksheet');}); if(f){ linkExistingSheet(f); closeTopModal(); } }; });
+      }).catch(function(err){ $('sheetResults').innerHTML = '<div class="banner err">'+ICONS.warn+'<div>'+esc(mcpErrorMessage(err))+'</div></div>'; });
+    };
+    var critList = $('critList');
+    if(critList){
+      document.querySelectorAll('[data-rmcrit]').forEach(function(el){ el.onclick=function(){ state.templates.criteres.splice(parseInt(el.getAttribute('data-rmcrit')),1); render(); }; });
+      var addCrit = $('btnAddCrit'); if(addCrit) addCrit.onclick = function(){ syncCritInputs(); state.templates.criteres.push('Nouveau critère'); render(); };
+      var saveTmpl = $('btnSaveTmpl'); if(saveTmpl) saveTmpl.onclick = function(){ syncCritInputs(); templatesSet({entete:$('tmplEntete').value, criteres: state.templates.criteres}); toast('Modèles enregistrés.'); };
+      var resetTmpl = $('btnResetTmpl'); if(resetTmpl) resetTmpl.onclick = function(){ templatesSet({entete:DEFAULT_ENTETE, criteres:DEFAULT_CRITERES.slice()}); toast('Modèles réinitialisés.'); };
+    }
+    function syncCritInputs(){ document.querySelectorAll('.crit-input').forEach(function(inp){ state.templates.criteres[parseInt(inp.getAttribute('data-i'))] = inp.value; }); }
+
+    /* -- profil inspecteur -- */
+    function syncProfilFields(){
+      var p = state.templates.profil, el;
+      el=$('pNom'); if(el) p.nom=el.value; el=$('pGrade'); if(el) p.grade=el.value; el=$('pDoti'); if(el) p.doti=el.value;
+      el=$('pCin'); if(el) p.cin=el.value; el=$('pRib'); if(el) p.rib=el.value; el=$('pTel'); if(el) p.telephone=el.value;
+      el=$('pEmail'); if(el) p.email=el.value; el=$('pDateRec'); if(el) p.dateRecrutement=el.value;
+      el=$('pDateCadre'); if(el) p.dateCadre=el.value; el=$('pDateAff'); if(el) p.dateAffectation=el.value;
+    }
+    document.querySelectorAll('[data-picprofil]').forEach(function(el){
+      el.onclick = function(){ syncProfilFields(); var key=el.getAttribute('data-picprofil'); profilImageTarget=key; $('file'+key.charAt(0).toUpperCase()+key.slice(1)+'Input').click(); };
+    });
+    document.querySelectorAll('[data-rmprofil]').forEach(function(el){
+      el.onclick = function(){
+        syncProfilFields();
+        var key=el.getAttribute('data-rmprofil'), p=state.templates.profil, field=key+'AssetId';
+        if(p[field]) removeAsset(p[field]);
+        p[field]=null; templatesSet({profil:p}); render();
+      };
+    });
+    var btnSaveProfil = $('btnSaveProfil'); if(btnSaveProfil) btnSaveProfil.onclick = function(){ syncProfilFields(); templatesSet({profil:state.templates.profil}); toast('Profil enregistré.'); };
+
+    /* -- picker -- */
+    document.querySelectorAll('[data-pickrec]').forEach(function(el){
+      el.onclick = function(){
+        var kind = state.pickTarget.kind;
+        var arr = kind==='enseignant' ? state.enseignants : state.etablissements;
+        var r = arr.find(function(x){ return x.id===el.getAttribute('data-pickrec'); });
+        if(r && state.pickTarget.onPick) state.pickTarget.onPick(r);
+        closeTopModal();
+      };
+    });
+    document.querySelectorAll('[data-pickfile]').forEach(function(el){
+      el.onclick = function(){
+        var f = state.docs.find(function(x){ return x.id===el.getAttribute('data-pickfile'); });
+        if(f && state.pickTarget && state.pickTarget.onPick) state.pickTarget.onPick(f);
+        closeTopModal();
+      };
+    });
+    var pickerSearchBtn = $('pickerSearchBtn'); if(pickerSearchBtn) pickerSearchBtn.onclick = function(){ searchDocs($('pickerSearch').value.trim()); };
+
+    /* -- enseignant editor -- */
+    function syncHoraireInputs(){
+      document.querySelectorAll('[data-hor]').forEach(function(inp){
+        var i = parseInt(inp.getAttribute('data-i')), f = inp.getAttribute('data-hor');
+        if(state.draftRecord.horaire[i]) state.draftRecord.horaire[i][f] = inp.value;
+      });
+    }
+    function syncEnsFields(){
+      syncHoraireInputs();
+      var e = state.draftRecord, el;
+      el=$('eNom'); if(el) e.nom=el.value; el=$('eMatiere'); if(el) e.matiere=el.value; el=$('eCycle'); if(el) e.cycle=el.value;
+      el=$('eTel'); if(el) e.telephone=el.value; el=$('eEmail'); if(el) e.email=el.value; el=$('eNotes'); if(el) e.notes=el.value;
+      el=$('eCadre'); if(el) e.cadre=el.value; el=$('eSession'); if(el) e.sessionTitularisation=el.value;
+    }
+    var segStatutEns = $('eStatutSeg'); if(segStatutEns) segStatutEns.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ syncEnsFields(); state.draftRecord.statut=b.getAttribute('data-v'); render(); }; });
+    var selSession = $('eSession'); if(selSession) selSession.onchange = function(){ syncEnsFields(); state.draftRecord.sessionTitularisation=selSession.value; render(); };
+    var btnPlanStag = $('btnPlanStagiaire');
+    if(btnPlanStag) btnPlanStag.onclick = function(){
+      syncEnsFields();
+      var e = state.draftRecord, w = titularisationWindow(e.sessionTitularisation);
+      openTaskEditorPrefilled({ titre:'Inspection titularisation – '+(e.nom||''), taskType:'inspection',
+        enseignantId:e.id, enseignantNom:e.nom, etablissementId:e.etablissementId, etablissementNom:etabName(e.etablissementId),
+        echeance: w ? isoDate(w.start) : '' });
+    };
+    var btnPickEtab2 = $('btnPickEtab2'); if(btnPickEtab2) btnPickEtab2.onclick = function(){ syncEnsFields(); openPicker('etablissement', function(r){ state.draftRecord.etablissementId=r.id; }); };
+    var btnPickPhoto = $('btnPickPhoto'); if(btnPickPhoto) btnPickPhoto.onclick = function(){ syncEnsFields(); $('filePhotoInput').click(); };
+    var btnRmPhoto = $('btnRmPhoto'); if(btnRmPhoto) btnRmPhoto.onclick = function(){ syncEnsFields(); state.draftRecord.photoAssetId=null; render(); };
+    var btnAddHoraire = $('btnAddHoraire'); if(btnAddHoraire) btnAddHoraire.onclick = function(){ syncEnsFields(); state.draftRecord.horaire.push({jour:'Lundi',debut:'08:00',fin:'09:00',matiere:'',classe:'',salle:''}); render(); };
+    document.querySelectorAll('[data-rmhor]').forEach(function(el){ el.onclick=function(){ syncEnsFields(); state.draftRecord.horaire.splice(parseInt(el.getAttribute('data-rmhor')),1); render(); }; });
+    var btnAddAttach = $('btnAddAttach'); if(btnAddAttach) btnAddAttach.onclick = function(){ syncEnsFields(); $('fileAttachInput').click(); };
+    document.querySelectorAll('[data-rmattach]').forEach(function(el){ el.onclick=function(){ syncEnsFields(); state.draftRecord.attachments.splice(parseInt(el.getAttribute('data-rmattach')),1); render(); }; });
+    var saveEns = $('btnSaveEns');
+    if(saveEns) saveEns.onclick = function(){
+      syncEnsFields();
+      var e = state.draftRecord;
+      e.nom = (e.nom||'').trim() || '(sans nom)';
+      recordSet('enseignant', e).then(function(){ closeTopModal(); toast('Enseignant(e) enregistré(e).'); });
+    };
+    var delEns = $('btnDeleteEns'); if(delEns) delEns.onclick = function(){ recordDelete('enseignant', state.draftRecord.id).then(function(){ closeTopModal(); toast('Supprimé.'); }); };
+
+    /* -- etablissement / zone editors -- */
+    function syncEtabFields(){
+      var e = state.draftRecord, el;
+      el=$('etNom'); if(el) e.nom=el.value; el=$('etAdr'); if(el) e.adresse=el.value; el=$('etTel'); if(el) e.telephone=el.value; el=$('etNotes'); if(el) e.notes=el.value;
+    }
+    var segET = $('etTypeSeg'); if(segET) segET.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ syncEtabFields(); state.draftRecord.type=b.getAttribute('data-v'); render(); }; });
+    var segEC = $('etCycleSeg'); if(segEC) segEC.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ syncEtabFields(); state.draftRecord.cycle=b.getAttribute('data-v'); render(); }; });
+    var saveEtab = $('btnSaveEtab');
+    if(saveEtab) saveEtab.onclick = function(){
+      var e = state.draftRecord; e.nom=$('etNom').value.trim()||'(sans nom)'; e.zoneId=$('etZone').value||null; e.adresse=$('etAdr').value; e.telephone=$('etTel').value; e.notes=$('etNotes').value;
+      recordSet('etablissement', e).then(function(){ closeTopModal(); toast('Établissement enregistré.'); });
+    };
+    var delEtab = $('btnDeleteEtab'); if(delEtab) delEtab.onclick = function(){ recordDelete('etablissement', state.draftRecord.id).then(function(){ closeTopModal(); toast('Supprimé.'); }); };
+    var saveZone = $('btnSaveZone');
+    if(saveZone) saveZone.onclick = function(){
+      var z = state.draftRecord; z.nom=$('zNom').value.trim()||'(sans nom)'; z.directionProvinciale=$('zDP').value; z.notes=$('zNotes').value;
+      recordSet('zone', z).then(function(){ closeTopModal(); toast('Zone enregistrée.'); });
+    };
+    var delZone = $('btnDeleteZone'); if(delZone) delZone.onclick = function(){ recordDelete('zone', state.draftRecord.id).then(function(){ closeTopModal(); toast('Zone supprimée.'); }); };
+
+    /* -- document editor -- */
+    function syncDocGenericFields(){
+      var d = state.draftDoc;
+      ['dObjet:objet','dLieu:lieu','dDate:date','dPresents:presents','dOJ:ordreJour','dPD:pointsDiscutes','dDec:decisions',
+       'dEns:enseignantNom','dClasse:classe','dMat:matiere','dDuree:duree','dPF:pointsForts','dAA:axesAmelioration','dSynth:synthese','dTexte:texte',
+       'dBenef:beneficiaireNom','dFonction:fonction','dDestinataire:destinataire','dRef:reference','dCorps:corps',
+       'dConstats:constats','dRecom:recommandations','dObs:observations']
+        .forEach(function(pair){ var parts=pair.split(':'); var el=$(parts[0]); if(el) d[parts[1]]=el.value; });
+      document.querySelectorAll('[data-part]').forEach(function(inp){ var i=parseInt(inp.getAttribute('data-i')); if(d.participants[i]) d.participants[i][inp.getAttribute('data-part')]=inp.value; });
+      document.querySelectorAll('[data-act]').forEach(function(inp){ var i=parseInt(inp.getAttribute('data-i')); if(d.actions[i]) d.actions[i][inp.getAttribute('data-act')]=inp.value; });
+      document.querySelectorAll('[data-critcomment]').forEach(function(ta){ var i=parseInt(ta.getAttribute('data-critcomment')); if(d.criteres[i]) d.criteres[i].commentaire=ta.value; });
+      document.querySelectorAll('[data-piece]').forEach(function(inp){ var i=parseInt(inp.getAttribute('data-i')); if(d.pieces&&d.pieces[i]) d.pieces[i][inp.getAttribute('data-piece')]=inp.value; });
+    }
+    var segApp = $('dAppSeg'); if(segApp) segApp.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ syncDocGenericFields(); state.draftDoc.appreciation=b.getAttribute('data-v'); render(); }; });
+    var addPiece = $('btnAddPiece'); if(addPiece) addPiece.onclick = function(){ syncDocGenericFields(); (state.draftDoc.pieces=state.draftDoc.pieces||[]).push({designation:'',nombre:'1'}); render(); };
+    document.querySelectorAll('[data-rmpiece]').forEach(function(el){ el.onclick=function(){ syncDocGenericFields(); state.draftDoc.pieces.splice(parseInt(el.getAttribute('data-rmpiece')),1); render(); }; });
+    document.querySelectorAll('[data-critnote]').forEach(function(seg){
+      var i = parseInt(seg.getAttribute('data-critnote'));
+      seg.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ syncDocGenericFields(); state.draftDoc.criteres[i].note=b.getAttribute('data-v'); render(); }; });
+    });
+    var addPart = $('btnAddPart'); if(addPart) addPart.onclick = function(){ syncDocGenericFields(); state.draftDoc.participants.push({nom:'',fonction:'Enseignant(e)'}); render(); };
+    document.querySelectorAll('[data-rmpart]').forEach(function(el){ el.onclick=function(){ syncDocGenericFields(); state.draftDoc.participants.splice(parseInt(el.getAttribute('data-rmpart')),1); render(); }; });
+    var addAct = $('btnAddAct'); if(addAct) addAct.onclick = function(){ syncDocGenericFields(); state.draftDoc.actions.push({action:'',responsable:'',echeance:''}); render(); };
+    document.querySelectorAll('[data-rmact]').forEach(function(el){ el.onclick=function(){ syncDocGenericFields(); state.draftDoc.actions.splice(parseInt(el.getAttribute('data-rmact')),1); render(); }; });
+
+    var aiPD = $('btnAiPD'); if(aiPD) aiPD.onclick = function(){
+      var notes = $('dPD').value;
+      if(!notes.trim()){ toast('Ajoutez quelques notes/mots-clés dans le champ avant de lancer l\'IA.'); return; }
+      aiDraft(aiPD, $('aiPDStatus'), $('dPD'), "Tu rédiges pour un inspecteur pédagogique au Maroc. À partir de ces notes brèves, rédige un paragraphe formel et clair en français (compte-rendu de réunion, ton administratif sobre), sans inventer de faits non mentionnés :\n\n"+notes);
+    };
+    var aiSynth = $('btnAiSynth'); if(aiSynth) aiSynth.onclick = function(){
+      syncDocGenericFields();
+      var d = state.draftDoc;
+      var critTxt = (d.criteres||[]).map(function(c){ return '- '+c.nom+': '+(c.note||'non noté')+(c.commentaire?' ('+c.commentaire+')':''); }).join('\n');
+      aiDraft(aiSynth, $('aiSynthStatus'), $('dSynth'), "Tu es un inspecteur pédagogique au Maroc. Rédige une synthèse (5-8 lignes, français, ton professionnel et bienveillant) d'une observation de séance, à partir de cette grille :\n"+critTxt+"\nPoints forts notés : "+(d.pointsForts||'—')+"\nAxes d'amélioration notés : "+(d.axesAmelioration||'—'));
+    };
+    var aiRap = $('btnAiRapport'); if(aiRap) aiRap.onclick = function(){
+      var m = state.modalStack[state.modalStack.length-1];
+      var task = state.tasks.find(function(t){ return t.id===m.taskId; });
+      aiDraft(aiRap, $('aiRapportStatus'), $('dTexte'), "Tu es un inspecteur pédagogique au Maroc. Rédige un court rapport de synthèse (8-12 lignes, français, ton administratif) pour la tâche suivante : \""+(task?task.titre:'')+"\" ("+(task?TT_LABEL[task.taskType]:'')+"), établissement : "+(task?(task.etablissementNom||etabName(task.etablissementId)):'')+", enseignant concerné : "+(task?(task.enseignantNom||ensName(task.enseignantId)):'—')+", notes : "+(task?task.description:'')+".");
+    };
+    var aiLettre = $('btnAiLettre'); if(aiLettre) aiLettre.onclick = function(){
+      syncDocGenericFields();
+      var d = state.draftDoc;
+      aiDraft(aiLettre, $('aiLettreStatus'), $('dCorps'), "Tu es un inspecteur pédagogique au Maroc. Rédige le corps d'une lettre d'information administrative (4-8 lignes, français, ton formel), adressée à : "+(d.destinataire||'')+", objet : "+(d.objet||'')+".");
+    };
+    var aiRecom = $('btnAiRecom'); if(aiRecom) aiRecom.onclick = function(){
+      syncDocGenericFields();
+      var d = state.draftDoc;
+      aiDraft(aiRecom, $('aiRecomStatus'), $('dRecom'), "Tu es un inspecteur pédagogique au Maroc. À partir de ces constats d'inspection, propose 3 à 5 recommandations concrètes et bienveillantes (français, ton professionnel) :\n"+(d.constats||'—'));
+    };
+    var printBtn = $('btnPrintDoc'); if(printBtn) printBtn.onclick = function(){ syncDocGenericFields(); doPrint(); };
+    var saveDocBtn = $('btnSaveDoc'); if(saveDocBtn) saveDocBtn.onclick = function(){ syncDocGenericFields(); saveDoc(); };
+    var delDoc = $('btnDeleteDoc'); if(delDoc) delDoc.onclick = function(){ recordDelete('document', state.draftDoc.id).then(function(){ closeTopModal(); toast('Document supprimé.'); }); };
+    function docFileBase(){
+      var m = state.modalStack[state.modalStack.length-1];
+      var task = state.tasks.find(function(t){ return t.id===m.taskId; });
+      return safeFileName(DOC_TYPE_INFO[state.draftDoc.type].label+'_'+(task?task.titre:state.draftDoc.titre||'document'));
+    }
+    function runGenFile(kind, btn){
+      syncDocGenericFields();
+      var m = state.modalStack[state.modalStack.length-1];
+      var task = state.tasks.find(function(t){ return t.id===m.taskId; });
+      var spec = buildDocSpec(state.draftDoc, task);
+      var statusEl = $('genDocStatus');
+      if(statusEl){ statusEl.hidden = false; statusEl.textContent = kind==='pdf' ? 'Génération du PDF…' : 'Génération du document Word…'; }
+      if(btn) btn.disabled = true;
+      var p = kind==='pdf' ? downloadPdf(spec, docFileBase()) : downloadDocx(spec, docFileBase());
+      p.then(function(){ if(btn) btn.disabled = false; if(statusEl) statusEl.hidden = true; });
+    }
+    var pdfBtn = $('btnPdfDoc'); if(pdfBtn) pdfBtn.onclick = function(){ runGenFile('pdf', pdfBtn); };
+    var docxBtn = $('btnDocxDoc'); if(docxBtn) docxBtn.onclick = function(){ runGenFile('docx', docxBtn); };
+  }
+
+  /* ================= file inputs (photo / attach / import) ================= */
+  $('filePhotoInput').onchange = function(){
+    var f = this.files[0]; this.value=''; if(!f) return;
+    uploadAsset(f).then(function(res){ state.draftRecord.photoAssetId = res.id; render(); toast('Photo ajoutée.'); })
+      .catch(function(err){ toast(assetsErrorMessage(err)); });
+  };
+  $('fileAttachInput').onchange = function(){
+    var f = this.files[0]; this.value=''; if(!f) return;
+    uploadAsset(f).then(function(res){
+      state.draftRecord.attachments.push({assetId:res.id, titre:f.name, type:res.contentType});
+      render(); toast('Fichier joint.');
+    }).catch(function(err){ toast(assetsErrorMessage(err)); });
+  };
+  function profilImageOnChange(){
+    return function(){
+      var f = this.files[0]; this.value=''; if(!f || !profilImageTarget) return;
+      var key = profilImageTarget; profilImageTarget = null;
+      uploadAsset(f).then(function(res){
+        var p = state.templates.profil, field = key+'AssetId';
+        if(p[field]) removeAsset(p[field]);
+        p[field] = res.id;
+        templatesSet({profil:p}); render(); toast('Image ajoutée.');
+      }).catch(function(err){ toast(assetsErrorMessage(err)); });
+    };
+  }
+  $('fileLogoInput').onchange = profilImageOnChange();
+  $('fileCachetInput').onchange = profilImageOnChange();
+  $('fileSignatureInput').onchange = profilImageOnChange();
+  $('fileImportInput').onchange = function(){
+    var f = this.files[0]; this.value=''; if(!f || !importTarget) return;
+    importCSVFile(f, importTarget); importTarget = null;
+  };
+
+  /* ================= top-level events ================= */
+  function openSidebar(){ $('sidebar').classList.add('open'); $('sidebarBackdrop').classList.add('open'); }
+  function closeSidebar(){ $('sidebar').classList.remove('open'); $('sidebarBackdrop').classList.remove('open'); }
+  function goToTab(view){
+    state.view = view;
+    if(view==='docs' && !state.docs.length && !state.docsLoading) loadRecentDocs();
+    closeSidebar();
+    render();
+  }
+  document.querySelectorAll('[data-tab]').forEach(function(t){
+    t.onclick = function(){ goToTab(t.getAttribute('data-tab')); };
+  });
+  $('btnMenu').onclick = openSidebar;
+  $('btnSidebarClose').onclick = closeSidebar;
+  $('sidebarBackdrop').onclick = closeSidebar;
+  $('btnSideSync').onclick = function(){ closeSidebar(); doSync(); };
+  $('btnSideSettings').onclick = function(){ closeSidebar(); openSettings(); };
+  $('btnSideTemplates').onclick = function(){ closeSidebar(); pushModal({type:'settings', tab:'templates'}); };
+  $('btnSync').onclick = doSync;
+  $('btnSettings').onclick = openSettings;
+  $('syncLink').onclick = function(){ if(!state.mcpReady) connectGoogleDrive(); else if(!state.config.sheetFileId) openSettings(); else doSync(); };
+  $('fabAdd').onclick = function(){
+    if(state.view==='tasks') openTaskEditor(null);
+    else if(state.view==='enseignants') openEnseignantEditor(null);
+    else if(state.view==='etablissements') openEtablissementEditor(null);
+    else if(state.view==='bilan') { state.view='tasks'; render(); openTaskEditor(null); }
+    else { state.view='tasks'; render(); openTaskEditor(null); }
+  };
+
+  /* ================= boot ================= */
+  function start(){ initCapabilities(); render(); }
+  start();
+})();
+</script>
+<script>
+  if('serviceWorker' in navigator){
+    window.addEventListener('load', function(){
+      navigator.serviceWorker.register('sw.js').catch(function(){});
+    });
+  }
+</script>
+</body>
+</html>

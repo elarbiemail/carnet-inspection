@@ -1,0 +1,17 @@
+{
+  "name": "Carnet d'Inspection",
+  "short_name": "Carnet Insp.",
+  "description": "Gestion des visites d'inspection pédagogique, établissements, enseignants et rapports.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F6F4EE",
+  "theme_color": "#2F6F62",
+  "lang": "fr",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
