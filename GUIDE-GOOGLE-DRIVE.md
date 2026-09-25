@@ -119,6 +119,20 @@ En cas de modification du même enregistrement sur deux appareils avant
 synchronisation, c'est toujours la modification la plus récente qui est
 conservée.
 
+## Personnaliser un document produit dans Google Docs
+
+Quand Google Drive est connecté, chaque document généré au format Word
+(bouton **« Word (.docx) »**, dans l'éditeur de document, le bilan ou
+l'historique d'un(e) enseignant(e)) est, en plus du fichier téléchargé sur
+votre appareil, automatiquement converti en **Google Doc natif** dans le
+sous-dossier « Documents générés » de votre Drive. Un bouton
+**« Personnaliser sur Google Docs »** (ou un lien dans le message de
+confirmation) apparaît alors : il ouvre directement ce document dans
+l'éditeur Google Docs, où vous pouvez le modifier, le mettre en forme ou le
+partager comme n'importe quel autre Google Doc — les modifications faites
+là-bas restent dans Drive et n'écrasent pas le fichier .docx téléchargé
+localement.
+
 ## Questions fréquentes
 
 **Est-ce payant ?** Non. L'utilisation de l'API Google Drive dans les

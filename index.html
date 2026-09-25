@@ -988,7 +988,13 @@
           .then(function(res){ return res.json(); }).then(function(data){ return {payload:{id:data.id, title:data.name, parentId:input.parentId||null}}; });
       }
       var mime = input.contentMimeType || 'text/plain';
-      meta.mimeType = input.disableConversionToGoogleType ? mime : (mime==='text/csv' ? 'application/vnd.google-apps.spreadsheet' : mime);
+      /* La conversion Drive « à la volée » (déjà utilisée pour CSV → Google Sheets lors de la
+         synchronisation) sert aussi à transformer un .docx généré par l'app en Google Doc natif et
+         éditable — voir uploadBlobToDrive(..., convertToGoogleDoc) — plutôt que de le laisser comme
+         simple fichier .docx figé dans Drive. */
+      meta.mimeType = input.disableConversionToGoogleType ? mime
+        : input.convertToGoogleDoc ? 'application/vnd.google-apps.document'
+        : (mime==='text/csv' ? 'application/vnd.google-apps.spreadsheet' : mime);
       var boundary = 'ciBoundary'+Date.now();
       var head = '--'+boundary+'\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'+JSON.stringify(meta)+
         '\r\n--'+boundary+'\r\nContent-Type: '+mime+'\r\n\r\n';
@@ -1244,8 +1250,11 @@
   function ensureBackupFolder(appFolderId){ return ensureSubfolder(appFolderId, 'Sauvegardes', 'backupFolderId'); }
   function ensureDocsFolder(appFolderId){ return ensureSubfolder(appFolderId, 'Documents générés', 'docsFolderId'); }
   /* Envoi best-effort d'un document généré (PDF/Word) vers le sous-dossier « Documents générés » —
-     n'échoue jamais l'enregistrement local : les erreurs sont avalées par l'appelant. */
-  function uploadBlobToDrive(blob, filename, mime){
+     n'échoue jamais l'enregistrement local : les erreurs sont avalées par l'appelant. Quand
+     convertToGoogleDoc est vrai (utilisé pour le .docx), Drive convertit le fichier envoyé en Google
+     Doc natif au lieu de le stocker tel quel — c'est ce qui permet ensuite de l'ouvrir et de le
+     personnaliser directement dans l'éditeur Google Docs, plutôt qu'un simple fichier .docx figé. */
+  function uploadBlobToDrive(blob, filename, mime, convertToGoogleDoc){
     return new Promise(function(resolve, reject){
       var reader = new FileReader();
       reader.onload = function(){ resolve(String(reader.result).split(',')[1] || ''); };
@@ -1256,11 +1265,22 @@
         return ensureDocsFolder(appFolder.id).catch(function(){ return null; }).then(function(docsFolder){
           return mcpCall('create_file', {
             title: filename, base64Content: b64, contentMimeType: mime || blob.type || 'application/octet-stream',
-            parentId: (docsFolder && docsFolder.id) || appFolder.id, disableConversionToGoogleType: true
+            parentId: (docsFolder && docsFolder.id) || appFolder.id,
+            disableConversionToGoogleType: !convertToGoogleDoc, convertToGoogleDoc: !!convertToGoogleDoc
           });
         });
       });
     });
+  }
+  function googleDocEditUrl(fileId){ return 'https://docs.google.com/document/d/'+fileId+'/edit'; }
+  /* Pour un document généré à la volée (bilan, historique) — donc sans enregistrement persistant où
+     accrocher un bouton durable comme dans l'éditeur de document — le lien Google Docs est affiché
+     directement dans la bannière de statut, laissée visible (au lieu de disparaître après quelques
+     secondes) pour laisser le temps de cliquer dessus. */
+  function showGdocLink(statusEl, gdocUrl){
+    if(!statusEl) return;
+    statusEl.hidden = false;
+    statusEl.innerHTML = 'Document Word enregistré. <a href="'+esc(gdocUrl)+'" target="_blank" rel="noopener" style="font-weight:600;">Personnaliser sur Google Docs →</a>';
   }
   function pushJsonBackup(folderId){
     if(!folderId) return Promise.resolve();
@@ -1938,18 +1958,33 @@
     var docx = new d.Document({ sections:[{ properties:{}, children:children }] });
     return d.Packer.toBlob(docx);
   }
+  /* Le .docx généré localement est toujours téléchargé tel quel (comportement inchangé) ; quand
+     Google Drive est connecté, il est EN PLUS envoyé dans le dossier « Documents générés » avec
+     conversion automatique en Google Doc natif (voir uploadBlobToDrive), pour permettre de le
+     personnaliser ensuite directement dans l'éditeur Google Docs. La promesse résolue porte l'URL
+     Google Docs obtenue (ou null si Drive n'est pas connecté ou si l'envoi a échoué), pour que
+     l'appelant puisse afficher un lien « Ouvrir dans Google Docs » plutôt qu'un simple message qui
+     disparaît. */
   function downloadDocx(spec, filenameBase){
+    var gdocUrl = null;
     return ensureDocx().then(function(){ return specToDocxBlob(spec); })
       .then(function(blob){
         return saveBlob(filenameBase+'.docx', blob).then(function(){
-          if(state.mcpReady) uploadBlobToDrive(blob, filenameBase+'.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document').catch(function(e){ console.warn('drive upload (docx) failed', e); });
+          if(!state.mcpReady) return null;
+          return uploadBlobToDrive(blob, filenameBase+'.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', true)
+            .then(function(res){ if(res && res.payload && res.payload.id) gdocUrl = googleDocEditUrl(res.payload.id); })
+            .catch(function(e){ console.warn('drive upload (docx) failed', e); });
         });
       })
-      .then(function(){ toast('Document Word enregistré.'); })
+      .then(function(){
+        toast(gdocUrl ? 'Document Word enregistré — également disponible sur Google Docs pour le personnaliser.' : 'Document Word enregistré.');
+        return gdocUrl;
+      })
       .catch(function(err){
         console.warn('docx error', err);
         if(err && /load-failed/.test(err.message||'')) toast('Impossible de charger le générateur Word (vérifiez la connexion).');
         else toast(err && err.code==='declined' ? 'Téléchargement annulé.' : 'Échec de la génération du document Word.');
+        return null;
       });
   }
   function safeFileName(s){ return (s||'document').replace(/[\\/:*?"<>|]+/g,'_').slice(0,80); }
@@ -2259,7 +2294,10 @@
       if(statusEl){ statusEl.hidden = false; statusEl.textContent = kind==='pdf' ? 'Génération du PDF…' : 'Génération du document Word…'; }
       if(btn) btn.disabled = true;
       var p = kind==='pdf' ? downloadPdf(spec, 'Bilan_'+todayStr()) : downloadDocx(spec, 'Bilan_'+todayStr());
-      p.then(function(){ if(btn) btn.disabled = false; if(statusEl) statusEl.hidden = true; });
+      p.then(function(gdocUrl){
+        if(btn) btn.disabled = false;
+        if(kind==='docx' && gdocUrl) showGdocLink(statusEl, gdocUrl); else if(statusEl) statusEl.hidden = true;
+      });
     }
     var bilanExcelBtn = $('btnBilanExcel'); if(bilanExcelBtn) bilanExcelBtn.onclick = exportBilanCSV;
     var bilanPdfBtn = $('btnBilanPdf'); if(bilanPdfBtn) bilanPdfBtn.onclick = function(){ runBilanGen('pdf', bilanPdfBtn); };
@@ -2705,7 +2743,8 @@
     if(visits.length){
       html += '<div class="setup-actions" style="margin-top:8px;"><button class="btn ghost sm" id="btnPrintHistorique" type="button">'+ICONS.print+' Imprimer l\'historique</button>'+
         '<button class="btn ghost sm" id="btnPdfHistorique" type="button">PDF</button>'+
-        '<button class="btn ghost sm" id="btnDocxHistorique" type="button">Word</button></div>';
+        '<button class="btn ghost sm" id="btnDocxHistorique" type="button">Word</button></div>'+
+        '<div class="banner info" id="histGenStatus" hidden style="margin-top:8px;"></div>';
     }
     html += '</div>';
     return html;
@@ -2858,7 +2897,10 @@
       '<div class="setup-actions" style="margin-top:6px;">'+
       '<button class="btn ghost sm" id="btnPrintDoc" type="button">'+ICONS.print+' Imprimer</button>'+
       (rtl ? '' : '<button class="btn ghost sm" id="btnPdfDoc" type="button">'+ICONS.pdf+' PDF</button>')+
-      '<button class="btn ghost sm" id="btnDocxDoc" type="button">'+ICONS.doc+' Word (.docx)</button></div>'+
+      '<button class="btn ghost sm" id="btnDocxDoc" type="button">'+ICONS.doc+' Word (.docx)</button>'+
+      (d.gdocUrl ? '<a class="btn ghost sm" href="'+esc(d.gdocUrl)+'" target="_blank" rel="noopener" id="btnOpenGdoc">'+ICONS.ext+' Personnaliser sur Google Docs</a>' : '')+
+      '</div>'+
+      (state.mcpReady && !d.gdocUrl ? '<p style="font-size:11px;color:var(--ink-faint);margin-top:6px;">Touchez « Word » : une copie modifiable sera aussi créée dans Google Docs (dossier « Documents générés » de votre Drive).</p>' : '')+
       '<div class="banner info" id="genDocStatus" hidden style="margin-top:8px;"></div>'+
       '</div></div>';
   }
@@ -3086,7 +3128,11 @@
     };
     var docxHist = $('btnDocxHistorique'); if(docxHist) docxHist.onclick = function(){
       docxHist.disabled = true;
-      downloadDocx(buildEnsHistoriqueSpec(state.draftRecord), safeFileName('Historique_'+state.draftRecord.nom)).then(function(){ docxHist.disabled = false; });
+      var histStatusEl = $('histGenStatus');
+      downloadDocx(buildEnsHistoriqueSpec(state.draftRecord), safeFileName('Historique_'+state.draftRecord.nom)).then(function(gdocUrl){
+        docxHist.disabled = false;
+        if(gdocUrl) showGdocLink(histStatusEl, gdocUrl);
+      });
     };
     var saveEns = $('btnSaveEns');
     if(saveEns) saveEns.onclick = function(){
@@ -3215,7 +3261,20 @@
       if(statusEl){ statusEl.hidden = false; statusEl.textContent = kind==='pdf' ? 'Génération du PDF…' : 'Génération du document Word…'; }
       if(btn) btn.disabled = true;
       var p = kind==='pdf' ? downloadPdf(spec, docFileBase()) : downloadDocx(spec, docFileBase());
-      p.then(function(){ if(btn) btn.disabled = false; if(statusEl) statusEl.hidden = true; });
+      p.then(function(gdocUrl){
+        /* Une fois le .docx converti en Google Doc dans Drive, on garde son URL sur le document
+           (brouillon en cours + enregistrement déjà sauvegardé le cas échéant) et on redessine pour
+           faire apparaître le bouton persistant « Personnaliser sur Google Docs » — plutôt qu'un
+           simple message qui disparaît après quelques secondes. */
+        if(kind==='docx' && gdocUrl){
+          state.draftDoc.gdocUrl = gdocUrl;
+          var saved = state.documents.find(function(x){ return x.id===state.draftDoc.id; });
+          if(saved){ saved.gdocUrl = gdocUrl; saveLocal('documents'); }
+          render();
+          return;
+        }
+        if(btn) btn.disabled = false; if(statusEl) statusEl.hidden = true;
+      });
     }
     var pdfBtn = $('btnPdfDoc'); if(pdfBtn) pdfBtn.onclick = function(){ runGenFile('pdf', pdfBtn); };
     var docxBtn = $('btnDocxDoc'); if(docxBtn) docxBtn.onclick = function(){ runGenFile('docx', docxBtn); };
