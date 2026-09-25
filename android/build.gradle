@@ -1,0 +1,5 @@
+// Fichier de build racine : déclare seulement la version du plugin Android (AGP)
+// utilisée par le module app/. Les dépôts sont résolus depuis settings.gradle.
+plugins {
+    id 'com.android.application' version '8.7.3' apply false
+}

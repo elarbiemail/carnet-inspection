@@ -428,28 +428,7 @@
     <section class="view" id="viewDocs" hidden></section>
   </main>
 
-  <nav class="bottom-tabs" role="tablist" aria-label="Navigation principale">
-    <button class="bt-item" data-tab="tasks" role="tab" aria-current="true" type="button">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M9 11l2 2 4-4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><rect x="3.5" y="3.5" width="17" height="17" rx="4" stroke="currentColor" stroke-width="1.7"/></svg>
-      <span>Tâches</span>
-    </button>
-    <button class="bt-item" data-tab="enseignants" role="tab" aria-current="false" type="button">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="3.6" stroke="currentColor" stroke-width="1.7"/><path d="M4.5 20c0-3.9 3.4-6.8 7.5-6.8s7.5 2.9 7.5 6.8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
-      <span>Enseignants</span>
-    </button>
-    <button class="bt-item" data-tab="etablissements" role="tab" aria-current="false" type="button">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M4 21V5.5a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1V21M4 21h16M13 21v-8a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v8" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M7 8h1M7 12h1M7 16h1" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-      <span>Établ.</span>
-    </button>
-    <button class="bt-item" data-tab="bilan" role="tab" aria-current="false" type="button">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M4.5 20V11M11 20V4M17.5 20v-6.5M3.5 20h17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <span>Bilan</span>
-    </button>
-    <button class="bt-item" data-tab="docs" role="tab" aria-current="false" type="button">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M7 17.5a4 4 0 0 1-.6-7.95 5.5 5.5 0 0 1 10.7-2.05A4.2 4.2 0 0 1 17.4 17.5H7Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
-      <span>Documents</span>
-    </button>
-  </nav>
+  <nav class="bottom-tabs" id="bottomTabs" role="tablist" aria-label="Sous-menu de la section"></nav>
 
   <div class="sidebar-backdrop" id="sidebarBackdrop"></div>
   <nav class="sidebar" id="sidebar" aria-label="Menu">
@@ -475,7 +454,7 @@
       </button>
       <button type="button" data-tab="etablissements" aria-current="false">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4 21V5.5a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1V21M4 21h16M13 21v-8a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v8" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
-        Établissements
+        Zones &amp; établissements
       </button>
       <button type="button" data-tab="bilan" aria-current="false">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4.5 20V11M11 20V4M17.5 20v-6.5M3.5 20h17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
@@ -483,7 +462,7 @@
       </button>
       <button type="button" data-tab="docs" aria-current="false">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M7 17.5a4 4 0 0 1-.6-7.95 5.5 5.5 0 0 1 10.7-2.05A4.2 4.2 0 0 1 17.4 17.5H7Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
-        Documents Drive
+        Documents
       </button>
     </div>
     <div class="side-divider"></div>
@@ -631,7 +610,10 @@
   }
   function dataUrlToUint8Array(dataUrl){
     var b64 = String(dataUrl||'').split(',')[1] || '';
-    var bin = atob(b64);
+    return base64ToUint8Array(b64);
+  }
+  function base64ToUint8Array(b64){
+    var bin = atob(String(b64||''));
     var bytes = new Uint8Array(bin.length);
     for(var i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
     return bytes;
@@ -675,6 +657,39 @@
   /* La plupart des documents administratifs sont rédigés en arabe (langue de l'administration
      marocaine) ; seul le rapport de visite/d'inspection reste en français. */
   var RTL_DOC_TYPES = { presence:true, compte_rendu:true, observation:true, attestation:true, lettre_information:true, bordereau:true };
+  /* ================= navigation : sidebar = menu principal, onglets du bas = sous-menu de la section active ================= */
+  var SUBMENUS = {
+    tasks: [{key:'all', label:'Toutes'}].concat(WORKFLOW.map(function(w){ return {key:w.v, label:w.l}; })).concat([{key:'late', label:'En retard'}]),
+    etablissements: [{key:'zones', label:'Zones'}, {key:'etabs', label:'Établissements'}],
+    enseignants: [{key:'liste', label:'Liste'}, {key:'horaire', label:'Par horaire'}],
+    docs: [{key:'generes', label:'Générés'}, {key:'drive', label:'Google Drive'}],
+    bilan: []
+  };
+  function activeSub(view){
+    if(view==='tasks') return state.filter;
+    if(view==='etablissements') return state.subEtab;
+    if(view==='enseignants') return state.ensHoraireMode ? 'horaire' : 'liste';
+    if(view==='docs') return state.subDocs;
+    return null;
+  }
+  function setSub(view, key){
+    if(view==='tasks') state.filter = key;
+    else if(view==='etablissements') state.subEtab = key;
+    else if(view==='enseignants') state.ensHoraireMode = (key==='horaire');
+    else if(view==='docs'){ state.subDocs = key; if(key==='drive' && !state.docs.length && !state.docsLoading) loadRecentDocs(); }
+    render();
+  }
+  function renderBottomTabs(){
+    var nav = $('bottomTabs');
+    var items = SUBMENUS[state.view] || [];
+    if(!items.length){ nav.hidden = true; nav.innerHTML=''; return; }
+    nav.hidden = false;
+    var cur = activeSub(state.view);
+    nav.innerHTML = items.map(function(it){
+      return '<button class="bt-item" data-sub="'+it.key+'" role="tab" aria-current="'+(cur===it.key)+'" type="button"><span>'+esc(it.label)+'</span></button>';
+    }).join('');
+    nav.querySelectorAll('[data-sub]').forEach(function(b){ b.onclick = function(){ setSub(state.view, b.getAttribute('data-sub')); }; });
+  }
   var TT_BADGE_CLASS = { inspection:'violet', visite_conseil:'violet', observation_examen:'violet',
     reunion_pedagogique:'accent', cours_experimental:'accent',
     recherche_action:'warn', conception_examen:'warn', autre:'neutral' };
@@ -739,9 +754,10 @@
     dbReady: false, mcpReady: false, downloadsReady: false, sampleReady: false, assetsReady: false,
     syncing: false, syncError: null,
     modalStack: [], draftTask: null, draftRecord: null, draftDoc: null,
-    setupBusy: false, setupError: null,
+    setupBusy: false, setupError: null, driveSetupError: null,
     ensQuery: '', ensHoraireMode: false, horaireJour: 'Lundi', horaireHeure: '09:00',
     bilanPeriod: 'mois', bilanCustomFrom: '', bilanCustomTo: '',
+    subEtab: 'zones', subDocs: 'generes', docsGenQuery: '', docsGenFilter: 'all',
     pickTarget: null // {kind:'enseignant'|'etablissement'|'zone', onPick}
   };
   /* L'app est autonome : stockage 100% local (navigateur), aucune dépendance à Claude.
@@ -827,7 +843,10 @@
      restreint "drive.file" : l'app ne voit QUE les fichiers qu'elle a elle-même créés dans Drive,
      jamais le reste du compte Google de l'utilisateur. Aucun serveur intermédiaire, aucune
      facturation Claude — uniquement le quota Google gratuit de l'utilisateur. */
-  var GOOGLE_CLIENT_ID = '1075111278007-cimiu8hno8l5mi2g7sabnjthjoqqkdor.apps.googleusercontent.com'; // <-- à remplacer, voir GUIDE-GOOGLE-DRIVE.md
+  /* L'identifiant client Google n'est plus codé en dur : il est saisi dans l'application
+     (écran de configuration Drive) et enregistré dans state.config, donc jamais besoin de
+     modifier ce fichier ni le dépôt GitHub pour le renseigner ou le changer. */
+  function googleClientId(){ return (state.config && state.config.googleClientId) || ''; }
   var GOOGLE_DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
   var gisTokenClient = null, gisLoaded = false, driveAccessToken = null, driveTokenExpiresAt = 0;
   function loadGisScript(){
@@ -835,7 +854,8 @@
     return loadScript('https://accounts.google.com/gsi/client').then(function(){ gisLoaded = true; });
   }
   function ensureGoogleAuth(interactive){
-    if(!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID.indexOf('VOTRE_CLIENT_ID')===0) return Promise.reject({code:'not_configured'});
+    var cid = googleClientId();
+    if(!cid) return Promise.reject({code:'not_configured'});
     return loadGisScript().then(function(){
       return new Promise(function(resolve, reject){
         if(!window.google || !window.google.accounts || !window.google.accounts.oauth2){ reject({code:'server_unavailable'}); return; }
@@ -843,7 +863,7 @@
         if(!interactive){ reject({code:'consent_required'}); return; }
         if(!gisTokenClient){
           gisTokenClient = window.google.accounts.oauth2.initTokenClient({
-            client_id: GOOGLE_CLIENT_ID, scope: GOOGLE_DRIVE_SCOPE,
+            client_id: cid, scope: GOOGLE_DRIVE_SCOPE,
             callback: function(resp){
               var cb = gisTokenClient.__resolve, eb = gisTokenClient.__reject;
               gisTokenClient.__resolve = null; gisTokenClient.__reject = null;
@@ -865,7 +885,12 @@
     });
   }
   function connectGoogleDrive(){
+    if(!googleClientId()){ openDriveSetup(); return; }
     ensureGoogleAuth(true).then(function(){ toast('Google Drive connecté.'); }).catch(function(err){ toast(mcpErrorMessage(err)); render(); });
+  }
+  function openDriveSetup(){
+    state.driveSetupError = null;
+    pushModal({type:'driveSetup'});
   }
   function disconnectGoogleDrive(){
     if(driveAccessToken && window.google && window.google.accounts && window.google.accounts.oauth2){
@@ -916,12 +941,17 @@
       }
       var mime = input.contentMimeType || 'text/plain';
       meta.mimeType = input.disableConversionToGoogleType ? mime : (mime==='text/csv' ? 'application/vnd.google-apps.spreadsheet' : mime);
-      var body = input.base64Content ? atob(input.base64Content) : (input.textContent||'');
       var boundary = 'ciBoundary'+Date.now();
-      var multipart = '--'+boundary+'\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'+JSON.stringify(meta)+
-        '\r\n--'+boundary+'\r\nContent-Type: '+mime+'\r\n\r\n'+body+'\r\n--'+boundary+'--';
+      var head = '--'+boundary+'\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n'+JSON.stringify(meta)+
+        '\r\n--'+boundary+'\r\nContent-Type: '+mime+'\r\n\r\n';
+      var tail = '\r\n--'+boundary+'--';
+      /* Le contenu binaire (base64Content) est décodé en octets bruts et assemblé via Blob plutôt
+         qu'en concaténant une chaîne JS, pour éviter toute corruption des octets > 127 par un
+         ré-encodage UTF-8 implicite lors de l'envoi (fetch encoderait sinon une chaîne binaire). */
+      var bodyPart = input.base64Content ? base64ToUint8Array(input.base64Content) : (input.textContent||'');
+      var multipartBlob = new Blob([head, bodyPart, tail], {type:'multipart/related; boundary='+boundary});
       return driveFetch(DRIVE_UPLOAD_API+'?uploadType=multipart&fields=id,name,parents', {
-        method:'POST', headers:{'Content-Type':'multipart/related; boundary='+boundary}, body: multipart
+        method:'POST', headers:{'Content-Type':'multipart/related; boundary='+boundary}, body: multipartBlob
       }).then(function(res){ return res.json(); }).then(function(data){
         return {payload:{id:data.id, title:data.name, parentId:(data.parents&&data.parents[0])||input.parentId||null}};
       });
@@ -957,7 +987,7 @@
     var code = err && err.code;
     switch(code){
       case 'needs_reauth': return "Reconnectez Google Drive, puis réessayez.";
-      case 'not_configured': return "Google Drive n'est pas encore configuré (voir GUIDE-GOOGLE-DRIVE.md pour créer votre identifiant gratuit).";
+      case 'not_configured': return "Google Drive n'est pas encore configuré. Touchez « Connecter » pour coller votre identifiant client Google.";
       case 'consent_required': return "Autorisez l'accès à Google Drive, puis réessayez.";
       case 'server_unavailable': return "Google Drive est temporairement indisponible (vérifiez votre connexion).";
       case 'tool_error': return "Google Drive a refusé cette opération" + (err&&err.message?' : '+err.message:'') + ".";
@@ -1043,7 +1073,7 @@
       };
     });
   }
-  /* ---- dossier Drive dédié à l'application ---- */
+  /* ---- dossier Drive dédié à l'application (structuré : dossier principal + sous-dossiers) ---- */
   function ensureAppFolder(){
     if(!mcpNs) return Promise.reject({code:'not_granted'});
     if(state.config.folderId) return Promise.resolve({id:state.config.folderId, title:state.config.folderName});
@@ -1055,6 +1085,43 @@
       return mcpCall('create_file', {title:name, contentMimeType:'application/vnd.google-apps.folder'}).then(function(r){ return r.payload || {}; });
     }).then(function(folder){
       return configSet({ folderId: folder.id, folderName: folder.title || name }).then(function(){ return folder; });
+    });
+  }
+  /* Sous-dossier dans le dossier principal de l'application (créé une seule fois, id mis en cache
+     dans state.config sous configKey). Utilisé pour séparer les sauvegardes des documents générés,
+     afin que le dossier principal reste lisible. */
+  function ensureSubfolder(parentId, name, configKey){
+    if(!parentId) return Promise.reject({code:'not_granted'});
+    if(state.config[configKey]) return Promise.resolve({id: state.config[configKey], title: name});
+    var q = "title = '"+name.replace(/'/g,"\\'")+"' and mimeType = 'application/vnd.google-apps.folder' and '"+parentId+"' in parents";
+    return mcpCall('search_files', {query:q, pageSize:5, excludeContentSnippets:true}).then(function(res){
+      var files = (res.payload && res.payload.files) || [];
+      if(files.length) return files[0];
+      return mcpCall('create_file', {title:name, contentMimeType:'application/vnd.google-apps.folder', parentId:parentId}).then(function(r){ return r.payload || {}; });
+    }).then(function(folder){
+      var patch = {}; patch[configKey] = folder.id;
+      return configSet(patch).then(function(){ return folder; });
+    });
+  }
+  function ensureBackupFolder(appFolderId){ return ensureSubfolder(appFolderId, 'Sauvegardes', 'backupFolderId'); }
+  function ensureDocsFolder(appFolderId){ return ensureSubfolder(appFolderId, 'Documents générés', 'docsFolderId'); }
+  /* Envoi best-effort d'un document généré (PDF/Word) vers le sous-dossier « Documents générés » —
+     n'échoue jamais l'enregistrement local : les erreurs sont avalées par l'appelant. */
+  function uploadBlobToDrive(blob, filename, mime){
+    return new Promise(function(resolve, reject){
+      var reader = new FileReader();
+      reader.onload = function(){ resolve(String(reader.result).split(',')[1] || ''); };
+      reader.onerror = function(){ reject({code:'unsupported_type'}); };
+      reader.readAsDataURL(blob);
+    }).then(function(b64){
+      return ensureAppFolder().then(function(appFolder){
+        return ensureDocsFolder(appFolder.id).catch(function(){ return null; }).then(function(docsFolder){
+          return mcpCall('create_file', {
+            title: filename, base64Content: b64, contentMimeType: mime || blob.type || 'application/octet-stream',
+            parentId: (docsFolder && docsFolder.id) || appFolder.id, disableConversionToGoogleType: true
+          });
+        });
+      });
     });
   }
   function pushJsonBackup(folderId){
@@ -1112,7 +1179,11 @@
             sheetParentId: payload.parentId || (folderRef && folderRef.id) || state.config.sheetParentId, lastSyncAt: nowIso() });
         });
       })
-      .then(function(){ return folderRef ? pushJsonBackup(folderRef.id) : Promise.resolve(); })
+      .then(function(){
+        if(!folderRef) return Promise.resolve();
+        return ensureBackupFolder(folderRef.id).catch(function(){ return null; })
+          .then(function(bf){ return pushJsonBackup(bf ? bf.id : folderRef.id); });
+      })
       .then(function(){ state.syncing = false; render(); toast('Synchronisation réussie.'); })
       .catch(function(err){ console.warn('sync error', err); state.syncing = false; state.syncError = mcpErrorMessage(err); render(); });
   }
@@ -1148,7 +1219,10 @@
     configSet({ sheetFileId: file.id, sheetTitle: file.title, sheetParentId: file.parentId || null, lastSyncAt: null })
       .then(function(){ toast('Feuille liée.'); doSync(); });
   }
-  function unlinkSheet(){ configSet({ sheetFileId: null, sheetTitle: null, sheetParentId: null, lastSyncAt: null }); }
+  function unlinkSheet(){
+    if(!confirm("Réinitialiser la synchronisation ? La feuille actuelle restera intacte dans votre Google Drive, mais l'application ne la reliera plus — vous pourrez en créer ou en lier une nouvelle.")) return;
+    configSet({ sheetFileId: null, sheetTitle: null, sheetParentId: null, lastSyncAt: null });
+  }
 
   /* ================= Drive documents browser ================= */
   function loadRecentDocs(){
@@ -1217,7 +1291,8 @@
     pushModal({type:'etablissement', isNew: !rec});
   }
   function openZoneEditor(rec){
-    state.draftRecord = rec ? Object.assign({directionProvinciale:''}, rec) : { id: uid(), nom:'', directionProvinciale:'', notes:'' };
+    state.draftRecord = rec ? Object.assign({academieRegionale:'', directionProvinciale:'', commune:''}, rec)
+      : { id: uid(), nom:'', academieRegionale:'', directionProvinciale:'', commune:'', notes:'' };
     pushModal({type:'zone', isNew: !rec});
   }
   function openDocEditor(taskId, docType, existingDoc){
@@ -1505,7 +1580,11 @@
   }
   function downloadPdf(spec, filenameBase){
     return ensureJsPDF().then(function(){ return specToPdfBlob(spec); })
-      .then(function(blob){ return saveBlob(filenameBase+'.pdf', blob); })
+      .then(function(blob){
+        return saveBlob(filenameBase+'.pdf', blob).then(function(){
+          if(state.mcpReady) uploadBlobToDrive(blob, filenameBase+'.pdf', 'application/pdf').catch(function(e){ console.warn('drive upload (pdf) failed', e); });
+        });
+      })
       .then(function(){ toast('PDF enregistré.'); })
       .catch(function(err){
         console.warn('pdf error', err);
@@ -1570,7 +1649,11 @@
   }
   function downloadDocx(spec, filenameBase){
     return ensureDocx().then(function(){ return specToDocxBlob(spec); })
-      .then(function(blob){ return saveBlob(filenameBase+'.docx', blob); })
+      .then(function(blob){
+        return saveBlob(filenameBase+'.docx', blob).then(function(){
+          if(state.mcpReady) uploadBlobToDrive(blob, filenameBase+'.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document').catch(function(e){ console.warn('drive upload (docx) failed', e); });
+        });
+      })
       .then(function(){ toast('Document Word enregistré.'); })
       .catch(function(err){
         console.warn('docx error', err);
@@ -1624,9 +1707,11 @@
   /* ================= RENDER ================= */
   function render(){
     renderTopbar();
+    renderBottomTabs();
     ['tasks','enseignants','etablissements','bilan','docs'].forEach(function(v){
       $('view'+v.charAt(0).toUpperCase()+v.slice(1)).hidden = (state.view!==v);
     });
+    var fab = $('fabAdd'); if(fab) fab.hidden = (state.view==='bilan' || state.view==='docs');
     if(state.view==='tasks') renderTasksView();
     else if(state.view==='enseignants') renderEnseignantsView();
     else if(state.view==='etablissements') renderEtablissementsView();
@@ -1679,7 +1764,6 @@
         '<div class="stat"><b class="tnum">'+(s.planifiee+s.realisee)+'</b><span>En cours</span></div>'+
         '<div class="stat"><b class="tnum">'+s.cloturee+'</b><span>Clôturées</span></div>'+
         '<div class="stat"><b class="tnum" style="color:var(--danger)">'+s.late+'</b><span>En retard</span></div></div>';
-      html += '<div class="chips">'+chip('all','Tout')+WORKFLOW.map(function(w){ return chip(w.v,w.l); }).join('')+chip('late','En retard')+'</div>';
     }
     if(!tasks.length){
       html += '<div style="position:relative;"><div class="task-card preview-card" style="--prio:var(--warn)"><div class="preview-tag">Aperçu</div>'+
@@ -1696,12 +1780,10 @@
     var bc = $('btnCreateSheetInline'); if(bc) bc.onclick = createSheet;
     var bl = $('btnLinkSheetInline'); if(bl) bl.onclick = function(){ pushModal({type:'settings', tab:'sync', linkMode:true}); };
     var bcd = $('btnConnectDriveInline'); if(bcd) bcd.onclick = connectGoogleDrive;
-    host.querySelectorAll('.chip').forEach(function(el){ el.onclick = function(){ state.filter = el.getAttribute('data-f'); render(); }; });
     host.querySelectorAll('.task-card:not(.preview-card)').forEach(function(el){
       el.onclick = function(){ var t = state.tasks.find(function(x){ return x.id===el.getAttribute('data-id'); }); if(t) openTaskDetail(t); };
     });
   }
-  function chip(f, label){ return '<button class="chip" data-f="'+f+'" aria-pressed="'+(state.filter===f)+'">'+esc(label)+'</button>'; }
   var PRIO_VAR = {basse:'var(--line)', moyenne:'var(--warn)', haute:'var(--danger)'};
   function taskCardHtml(t){
     var late = isLate(t.echeance, t.statut);
@@ -1725,8 +1807,9 @@
   function renderEnseignantsView(){
     var host = $('viewEnseignants');
     var html = '';
-    html += '<div class="search-row"><input type="text" id="ensSearchInput" placeholder="Rechercher un(e) enseignant(e)…" value="'+esc(state.ensQuery)+'">'+
-      '<button type="button" id="ensHoraireBtn" title="Recherche par horaire">'+ICONS.doc.replace('17','17')+'</button></div>';
+    if(!state.ensHoraireMode){
+      html += '<div class="search-row"><input type="text" id="ensSearchInput" placeholder="Rechercher un(e) enseignant(e)…" value="'+esc(state.ensQuery)+'"></div>';
+    }
     html += '<div class="setup-actions"><button class="btn ghost sm" id="btnExportEns" type="button">Exporter CSV</button><button class="btn ghost sm" id="btnImportEns" type="button">Importer CSV</button></div>';
     if(state.ensHoraireMode){
       html += '<div class="setup-card"><h2>Qui est en classe à quel moment ?</h2>'+
@@ -1747,7 +1830,6 @@
     }
     host.innerHTML = html;
     var si = $('ensSearchInput'); if(si) si.oninput = function(){ state.ensQuery = si.value; render(); setTimeout(function(){ var el=$('ensSearchInput'); if(el){ el.focus(); el.selectionStart=el.selectionEnd=el.value.length; } },0); };
-    var hb = $('ensHoraireBtn'); if(hb) hb.onclick = function(){ state.ensHoraireMode = !state.ensHoraireMode; render(); };
     var jseg = $('horJourSeg'); if(jseg) jseg.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ state.horaireJour=b.getAttribute('data-v'); render(); }; });
     var hh = $('horHeure'); if(hh) hh.onchange = function(){ state.horaireHeure = hh.value; render(); };
     var be = $('btnExportEns'); if(be) be.onclick = function(){ exportCSV('enseignants'); };
@@ -1766,27 +1848,48 @@
   /* ---- Établissements ---- */
   function renderEtablissementsView(){
     var host = $('viewEtablissements');
+    if(state.subEtab==='zones') renderZonesSubview(host);
+    else renderEtabsSubview(host);
+  }
+  function zoneHierLine(z){ return [z.academieRegionale, z.directionProvinciale, z.commune].filter(Boolean).join(' · '); }
+  function renderZonesSubview(host){
+    var html = '<div class="setup-actions"><button class="btn primary sm" id="btnAddZone" type="button">+ Nouvelle zone</button></div>';
+    var zones = state.zones.slice().sort(function(a,b){ return a.nom.localeCompare(b.nom); });
+    if(!zones.length){
+      html += '<div class="empty">Aucune zone d\'inspection. Créez-en une pour organiser vos établissements (académie régionale → direction provinciale → communes → établissements).</div>';
+    } else {
+      html += '<div class="rec-list">'+zones.map(zoneRowHtml).join('')+'</div>';
+    }
+    host.innerHTML = html;
+    var ba = $('btnAddZone'); if(ba) ba.onclick = function(){ openZoneEditor(null); };
+    host.querySelectorAll('.rec-row').forEach(function(el){ el.onclick = function(){ var z=state.zones.find(function(x){return x.id===el.getAttribute('data-id');}); if(z) openZoneEditor(z); }; });
+  }
+  function zoneRowHtml(z){
+    var nEtab = state.etablissements.filter(function(e){ return e.zoneId===z.id; }).length;
+    var sub = [zoneHierLine(z), nEtab+' établissement(s)'].filter(Boolean).join(' · ');
+    return '<div class="rec-row" data-id="'+z.id+'"><div class="avatar">'+ICONS.folder+'</div>'+
+      '<div class="rec-info"><div class="t">'+esc(z.nom)+'</div><div class="s">'+esc(sub)+'</div></div></div>';
+  }
+  function renderEtabsSubview(host){
     var html = '';
-    html += '<div class="setup-actions"><button class="btn primary sm" id="btnAddZone" type="button">+ Zone</button>'+
+    html += '<div class="setup-actions"><button class="btn primary sm" id="btnAddEtab2" type="button">+ Établissement</button>'+
       '<button class="btn ghost sm" id="btnExportEtab" type="button">Exporter CSV</button><button class="btn ghost sm" id="btnImportEtab" type="button">Importer CSV</button></div>';
     if(!state.zones.length && !state.etablissements.length){
-      html += '<div class="empty">Aucune zone ni établissement. Créez une zone, puis ajoutez des établissements.</div>';
+      html += '<div class="empty">Aucune zone ni établissement. Créez d\'abord une zone dans l\'onglet « Zones », puis ajoutez des établissements.</div>';
     } else {
       var groups = state.zones.slice().sort(function(a,b){ return a.nom.localeCompare(b.nom); });
       var noZone = state.etablissements.filter(function(e){ return !e.zoneId || !state.zones.find(function(z){ return z.id===e.zoneId; }); });
       groups.forEach(function(z){
-        html += '<div class="zone-head"><span>'+esc(z.nom)+(z.directionProvinciale?' · '+esc(z.directionProvinciale):'')+'</span><span class="line"></span><button class="icon-btn" data-editzone="'+z.id+'" style="width:26px;height:26px;">'+ICONS.doc.replace(/width="17" height="17"/,'width="13" height="13"')+'</button></div>';
+        html += '<div class="zone-head"><span>'+esc(z.nom)+(zoneHierLine(z)?' · '+esc(zoneHierLine(z)):'')+'</span><span class="line"></span><button class="icon-btn" data-editzone="'+z.id+'" style="width:26px;height:26px;">'+ICONS.doc.replace(/width="17" height="17"/,'width="13" height="13"')+'</button></div>';
         var ets = state.etablissements.filter(function(e){ return e.zoneId===z.id; });
         html += ets.length ? '<div class="rec-list">'+ets.map(etabRowHtml).join('')+'</div>' : '<div class="empty" style="padding:10px;">Aucun établissement.</div>';
       });
       if(noZone.length){
         html += '<div class="zone-head"><span>Sans zone</span><span class="line"></span></div><div class="rec-list">'+noZone.map(etabRowHtml).join('')+'</div>';
       }
-      html += '<button class="addline" id="btnAddEtab">'+ICONS.plus+' Ajouter un établissement</button>';
     }
     host.innerHTML = html;
-    var ba = $('btnAddZone'); if(ba) ba.onclick = function(){ openZoneEditor(null); };
-    var bae = $('btnAddEtab'); if(bae) bae.onclick = function(){ openEtablissementEditor(null); };
+    var bae = $('btnAddEtab2'); if(bae) bae.onclick = function(){ openEtablissementEditor(null); };
     var bxe = $('btnExportEtab'); if(bxe) bxe.onclick = function(){ exportCSV('etablissements'); };
     var bie = $('btnImportEtab'); if(bie) bie.onclick = function(){ importTarget='etablissements'; $('fileImportInput').click(); };
     host.querySelectorAll('[data-editzone]').forEach(function(el){ el.onclick = function(ev){ ev.stopPropagation(); var z=state.zones.find(function(x){return x.id===el.getAttribute('data-editzone');}); if(z) openZoneEditor(z); }; });
@@ -1862,6 +1965,51 @@
   /* ---- Documents (Drive) ---- */
   function renderDocsView(){
     var host = $('viewDocs');
+    if(state.subDocs==='drive') renderDocsDriveView(host);
+    else renderDocsGeneresView(host);
+  }
+  /* ---- Documents générés par l'application (module "gestion des documents") ---- */
+  function renderDocsGeneresView(host){
+    var q = (state.docsGenQuery||'').toLowerCase();
+    var filterType = state.docsGenFilter || 'all';
+    var all = state.documents.slice().sort(function(a,b){ return (b.updatedAt||b.date||'').localeCompare(a.updatedAt||a.date||''); });
+    var docs = all.filter(function(d){
+      if(filterType!=='all' && d.type!==filterType) return false;
+      if(!q) return true;
+      var task = state.tasks.find(function(t){ return t.id===d.taskId; });
+      var hay = [d.titre, DOC_TYPE_INFO[d.type]&&DOC_TYPE_INFO[d.type].label, task&&task.titre,
+        task&&(task.enseignantNom||ensName(task.enseignantId)), task&&(task.etablissementNom||etabName(task.etablissementId))]
+        .filter(Boolean).join(' ').toLowerCase();
+      return hay.indexOf(q)>=0;
+    });
+    var html = '<div class="search-row"><input type="text" id="docGenSearchInput" placeholder="Rechercher un document…" value="'+esc(state.docsGenQuery)+'"></div>';
+    html += '<div class="chips" style="flex-wrap:wrap;">'+chipBtn('all','Tous', filterType)+
+      Object.keys(DOC_TYPE_INFO).map(function(k){ return chipBtn(k, DOC_TYPE_INFO[k].label, filterType); }).join('')+'</div>';
+    if(!all.length){
+      html += '<div class="empty">Aucun document généré pour l\'instant. Ouvrez une tâche, puis créez-y un document (lettre, grille d\'observation, rapport…).</div>';
+    } else if(!docs.length){
+      html += '<div class="empty">Aucun document ne correspond à ce filtre.</div>';
+    } else {
+      html += '<div class="doc-list">'+docs.map(genDocRowHtml).join('')+'</div>';
+    }
+    host.innerHTML = html;
+    var si = $('docGenSearchInput'); if(si) si.oninput = function(){ state.docsGenQuery = si.value; render(); setTimeout(function(){ var el=$('docGenSearchInput'); if(el){ el.focus(); el.selectionStart=el.selectionEnd=el.value.length; } },0); };
+    host.querySelectorAll('[data-genfilter]').forEach(function(el){ el.onclick = function(){ state.docsGenFilter = el.getAttribute('data-genfilter'); render(); }; });
+    host.querySelectorAll('[data-opendoc]').forEach(function(el){
+      el.onclick = function(){ var d = state.documents.find(function(x){ return x.id===el.getAttribute('data-opendoc'); }); if(d) openDocEditor(d.taskId, d.type, d); };
+    });
+  }
+  function chipBtn(key, label, active){ return '<button type="button" class="chip" data-genfilter="'+key+'" aria-pressed="'+(active===key)+'">'+esc(label)+'</button>'; }
+  function genDocRowHtml(d){
+    var task = state.tasks.find(function(t){ return t.id===d.taskId; });
+    var ctx = task ? [task.enseignantNom||ensName(task.enseignantId), task.etablissementNom||etabName(task.etablissementId)].filter(Boolean).join(' · ') : '';
+    var rtl = !!RTL_DOC_TYPES[d.type];
+    var label = (DOC_TYPE_INFO[d.type]?DOC_TYPE_INFO[d.type].label:d.type) + (rtl ? ' <span style="font-size:10px;color:var(--ink-faint);font-weight:500;">(عربي)</span>' : '');
+    return '<div class="doc-row" data-opendoc="'+d.id+'" style="cursor:pointer;"><div class="doc-ico">'+ICONS.doc+'</div>'+
+      '<div class="doc-info"><div class="t">'+label+'</div><div class="s">'+[esc(ctx), fmtDate(d.date)].filter(Boolean).join(' · ')+'</div></div></div>';
+  }
+  /* ---- Documents Google Drive ---- */
+  function renderDocsDriveView(host){
     var html = '';
     if(!state.mcpReady){ host.innerHTML = '<div class="setup-card"><h2>Documents Google Drive</h2><p>Connectez votre compte Google pour parcourir et télécharger les documents de votre Drive depuis l\'application.</p>'+
       '<div class="setup-actions"><button class="btn primary" id="btnConnectDriveDocs" type="button">Connecter Google Drive</button></div></div>';
@@ -1902,6 +2050,7 @@
       if(m.type==='etablissement') return etablissementModalHtml(idx);
       if(m.type==='zone') return zoneModalHtml(idx);
       if(m.type==='docedit') return docEditModalHtml(idx, m);
+      if(m.type==='driveSetup') return driveSetupModalHtml(idx, m);
       return '';
     }).join('');
     wireModalEvents();
@@ -1963,17 +2112,25 @@
       '<button class="chip" data-stab="templates" aria-pressed="'+(tab==='templates')+'">Modèles de documents</button></div>';
 
     if(tab==='sync'){
+      var cid = c.googleClientId || '';
+      var cidShort = cid.length>18 ? cid.slice(0,18)+'…' : cid;
+      html += '<div class="settings-row"><div><div class="l">Identifiant client Google</div><div class="s">'+(cid ? esc(cidShort) : 'Non configuré')+'</div></div>'+
+        '<button class="btn ghost" id="btnEditClientId" type="button">'+(cid?'Modifier':'Configurer')+'</button></div>';
       html += '<div class="settings-row"><div><div class="l">Compte Google</div><div class="s">'+(state.mcpReady ? 'Connecté' : 'Non connecté')+'</div></div>'+
-        (state.mcpReady ? '<button class="btn ghost" id="btnDisconnectDrive" type="button">Déconnecter</button>' : '<button class="btn primary" id="btnConnectDrive" type="button">Connecter</button>')+'</div>';
+        (state.mcpReady ? '<button class="btn ghost" id="btnDisconnectDrive" type="button">Déconnecter</button>' : (cid ? '<button class="btn primary" id="btnConnectDrive" type="button">Connecter</button>' : ''))+'</div>';
       if(state.mcpReady){
         var showLink = !!m.linkMode || !c.sheetFileId;
-        html += '<div class="settings-row"><div><div class="l">Dossier Drive de l\'application</div><div class="s">'+(c.folderName ? esc(c.folderName) : 'Sera créé automatiquement à la première synchronisation')+'</div></div></div>'+
+        html += '<div class="settings-row"><div><div class="l">Dossier Drive de l\'application</div><div class="s">'+(c.folderName ? esc(c.folderName) : 'Sera créé automatiquement à la première synchronisation (structure : dossier principal + sous-dossiers « Sauvegardes » et « Documents générés »)')+'</div></div></div>'+
           '<div class="settings-row"><div><div class="l">Feuille Google Sheets</div><div class="s">'+(c.sheetTitle ? esc(c.sheetTitle) : 'Aucune feuille liée')+'</div></div>'+
-          (c.sheetFileId ? '<button class="btn ghost" id="btnUnlink" type="button">Dissocier</button>' : '')+'</div>'+
+          (c.sheetFileId ? '<button class="btn ghost" id="btnUnlink" type="button">Réinitialiser</button>' : '')+'</div>'+
           (c.lastBackupAt ? '<div class="settings-row"><div><div class="l">Sauvegarde complète (JSON)</div><div class="s">Dernière copie : '+fmtWhen(c.lastBackupAt)+'</div></div></div>' : '');
         if(state.setupError) html += '<div class="banner err" style="margin-top:10px;">'+ICONS.warn+'<div>'+esc(state.setupError)+'</div></div>';
-        html += '<div class="setup-actions" style="margin-top:12px;"><button class="btn primary" id="btnCreateSheet" type="button"'+(state.setupBusy?' disabled':'')+'>'+(state.setupBusy?'Création…':'Créer une nouvelle feuille')+'</button>'+
-          '<button class="btn ghost" id="btnShowLink" type="button">Lier une feuille existante</button></div>';
+        if(!c.sheetFileId){
+          html += '<div class="setup-actions" style="margin-top:12px;"><button class="btn primary" id="btnCreateSheet" type="button"'+(state.setupBusy?' disabled':'')+'>'+(state.setupBusy?'Création…':'Créer une nouvelle feuille')+'</button>'+
+            '<button class="btn ghost" id="btnShowLink" type="button">Lier une feuille existante</button></div>';
+        } else {
+          html += '<p style="font-size:11.5px;color:var(--ink-faint);margin-top:6px;">Une feuille est déjà liée : la synchronisation (icône ↻) l\'utilise directement. Pour en créer ou en lier une autre, touchez d\'abord « Réinitialiser » ci-dessus (la feuille actuelle n\'est pas supprimée de votre Drive, seulement dissociée de l\'application).</p>';
+        }
         if(showLink) html += '<div class="field" style="margin-top:14px;"><label for="sheetSearch">Rechercher une feuille</label>'+
           '<div class="search-row"><input type="text" id="sheetSearch" placeholder="Nom de la feuille…"><button type="button" id="sheetSearchBtn">OK</button></div>'+
           '<div id="sheetResults" class="doc-list" style="margin-top:9px;"></div></div>';
@@ -2013,6 +2170,31 @@
     return '<div class="field"><label>'+label+'</label>'+img+
       '<div class="btn-row"><button class="btn ghost sm" data-picprofil="'+key+'" type="button">'+ICONS.upload+' '+(assetId?'Remplacer':'Ajouter une image')+'</button>'+
       (assetId ? '<button class="btn ghost sm" data-rmprofil="'+key+'" type="button">Retirer</button>' : '')+'</div></div>';
+  }
+
+  /* ---- Configuration Google Drive (identifiant client) ---- */
+  function driveSetupModalHtml(idx, m){
+    var cur = state.config.googleClientId || '';
+    var origin = (typeof location!=='undefined' && location.origin) ? location.origin : 'https://votre-nom.github.io';
+    var html = '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
+      '<div class="sheet-head"><h2>Connexion Google Drive</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
+      '<p style="font-size:12.5px;color:var(--ink-faint);line-height:1.5;">Pour synchroniser vos données avec votre propre Google Drive, collez ci-dessous votre identifiant client Google (gratuit, personnel). Vous n\'avez plus besoin de modifier le fichier de l\'application sur GitHub : tout se fait ici.</p>'+
+      (state.driveSetupError ? '<div class="banner err" style="margin-top:10px;">'+ICONS.warn+'<div>'+esc(state.driveSetupError)+'</div></div>' : '')+
+      '<div class="field" style="margin-top:10px;"><label for="gClientId">Identifiant client Google</label>'+
+      '<input type="text" id="gClientId" value="'+esc(cur)+'" placeholder="xxxxxxxx-xxxx.apps.googleusercontent.com" autocomplete="off" autocapitalize="off" spellcheck="false"></div>'+
+      '<details style="margin:12px 0;font-size:12px;color:var(--ink-faint);"><summary style="cursor:pointer;font-weight:600;color:var(--ink);">Comment obtenir cet identifiant ?</summary>'+
+      '<ol style="margin:8px 0 0 18px;padding:0;line-height:1.6;">'+
+        '<li>Ouvrez <b>console.cloud.google.com</b> et créez un projet (ou choisissez-en un existant).</li>'+
+        '<li>Menu « API et services » → « Écran de consentement OAuth » : configurez-le (type Externe, votre e-mail).</li>'+
+        '<li>Menu « API et services » → « Identifiants » → « Créer des identifiants » → « ID client OAuth ».</li>'+
+        '<li>Type d\'application : <b>Application Web</b>. Dans « Origines JavaScript autorisées », ajoutez : <code>'+esc(origin)+'</code></li>'+
+        '<li>Copiez l\'identifiant généré (il se termine par <code>.apps.googleusercontent.com</code>) et collez-le ci-dessus.</li>'+
+      '</ol><p style="margin-top:8px;">Le détail avec captures d\'écran se trouve dans le guide « GUIDE-GOOGLE-DRIVE.md » fourni avec l\'application — cette étape-là se fait une seule fois, chez Google ; ensuite, plus jamais besoin de toucher au code de l\'application.</p></details>'+
+      '<div class="btn-row">'+(cur ? '<button class="btn danger" id="btnClearClientId" type="button">Réinitialiser</button>' : '')+
+      '<button class="btn ghost" id="btnLaterClientId" type="button">Plus tard</button>'+
+      '<button class="btn primary" id="btnSaveClientId" type="button">Enregistrer</button></div>'+
+      '</div></div>';
+    return html;
   }
 
   /* ---- generic record picker (enseignant / etablissement / zone) ---- */
@@ -2102,7 +2284,9 @@
     return '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
       '<div class="sheet-head"><h2>'+(state.modalStack[idx].isNew?'Nouvelle zone':'Modifier la zone')+'</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
       '<div class="field"><label for="zNom">Nom de la zone d\'inspection</label><input type="text" id="zNom" value="'+esc(z.nom)+'"></div>'+
-      '<div class="field"><label for="zDP">Direction provinciale</label><input type="text" id="zDP" value="'+esc(z.directionProvinciale)+'" placeholder="Ex. DP Sefrou"></div>'+
+      '<div class="field"><label for="zAR">Académie régionale</label><input type="text" id="zAR" value="'+esc(z.academieRegionale)+'" placeholder="Ex. AREF Fès-Meknès"></div>'+
+      '<div class="field-row"><div class="field"><label for="zDP">Direction provinciale</label><input type="text" id="zDP" value="'+esc(z.directionProvinciale)+'" placeholder="Ex. DP Sefrou"></div>'+
+      '<div class="field"><label for="zCommune">Commune</label><input type="text" id="zCommune" value="'+esc(z.commune)+'"></div></div>'+
       '<div class="field"><label for="zNotes">Notes</label><textarea id="zNotes">'+esc(z.notes)+'</textarea></div>'+
       '<div class="btn-row">'+(state.modalStack[idx].isNew?'':'<button class="btn danger" id="btnDeleteZone" type="button">Supprimer</button>')+'<button class="btn primary" id="btnSaveZone" type="button">Enregistrer</button></div>'+
       '</div></div>';
@@ -2229,6 +2413,29 @@
     document.querySelectorAll('[data-stab]').forEach(function(el){ el.onclick=function(){ var m=state.modalStack[state.modalStack.length-1]; m.tab=el.getAttribute('data-stab'); render(); }; });
     var btnConnectDrive = $('btnConnectDrive'); if(btnConnectDrive) btnConnectDrive.onclick = connectGoogleDrive;
     var btnDisconnectDrive = $('btnDisconnectDrive'); if(btnDisconnectDrive) btnDisconnectDrive.onclick = disconnectGoogleDrive;
+    var btnEditClientId = $('btnEditClientId'); if(btnEditClientId) btnEditClientId.onclick = openDriveSetup;
+
+    /* -- configuration Google Drive (identifiant client) -- */
+    var btnSaveClientId = $('btnSaveClientId');
+    if(btnSaveClientId) btnSaveClientId.onclick = function(){
+      var val = ($('gClientId').value||'').trim();
+      if(!val){ state.driveSetupError = 'Collez votre identifiant client Google.'; render(); return; }
+      if(val.indexOf('.apps.googleusercontent.com')===-1){
+        state.driveSetupError = "Cet identifiant ne semble pas valide (il doit se terminer par « .apps.googleusercontent.com »).";
+        render(); return;
+      }
+      state.driveSetupError = null;
+      gisTokenClient = null; driveAccessToken = null; driveTokenExpiresAt = 0; state.mcpReady = false;
+      configSet({ googleClientId: val, driveSetupSeen: true }).then(function(){ closeTopModal(); toast('Identifiant Google enregistré.'); });
+    };
+    var btnClearClientId = $('btnClearClientId');
+    if(btnClearClientId) btnClearClientId.onclick = function(){
+      if(!confirm("Réinitialiser la connexion Google Drive ? Vous devrez coller un nouvel identifiant client pour resynchroniser. Vos données déjà présentes dans votre Drive ne sont pas supprimées.")) return;
+      gisTokenClient = null; driveAccessToken = null; driveTokenExpiresAt = 0; state.mcpReady = false;
+      configSet({ googleClientId: null }).then(function(){ state.driveSetupError = null; render(); });
+    };
+    var btnLaterClientId = $('btnLaterClientId');
+    if(btnLaterClientId) btnLaterClientId.onclick = function(){ configSet({driveSetupSeen:true}); closeTopModal(); };
     var btnCreateSheet = $('btnCreateSheet'); if(btnCreateSheet) btnCreateSheet.onclick = createSheet;
     var btnUnlink = $('btnUnlink'); if(btnUnlink) btnUnlink.onclick = unlinkSheet;
     var btnShowLink = $('btnShowLink'); if(btnShowLink) btnShowLink.onclick = function(){ var m=state.modalStack[state.modalStack.length-1]; m.linkMode=true; render(); };
@@ -2347,7 +2554,7 @@
     var delEtab = $('btnDeleteEtab'); if(delEtab) delEtab.onclick = function(){ recordDelete('etablissement', state.draftRecord.id).then(function(){ closeTopModal(); toast('Supprimé.'); }); };
     var saveZone = $('btnSaveZone');
     if(saveZone) saveZone.onclick = function(){
-      var z = state.draftRecord; z.nom=$('zNom').value.trim()||'(sans nom)'; z.directionProvinciale=$('zDP').value; z.notes=$('zNotes').value;
+      var z = state.draftRecord; z.nom=$('zNom').value.trim()||'(sans nom)'; z.academieRegionale=$('zAR').value; z.directionProvinciale=$('zDP').value; z.commune=$('zCommune').value; z.notes=$('zNotes').value;
       recordSet('zone', z).then(function(){ closeTopModal(); toast('Zone enregistrée.'); });
     };
     var delZone = $('btnDeleteZone'); if(delZone) delZone.onclick = function(){ recordDelete('zone', state.draftRecord.id).then(function(){ closeTopModal(); toast('Zone supprimée.'); }); };
@@ -2464,7 +2671,7 @@
   function closeSidebar(){ $('sidebar').classList.remove('open'); $('sidebarBackdrop').classList.remove('open'); }
   function goToTab(view){
     state.view = view;
-    if(view==='docs' && !state.docs.length && !state.docsLoading) loadRecentDocs();
+    if(view==='docs' && state.subDocs==='drive' && !state.docs.length && !state.docsLoading) loadRecentDocs();
     closeSidebar();
     render();
   }
@@ -2483,13 +2690,15 @@
   $('fabAdd').onclick = function(){
     if(state.view==='tasks') openTaskEditor(null);
     else if(state.view==='enseignants') openEnseignantEditor(null);
-    else if(state.view==='etablissements') openEtablissementEditor(null);
-    else if(state.view==='bilan') { state.view='tasks'; render(); openTaskEditor(null); }
-    else { state.view='tasks'; render(); openTaskEditor(null); }
+    else if(state.view==='etablissements'){ if(state.subEtab==='zones') openZoneEditor(null); else openEtablissementEditor(null); }
   };
 
   /* ================= boot ================= */
-  function start(){ initCapabilities(); render(); }
+  function start(){
+    initCapabilities();
+    if(!state.config.googleClientId && !state.config.driveSetupSeen){ pushModal({type:'driveSetup'}); }
+    render();
+  }
   start();
 })();
 </script>

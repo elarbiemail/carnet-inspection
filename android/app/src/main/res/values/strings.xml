@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Carnet d\'Inspection</string>
+
+    <!-- Adresse de l'application déployée sur GitHub Pages. Si vous changez
+         un jour de nom de dépôt ou d'adresse, modifiez uniquement ces trois
+         lignes (launch_url, host_name, path_prefix) puis reconstruisez. -->
+    <string name="launch_url">https://elarbiemail.github.io/carnet-inspection/</string>
+    <string name="host_name">elarbiemail.github.io</string>
+    <string name="path_prefix">/carnet-inspection</string>
+
+    <string name="provider_authority">net.fm6education.carnetinspection.fileprovider</string>
+
+    <!-- Digital Asset Links : à faire vérifier en publiant le fichier
+         assetlinks.json fourni (voir GUIDE-APK.md) à la racine de
+         https://elarbiemail.github.io/.well-known/assetlinks.json -->
+    <string name="asset_statements">
+        [{
+          \"relation\": [\"delegate_permission/common.handle_all_urls\"],
+          \"target\": {\"namespace\": \"web\", \"site\": \"https://elarbiemail.github.io\"}
+        }]
+    </string>
+</resources>
