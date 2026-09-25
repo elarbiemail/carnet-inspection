@@ -655,8 +655,9 @@
     rapport_inspection: {label:"Rapport d'inspection"}, bordereau: {label:'Bordereau de transmission'}
   };
   /* La plupart des documents administratifs sont rédigés en arabe (langue de l'administration
-     marocaine) ; seul le rapport de visite/d'inspection reste en français. */
-  var RTL_DOC_TYPES = { presence:true, compte_rendu:true, observation:true, attestation:true, lettre_information:true, bordereau:true };
+     marocaine) ; les rapports de visite/d'inspection ET les grilles d'observation/évaluation
+     restent en français (grille = document pédagogique, pas administratif). */
+  var RTL_DOC_TYPES = { presence:true, compte_rendu:true, attestation:true, lettre_information:true, bordereau:true };
   /* ================= navigation : sidebar = menu principal, onglets du bas = sous-menu de la section active ================= */
   var SUBMENUS = {
     tasks: [{key:'all', label:'Toutes'}].concat(WORKFLOW.map(function(w){ return {key:w.v, label:w.l}; })).concat([{key:'late', label:'En retard'}]),
@@ -1291,10 +1292,25 @@
     pushModal({type:'etablissement', isNew: !rec});
   }
   function openZoneEditor(rec){
-    state.draftRecord = rec ? Object.assign({academieRegionale:'', directionProvinciale:'', commune:''}, rec)
-      : { id: uid(), nom:'', academieRegionale:'', directionProvinciale:'', commune:'', notes:'' };
+    state.draftRecord = rec ? Object.assign({academieRegionale:'', directionProvinciale:'', commune:'', cycle:'', discipline:''}, rec)
+      : { id: uid(), nom:'', academieRegionale:'', directionProvinciale:'', commune:'', cycle:'', discipline:'Français', notes:'' };
     pushModal({type:'zone', isNew: !rec});
   }
+  var CYCLES = [{v:'', l:'—'}, {v:'primaire', l:'Primaire'}, {v:'college', l:'Collégial'}, {v:'qualifiant', l:'Qualifiant'}];
+  /* Listes de suggestions en cascade pour la hiérarchie de zone (académie régionale → direction
+     provinciale → commune) : construites à partir des valeurs déjà saisies par l'utilisateur dans
+     ses propres zones (aucune base administrative marocaine externe n'est disponible ici), avec un
+     filtrage en cascade — la DP suggérée dépend de l'académie tapée, la commune de la DP tapée. */
+  function distinctVals(field, filterField, filterVal){
+    var seen = {}, out = [];
+    state.zones.forEach(function(z){
+      if(filterField && (z[filterField]||'').trim().toLowerCase() !== (filterVal||'').trim().toLowerCase()) return;
+      var v = (z[field]||'').trim();
+      if(v && !seen[v]){ seen[v]=true; out.push(v); }
+    });
+    return out.sort();
+  }
+  function datalistOptionsHtml(values){ return values.map(function(v){ return '<option value="'+esc(v)+'">'; }).join(''); }
   function openDocEditor(taskId, docType, existingDoc){
     var task = state.tasks.find(function(t){ return t.id===taskId; });
     var d = existingDoc ? JSON.parse(JSON.stringify(existingDoc)) : buildDefaultDoc(task, docType);
@@ -1690,6 +1706,22 @@
     });
     return {list:list, byType:byType, byWf:byWf, byEtab:byEtab};
   }
+  /* Export Excel (.csv, ouvrable directement dans Excel/LibreOffice/Google Sheets) du bilan de la
+     période active : une ligne par tâche, complète le module de reporting (PDF + Word déjà présents). */
+  function exportBilanCSV(){
+    var s = bilanStats(), r = periodRange();
+    var headers = ['titre','type','statut','etablissement','enseignant','echeance','note','notification_envoyee'];
+    var rows = s.list.map(function(t){
+      return {
+        titre: t.titre, type: TT_LABEL[t.taskType]||t.taskType, statut: WF_LABEL[t.statut]||t.statut,
+        etablissement: t.etablissementNom||etabName(t.etablissementId)||'', enseignant: t.enseignantNom||ensName(t.enseignantId)||'',
+        echeance: t.echeance||'', note: t.noteGlobale||'', notification_envoyee: t.notificationEnvoyee ? 'oui' : ''
+      };
+    });
+    var csv = objectsToCSV(headers, rows);
+    var name = 'Bilan_'+todayStr()+'_'+isoDate(r.from)+'_'+isoDate(r.to)+'.csv';
+    saveBlob(name, new Blob([csv], {type:'text/csv'})).then(function(){ toast('Export Excel (.csv) enregistré.'); });
+  }
   function generateBilanDoc(){
     var s = bilanStats(), r = periodRange();
     var html = printHead('Bilan des activités d\'inspection', [['Période', fmtDate(r.from.toISOString())+' – '+fmtDate(r.to.toISOString())], ['Total tâches', s.list.length]]);
@@ -1851,7 +1883,9 @@
     if(state.subEtab==='zones') renderZonesSubview(host);
     else renderEtabsSubview(host);
   }
+  var CYCLE_LABEL = {}; CYCLES.forEach(function(c){ if(c.v) CYCLE_LABEL[c.v]=c.l; });
   function zoneHierLine(z){ return [z.academieRegionale, z.directionProvinciale, z.commune].filter(Boolean).join(' · '); }
+  function zoneTagLine(z){ return [CYCLE_LABEL[z.cycle], z.discipline].filter(Boolean).join(' · '); }
   function renderZonesSubview(host){
     var html = '<div class="setup-actions"><button class="btn primary sm" id="btnAddZone" type="button">+ Nouvelle zone</button></div>';
     var zones = state.zones.slice().sort(function(a,b){ return a.nom.localeCompare(b.nom); });
@@ -1866,7 +1900,7 @@
   }
   function zoneRowHtml(z){
     var nEtab = state.etablissements.filter(function(e){ return e.zoneId===z.id; }).length;
-    var sub = [zoneHierLine(z), nEtab+' établissement(s)'].filter(Boolean).join(' · ');
+    var sub = [zoneTagLine(z), zoneHierLine(z), nEtab+' établissement(s)'].filter(Boolean).join(' · ');
     return '<div class="rec-row" data-id="'+z.id+'"><div class="avatar">'+ICONS.folder+'</div>'+
       '<div class="rec-info"><div class="t">'+esc(z.nom)+'</div><div class="s">'+esc(sub)+'</div></div></div>';
   }
@@ -1925,6 +1959,7 @@
       '<div class="field"><textarea id="bilanSynthText" placeholder="Synthèse de la période…"></textarea></div>'+
       (state.sampleReady ? '<div class="btn-row"><button class="btn ai" id="btnAiBilan" type="button">'+ICONS.ai+' Proposer une synthèse</button></div><div class="banner info" id="bilanAiStatus" hidden style="margin-top:8px;"></div>' : '')+
       '<div class="setup-actions"><button class="btn ghost sm" id="btnGenBilan" type="button">'+ICONS.print+' Imprimer</button>'+
+      '<button class="btn ghost sm" id="btnBilanExcel" type="button">'+ICONS.sheet+' Excel (.csv)</button>'+
       '<button class="btn ghost sm" id="btnBilanPdf" type="button">'+ICONS.pdf+' PDF</button>'+
       '<button class="btn primary sm" id="btnBilanDocx" type="button">'+ICONS.doc+' Word (.docx)</button></div>'+
       '<div class="banner info" id="bilanGenStatus" hidden style="margin-top:8px;"></div></div>';
@@ -1942,6 +1977,7 @@
       var p = kind==='pdf' ? downloadPdf(spec, 'Bilan_'+todayStr()) : downloadDocx(spec, 'Bilan_'+todayStr());
       p.then(function(){ if(btn) btn.disabled = false; if(statusEl) statusEl.hidden = true; });
     }
+    var bilanExcelBtn = $('btnBilanExcel'); if(bilanExcelBtn) bilanExcelBtn.onclick = exportBilanCSV;
     var bilanPdfBtn = $('btnBilanPdf'); if(bilanPdfBtn) bilanPdfBtn.onclick = function(){ runBilanGen('pdf', bilanPdfBtn); };
     var bilanDocxBtn = $('btnBilanDocx'); if(bilanDocxBtn) bilanDocxBtn.onclick = function(){ runBilanGen('docx', bilanDocxBtn); };
     var aiBtn = $('btnAiBilan');
@@ -2247,8 +2283,27 @@
       '<div class="field"><label>Pièces jointes</label><div id="attachList">'+(e.attachments||[]).map(function(a,i){ return '<div class="attach-row"><span class="t">'+esc(a.titre)+'</span><a href="'+assetUrl(a.assetId)+'" target="_blank" rel="noopener" class="icon-btn" style="width:30px;height:30px;">'+ICONS.ext+'</a><button class="icon-btn" data-rmattach="'+i+'" style="width:30px;height:30px;color:var(--danger);">'+ICONS.trash+'</button></div>'; }).join('')+'</div>'+
       '<button class="addline" id="btnAddAttach" type="button">'+ICONS.upload+' Joindre un document/photo</button></div>'+
       '<div class="field"><label for="eNotes">Notes</label><textarea id="eNotes">'+esc(e.notes)+'</textarea></div>'+
+      (state.modalStack[idx].isNew ? '' : ensVisitHistoryHtml(e))+
       '<div class="btn-row">'+(state.modalStack[idx].isNew?'':'<button class="btn danger" id="btnDeleteEns" type="button">Supprimer</button>')+'<button class="btn primary" id="btnSaveEns" type="button">Enregistrer</button></div>'+
       '</div></div>';
+    return html;
+  }
+  /* Suivi pédagogique : historique des visites/inspections déjà effectuées pour cet(te) enseignant(e),
+     avec accès direct à chaque tâche pour retrouver notes et documents générés. */
+  function ensVisitHistoryHtml(e){
+    var visits = state.tasks.filter(function(t){ return t.enseignantId===e.id; })
+      .sort(function(a,b){ return (b.echeance||b.updatedAt||'').localeCompare(a.echeance||a.updatedAt||''); });
+    var html = '<div class="field"><label>Historique des visites ('+visits.length+')</label>';
+    if(!visits.length){ html += '<div class="empty" style="margin-top:2px;">Aucune visite ou inspection enregistrée pour cet(te) enseignant(e).</div>'; }
+    else {
+      html += '<div class="rec-list" id="ensVisitList">'+visits.map(function(t){
+        var late = isLate(t.echeance, t.statut);
+        var sub = [TT_LABEL[t.taskType]||t.taskType, WF_LABEL[t.statut]||t.statut, t.echeance?fmtDate(t.echeance):''].filter(Boolean).join(' · ');
+        return '<div class="rec-row" data-visit="'+t.id+'"><div class="avatar" style="'+(late?'color:var(--danger);':'')+'">'+ICONS.folder+'</div>'+
+          '<div class="rec-info"><div class="t">'+esc(t.titre)+'</div><div class="s">'+esc(sub)+'</div></div></div>';
+      }).join('')+'</div>';
+    }
+    html += '</div>';
     return html;
   }
   function horaireLineHtml(sl, i){
@@ -2284,9 +2339,15 @@
     return '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
       '<div class="sheet-head"><h2>'+(state.modalStack[idx].isNew?'Nouvelle zone':'Modifier la zone')+'</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
       '<div class="field"><label for="zNom">Nom de la zone d\'inspection</label><input type="text" id="zNom" value="'+esc(z.nom)+'"></div>'+
-      '<div class="field"><label for="zAR">Académie régionale</label><input type="text" id="zAR" value="'+esc(z.academieRegionale)+'" placeholder="Ex. AREF Fès-Meknès"></div>'+
-      '<div class="field-row"><div class="field"><label for="zDP">Direction provinciale</label><input type="text" id="zDP" value="'+esc(z.directionProvinciale)+'" placeholder="Ex. DP Sefrou"></div>'+
-      '<div class="field"><label for="zCommune">Commune</label><input type="text" id="zCommune" value="'+esc(z.commune)+'"></div></div>'+
+      '<div class="field"><label for="zAR">Académie régionale</label><input type="text" id="zAR" list="zAROptions" value="'+esc(z.academieRegionale)+'" placeholder="Ex. AREF Fès-Meknès">'+
+      '<datalist id="zAROptions">'+datalistOptionsHtml(distinctVals('academieRegionale'))+'</datalist></div>'+
+      '<div class="field-row"><div class="field"><label for="zDP">Direction provinciale</label><input type="text" id="zDP" list="zDPOptions" value="'+esc(z.directionProvinciale)+'" placeholder="Ex. DP Sefrou">'+
+      '<datalist id="zDPOptions">'+datalistOptionsHtml(distinctVals('directionProvinciale', 'academieRegionale', z.academieRegionale))+'</datalist></div>'+
+      '<div class="field"><label for="zCommune">Commune</label><input type="text" id="zCommune" list="zCommuneOptions" value="'+esc(z.commune)+'">'+
+      '<datalist id="zCommuneOptions">'+datalistOptionsHtml(distinctVals('commune', 'directionProvinciale', z.directionProvinciale))+'</datalist></div></div>'+
+      '<div class="field-row"><div class="field"><label for="zCycle">Cycle</label><select id="zCycle">'+
+      CYCLES.map(function(c){ return '<option value="'+c.v+'"'+(z.cycle===c.v?' selected':'')+'>'+c.l+'</option>'; }).join('')+'</select></div>'+
+      '<div class="field"><label for="zDiscipline">Discipline</label><input type="text" id="zDiscipline" value="'+esc(z.discipline)+'" placeholder="Ex. Français"></div></div>'+
       '<div class="field"><label for="zNotes">Notes</label><textarea id="zNotes">'+esc(z.notes)+'</textarea></div>'+
       '<div class="btn-row">'+(state.modalStack[idx].isNew?'':'<button class="btn danger" id="btnDeleteZone" type="button">Supprimer</button>')+'<button class="btn primary" id="btnSaveZone" type="button">Enregistrer</button></div>'+
       '</div></div>';
@@ -2530,6 +2591,7 @@
     document.querySelectorAll('[data-rmhor]').forEach(function(el){ el.onclick=function(){ syncEnsFields(); state.draftRecord.horaire.splice(parseInt(el.getAttribute('data-rmhor')),1); render(); }; });
     var btnAddAttach = $('btnAddAttach'); if(btnAddAttach) btnAddAttach.onclick = function(){ syncEnsFields(); $('fileAttachInput').click(); };
     document.querySelectorAll('[data-rmattach]').forEach(function(el){ el.onclick=function(){ syncEnsFields(); state.draftRecord.attachments.splice(parseInt(el.getAttribute('data-rmattach')),1); render(); }; });
+    document.querySelectorAll('[data-visit]').forEach(function(el){ el.onclick=function(){ var t=state.tasks.find(function(x){ return x.id===el.getAttribute('data-visit'); }); if(t) openTaskDetail(t); }; });
     var saveEns = $('btnSaveEns');
     if(saveEns) saveEns.onclick = function(){
       syncEnsFields();
@@ -2554,10 +2616,22 @@
     var delEtab = $('btnDeleteEtab'); if(delEtab) delEtab.onclick = function(){ recordDelete('etablissement', state.draftRecord.id).then(function(){ closeTopModal(); toast('Supprimé.'); }); };
     var saveZone = $('btnSaveZone');
     if(saveZone) saveZone.onclick = function(){
-      var z = state.draftRecord; z.nom=$('zNom').value.trim()||'(sans nom)'; z.academieRegionale=$('zAR').value; z.directionProvinciale=$('zDP').value; z.commune=$('zCommune').value; z.notes=$('zNotes').value;
+      var z = state.draftRecord; z.nom=$('zNom').value.trim()||'(sans nom)'; z.academieRegionale=$('zAR').value; z.directionProvinciale=$('zDP').value; z.commune=$('zCommune').value;
+      z.cycle=$('zCycle').value; z.discipline=$('zDiscipline').value; z.notes=$('zNotes').value;
       recordSet('zone', z).then(function(){ closeTopModal(); toast('Zone enregistrée.'); });
     };
     var delZone = $('btnDeleteZone'); if(delZone) delZone.onclick = function(){ recordDelete('zone', state.draftRecord.id).then(function(){ closeTopModal(); toast('Zone supprimée.'); }); };
+    /* Cascade dynamique des suggestions de hiérarchie de zone : taper l'académie recharge les DP
+       déjà utilisées pour cette académie, taper la DP recharge les communes déjà utilisées pour
+       cette DP — sans re-rendre tout le modal (pour ne pas perdre le focus/curseur en cours de saisie). */
+    var zARInput = $('zAR');
+    if(zARInput) zARInput.oninput = function(){
+      var opts = $('zDPOptions'); if(opts) opts.innerHTML = datalistOptionsHtml(distinctVals('directionProvinciale', 'academieRegionale', zARInput.value));
+    };
+    var zDPInput = $('zDP');
+    if(zDPInput) zDPInput.oninput = function(){
+      var opts = $('zCommuneOptions'); if(opts) opts.innerHTML = datalistOptionsHtml(distinctVals('commune', 'directionProvinciale', zDPInput.value));
+    };
 
     /* -- document editor -- */
     function syncDocGenericFields(){
