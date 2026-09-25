@@ -824,6 +824,21 @@
     saveLocal(coll); render();
     return Promise.resolve();
   }
+  /* « Acceptation des établissements » dans le formulaire de zone : applique en bloc la liste cochée
+     d'établissements à cette zone (rattache les cases cochées, détache celles décochées qui lui
+     appartenaient) — un établissement ne peut être rattaché qu'à une seule zone, le cocher ici le
+     retire donc de son ancienne zone le cas échéant. */
+  function applyZoneEtabAssignment(zoneId, selectedIds){
+    var changed = false;
+    state.etablissements.forEach(function(e){
+      var shouldBelong = selectedIds.indexOf(e.id) !== -1;
+      var belongs = e.zoneId === zoneId;
+      if(shouldBelong && !belongs){ e.zoneId = zoneId; e.updatedAt = nowIso(); changed = true; }
+      else if(!shouldBelong && belongs){ e.zoneId = null; e.updatedAt = nowIso(); changed = true; }
+    });
+    if(changed){ saveLocal('etablissements'); render(); }
+    return changed;
+  }
   function configSet(patch){
     state.config = Object.assign({}, state.config, patch);
     saveLocal('config'); render();
@@ -1297,10 +1312,43 @@
     pushModal({type:'zone', isNew: !rec});
   }
   var CYCLES = [{v:'', l:'—'}, {v:'primaire', l:'Primaire'}, {v:'college', l:'Collégial'}, {v:'qualifiant', l:'Qualifiant'}];
-  /* Listes de suggestions en cascade pour la hiérarchie de zone (académie régionale → direction
-     provinciale → commune) : construites à partir des valeurs déjà saisies par l'utilisateur dans
-     ses propres zones (aucune base administrative marocaine externe n'est disponible ici), avec un
-     filtrage en cascade — la DP suggérée dépend de l'académie tapée, la commune de la DP tapée. */
+  /* Référentiel officiel : les 12 académies régionales (AREF, réforme de 2015) et leurs directions
+     provinciales (une par province/préfecture). Données statiques (le découpage administratif du
+     Maroc ne change pas au fil de l'usage courant de l'application) — fiable hors-ligne, à la
+     différence d'une feuille de calcul qui serait écrasée à chaque synchronisation (voir doSync). */
+  var REGIONS_MAROC = [
+    {aref:'AREF Tanger-Tétouan-Al Hoceïma', dps:['DP Tanger-Assilah','DP M\'diq-Fnideq','DP Tétouan','DP Fahs-Anjra','DP Larache','DP Al Hoceïma','DP Chefchaouen','DP Ouezzane']},
+    {aref:"AREF de l'Oriental", dps:['DP Oujda-Angad','DP Nador','DP Driouch','DP Jerada','DP Berkane','DP Taourirt','DP Guercif','DP Figuig']},
+    {aref:'AREF Fès-Meknès', dps:['DP Fès','DP Meknès','DP El Hajeb','DP Ifrane','DP Moulay Yacoub','DP Sefrou','DP Boulemane','DP Taounate','DP Taza']},
+    {aref:'AREF Rabat-Salé-Kénitra', dps:['DP Rabat','DP Salé','DP Skhirate-Témara','DP Kénitra','DP Khémisset','DP Sidi Kacem','DP Sidi Slimane']},
+    {aref:'AREF Béni Mellal-Khénifra', dps:['DP Béni Mellal','DP Azilal','DP Fquih Ben Salah','DP Khénifra','DP Khouribga']},
+    {aref:'AREF Casablanca-Settat', dps:['DP Casablanca','DP Mohammedia','DP El Jadida','DP Nouaceur','DP Médiouna','DP Benslimane','DP Berrechid','DP Settat','DP Sidi Bennour']},
+    {aref:'AREF Marrakech-Safi', dps:['DP Marrakech','DP Chichaoua','DP Al Haouz','DP El Kelâa des Sraghna','DP Essaouira','DP Rehamna','DP Safi','DP Youssoufia']},
+    {aref:'AREF Drâa-Tafilalet', dps:['DP Errachidia','DP Midelt','DP Ouarzazate','DP Tinghir','DP Zagora']},
+    {aref:'AREF Souss-Massa', dps:['DP Agadir Ida Outanane','DP Inezgane-Aït Melloul','DP Chtouka-Aït Baha','DP Taroudant','DP Tiznit','DP Tata']},
+    {aref:'AREF Guelmim-Oued Noun', dps:['DP Guelmim','DP Assa-Zag','DP Tan-Tan','DP Sidi Ifni']},
+    {aref:'AREF Laâyoune-Sakia El Hamra', dps:['DP Laâyoune','DP Boujdour','DP Tarfaya','DP Es-Semara']},
+    {aref:'AREF Dakhla-Oued Ed-Dahab', dps:['DP Oued Ed-Dahab','DP Aousserd']}
+  ];
+  function dpsForAref(aref){ var r = REGIONS_MAROC.find(function(x){ return x.aref===aref; }); return r ? r.dps : []; }
+  function arefSelectOptionsHtml(current){
+    var found = REGIONS_MAROC.some(function(r){ return r.aref===current; });
+    var html = '<option value="">— Sélectionner —</option>';
+    if(current && !found) html += '<option value="'+esc(current)+'" selected>'+esc(current)+' (existant)</option>';
+    html += REGIONS_MAROC.map(function(r){ return '<option value="'+esc(r.aref)+'"'+(r.aref===current?' selected':'')+'>'+esc(r.aref)+'</option>'; }).join('');
+    return html;
+  }
+  function dpSelectOptionsHtml(aref, current){
+    var dps = dpsForAref(aref);
+    var found = dps.indexOf(current)!==-1;
+    var html = '<option value="">— Sélectionner —</option>';
+    if(current && !found) html += '<option value="'+esc(current)+'" selected>'+esc(current)+' (existant)</option>';
+    html += dps.map(function(d){ return '<option value="'+esc(d)+'"'+(d===current?' selected':'')+'>'+esc(d)+'</option>'; }).join('');
+    return html;
+  }
+  /* Suggestion de commune : construite à partir des valeurs déjà saisies par l'utilisateur dans ses
+     propres zones (aucun référentiel officiel exhaustif des ~1500 communes n'est chargé ici),
+     filtrée en cascade selon la direction provinciale sélectionnée. */
   function distinctVals(field, filterField, filterVal){
     var seen = {}, out = [];
     state.zones.forEach(function(z){
@@ -1858,7 +1906,7 @@
       var list = state.enseignants.filter(function(e){ return !q || e.nom.toLowerCase().indexOf(q)>=0 || (e.matiere||'').toLowerCase().indexOf(q)>=0; })
         .sort(function(a,b){ return a.nom.localeCompare(b.nom); });
       html += !list.length ? '<div class="empty">Aucun enseignant enregistré. Touchez « + » pour en ajouter un.</div>' :
-        '<div class="rec-list">'+list.map(function(e){ return ensRowHtml(e, [e.matiere, etabName(e.etablissementId)].filter(Boolean).join(' · ')); }).join('')+'</div>';
+        '<div class="rec-list">'+list.map(function(e){ return ensRowHtml(e, [e.matiere, etabName(e.etablissementId), etabZoneHierLine(e.etablissementId)].filter(Boolean).join(' · ')); }).join('')+'</div>';
     }
     host.innerHTML = html;
     var si = $('ensSearchInput'); if(si) si.oninput = function(){ state.ensQuery = si.value; render(); setTimeout(function(){ var el=$('ensSearchInput'); if(el){ el.focus(); el.selectionStart=el.selectionEnd=el.value.length; } },0); };
@@ -1869,6 +1917,15 @@
     host.querySelectorAll('.rec-row').forEach(function(el){
       el.onclick = function(){ var e = state.enseignants.find(function(x){ return x.id===el.getAttribute('data-id'); }); if(e) openEnseignantEditor(e); };
     });
+  }
+  /* Fait remonter la hiérarchie (académie régionale · direction provinciale) de l'établissement d'un
+     enseignant jusqu'à sa fiche, pour que le lien zone → établissement → enseignant reste visible
+     sans devoir ouvrir chaque fiche. */
+  function etabZoneHierLine(etablissementId){
+    var et = state.etablissements.find(function(x){ return x.id===etablissementId; });
+    if(!et || !et.zoneId) return '';
+    var z = state.zones.find(function(x){ return x.id===et.zoneId; });
+    return z ? [z.academieRegionale, z.directionProvinciale].filter(Boolean).join(' · ') : '';
   }
   function ensRowHtml(e, sub){
     var av = e.photoAssetId ? '<img src="'+assetUrl(e.photoAssetId)+'" alt="">' : initials(e.nom);
@@ -2339,16 +2396,23 @@
     return '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
       '<div class="sheet-head"><h2>'+(state.modalStack[idx].isNew?'Nouvelle zone':'Modifier la zone')+'</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
       '<div class="field"><label for="zNom">Nom de la zone d\'inspection</label><input type="text" id="zNom" value="'+esc(z.nom)+'"></div>'+
-      '<div class="field"><label for="zAR">Académie régionale</label><input type="text" id="zAR" list="zAROptions" value="'+esc(z.academieRegionale)+'" placeholder="Ex. AREF Fès-Meknès">'+
-      '<datalist id="zAROptions">'+datalistOptionsHtml(distinctVals('academieRegionale'))+'</datalist></div>'+
-      '<div class="field-row"><div class="field"><label for="zDP">Direction provinciale</label><input type="text" id="zDP" list="zDPOptions" value="'+esc(z.directionProvinciale)+'" placeholder="Ex. DP Sefrou">'+
-      '<datalist id="zDPOptions">'+datalistOptionsHtml(distinctVals('directionProvinciale', 'academieRegionale', z.academieRegionale))+'</datalist></div>'+
+      '<div class="field"><label for="zAR">Académie régionale (AREF)</label><select id="zAR">'+arefSelectOptionsHtml(z.academieRegionale)+'</select></div>'+
+      '<div class="field-row"><div class="field"><label for="zDP">Direction provinciale</label><select id="zDP">'+dpSelectOptionsHtml(z.academieRegionale, z.directionProvinciale)+'</select></div>'+
       '<div class="field"><label for="zCommune">Commune</label><input type="text" id="zCommune" list="zCommuneOptions" value="'+esc(z.commune)+'">'+
       '<datalist id="zCommuneOptions">'+datalistOptionsHtml(distinctVals('commune', 'directionProvinciale', z.directionProvinciale))+'</datalist></div></div>'+
       '<div class="field-row"><div class="field"><label for="zCycle">Cycle</label><select id="zCycle">'+
       CYCLES.map(function(c){ return '<option value="'+c.v+'"'+(z.cycle===c.v?' selected':'')+'>'+c.l+'</option>'; }).join('')+'</select></div>'+
       '<div class="field"><label for="zDiscipline">Discipline</label><input type="text" id="zDiscipline" value="'+esc(z.discipline)+'" placeholder="Ex. Français"></div></div>'+
       '<div class="field"><label for="zNotes">Notes</label><textarea id="zNotes">'+esc(z.notes)+'</textarea></div>'+
+      '<div class="field"><label>Établissements rattachés <span style="font-weight:400;color:var(--ink-faint);">(cocher pour les affecter à cette zone)</span></label>'+
+      '<div id="zEtabList" style="max-height:230px;overflow:auto;border:1px solid var(--line);border-radius:9px;">'+
+      (state.etablissements.length ? state.etablissements.slice().sort(function(a,b){ return a.nom.localeCompare(b.nom); }).map(function(e){
+        var otherZone = (e.zoneId && e.zoneId!==z.id) ? state.zones.find(function(zz){ return zz.id===e.zoneId; }) : null;
+        return '<label style="display:flex;align-items:center;gap:9px;padding:9px 11px;border-bottom:1px solid var(--line);">'+
+          '<input type="checkbox" data-etabpick="'+e.id+'"'+(e.zoneId===z.id?' checked':'')+'>'+
+          '<span style="flex:1;">'+esc(e.nom)+(otherZone?'<span style="display:block;font-size:11px;color:var(--ink-faint);">actuellement dans « '+esc(otherZone.nom)+' »</span>':'')+'</span></label>';
+      }).join('') : '<div class="empty" style="padding:10px;">Aucun établissement enregistré pour l\'instant.</div>')+
+      '</div></div>'+
       '<div class="btn-row">'+(state.modalStack[idx].isNew?'':'<button class="btn danger" id="btnDeleteZone" type="button">Supprimer</button>')+'<button class="btn primary" id="btnSaveZone" type="button">Enregistrer</button></div>'+
       '</div></div>';
   }
@@ -2618,19 +2682,26 @@
     if(saveZone) saveZone.onclick = function(){
       var z = state.draftRecord; z.nom=$('zNom').value.trim()||'(sans nom)'; z.academieRegionale=$('zAR').value; z.directionProvinciale=$('zDP').value; z.commune=$('zCommune').value;
       z.cycle=$('zCycle').value; z.discipline=$('zDiscipline').value; z.notes=$('zNotes').value;
-      recordSet('zone', z).then(function(){ closeTopModal(); toast('Zone enregistrée.'); });
+      var pickedEtabIds = document.querySelectorAll('[data-etabpick]:checked');
+      var selectedIds = Array.prototype.map.call(pickedEtabIds, function(el){ return el.getAttribute('data-etabpick'); });
+      recordSet('zone', z).then(function(){
+        applyZoneEtabAssignment(z.id, selectedIds);
+        closeTopModal(); toast('Zone enregistrée.');
+      });
     };
     var delZone = $('btnDeleteZone'); if(delZone) delZone.onclick = function(){ recordDelete('zone', state.draftRecord.id).then(function(){ closeTopModal(); toast('Zone supprimée.'); }); };
-    /* Cascade dynamique des suggestions de hiérarchie de zone : taper l'académie recharge les DP
-       déjà utilisées pour cette académie, taper la DP recharge les communes déjà utilisées pour
-       cette DP — sans re-rendre tout le modal (pour ne pas perdre le focus/curseur en cours de saisie). */
-    var zARInput = $('zAR');
-    if(zARInput) zARInput.oninput = function(){
-      var opts = $('zDPOptions'); if(opts) opts.innerHTML = datalistOptionsHtml(distinctVals('directionProvinciale', 'academieRegionale', zARInput.value));
+    /* Cascade dynamique académie régionale → direction provinciale (référentiel officiel des 12 AREF)
+       → commune (suggestions issues des zones déjà saisies) — sans re-rendre tout le modal, pour ne
+       pas perdre le focus/curseur en cours de saisie. Changer d'académie réinitialise la DP, car les
+       directions provinciales d'une académie ne s'appliquent pas à une autre. */
+    var zARSelect = $('zAR');
+    if(zARSelect) zARSelect.onchange = function(){
+      var dpSelect = $('zDP'); if(dpSelect) dpSelect.innerHTML = dpSelectOptionsHtml(zARSelect.value, '');
+      var opts = $('zCommuneOptions'); if(opts) opts.innerHTML = datalistOptionsHtml(distinctVals('commune', 'directionProvinciale', ''));
     };
-    var zDPInput = $('zDP');
-    if(zDPInput) zDPInput.oninput = function(){
-      var opts = $('zCommuneOptions'); if(opts) opts.innerHTML = datalistOptionsHtml(distinctVals('commune', 'directionProvinciale', zDPInput.value));
+    var zDPSelect = $('zDP');
+    if(zDPSelect) zDPSelect.onchange = function(){
+      var opts = $('zCommuneOptions'); if(opts) opts.innerHTML = datalistOptionsHtml(distinctVals('commune', 'directionProvinciale', zDPSelect.value));
     };
 
     /* -- document editor -- */
