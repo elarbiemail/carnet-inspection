@@ -99,6 +99,26 @@ se fait directement dans l'application.
    sous-dossiers (« Sauvegardes » et « Documents générés ») ainsi qu'une
    feuille de calcul, pour synchroniser vos tâches et documents.
 
+## Que synchronise exactement le bouton de synchronisation ?
+
+Touchez l'icône ↻ (ou **Paramètres → Synchronisation**) sur chaque appareil
+où vous utilisez l'application. À chaque synchronisation :
+
+- Les **tâches** sont fusionnées avec la feuille Google Sheets liée (la
+  version la plus récente de chaque tâche est conservée), puis la feuille
+  est entièrement réécrite.
+- **Zones, établissements, enseignants, documents, modèles de documents et
+  le référentiel des académies régionales / directions provinciales**
+  (modifiable dans **Paramètres → Régions / DP**) sont fusionnés de la même
+  façon via un fichier `sauvegarde-donnees.json` dans le dossier
+  « Sauvegardes » — c'est ce qui vous permet de retrouver les mêmes données
+  à jour sur un ordinateur, une tablette ou un téléphone différents, du
+  moment que vous vous connectez avec le même compte Google sur chacun.
+
+En cas de modification du même enregistrement sur deux appareils avant
+synchronisation, c'est toujours la modification la plus récente qui est
+conservée.
+
 ## Questions fréquentes
 
 **Est-ce payant ?** Non. L'utilisation de l'API Google Drive dans les

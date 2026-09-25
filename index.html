@@ -750,6 +750,7 @@
   var state = {
     view: 'tasks', filter: 'all',
     tasks: [], zones: [], etablissements: [], enseignants: [], documents: [], assets: {},
+    regionsMaroc: [], regionsMarocUpdatedAt: null,
     templates: { entete: DEFAULT_ENTETE, criteres: DEFAULT_CRITERES.slice(), profil: Object.assign({}, DEFAULT_PROFIL) },
     config: {}, docs: [], docsQuery: '', docsLoading: false, docsError: null,
     dbReady: false, mcpReady: false, downloadsReady: false, sampleReady: false, assetsReady: false,
@@ -776,7 +777,8 @@
 
   /* ---- stockage local (localStorage) — seul et unique moteur de persistance ---- */
   var LS_KEYS = {tasks:'ci_tasks_fallback', zones:'ci_zones_fallback', etablissements:'ci_etabs_fallback',
-    enseignants:'ci_ens_fallback', documents:'ci_docs_fallback', config:'ci_config_fallback', templates:'ci_tmpl_fallback', assets:'ci_assets_fallback'};
+    enseignants:'ci_ens_fallback', documents:'ci_docs_fallback', config:'ci_config_fallback', templates:'ci_tmpl_fallback',
+    assets:'ci_assets_fallback', regionsMaroc:'ci_regions_fallback'};
   function loadLocalAll(){
     try{
       state.tasks = JSON.parse(localStorage.getItem(LS_KEYS.tasks)||'[]').map(function(t){ t.statut=normStatut(t.statut); t.taskType=normTaskType(t.taskType); return t; });
@@ -788,12 +790,16 @@
       state.assets = JSON.parse(localStorage.getItem(LS_KEYS.assets)||'{}');
       var t = JSON.parse(localStorage.getItem(LS_KEYS.templates)||'null');
       if(t){ t.profil = Object.assign({}, DEFAULT_PROFIL, t.profil||{}); state.templates = t; }
+      var rm = JSON.parse(localStorage.getItem(LS_KEYS.regionsMaroc)||'null');
+      state.regionsMaroc = (rm && rm.list && rm.list.length) ? rm.list : cloneDefaultRegions();
+      state.regionsMarocUpdatedAt = (rm && rm.updatedAt) || null;
     }catch(e){}
   }
   function saveLocal(coll){
     try{
       var map = {tasks:state.tasks, zones:state.zones, etablissements:state.etablissements, enseignants:state.enseignants,
-        documents:state.documents, config:state.config, templates:state.templates, assets:state.assets};
+        documents:state.documents, config:state.config, templates:state.templates, assets:state.assets,
+        regionsMaroc:{list:state.regionsMaroc, updatedAt:state.regionsMarocUpdatedAt}};
       localStorage.setItem(LS_KEYS[coll], JSON.stringify(map[coll]));
     }catch(e){
       console.warn('storage error', e);
@@ -845,7 +851,7 @@
     return Promise.resolve();
   }
   function templatesSet(patch){
-    state.templates = Object.assign({}, state.templates, patch);
+    state.templates = Object.assign({}, state.templates, patch, {updatedAt: nowIso()});
     saveLocal('templates'); render();
     return Promise.resolve();
   }
@@ -1144,7 +1150,8 @@
     if(!folderId) return Promise.resolve();
     var data = {
       exportedAt: nowIso(), zones: state.zones, etablissements: state.etablissements,
-      enseignants: state.enseignants, tasks: state.tasks, documents: state.documents, templates: state.templates
+      enseignants: state.enseignants, tasks: state.tasks, documents: state.documents, templates: state.templates,
+      regionsMaroc: state.regionsMaroc, regionsMarocUpdatedAt: state.regionsMarocUpdatedAt
     };
     return mcpCall('create_file', {
       title: 'sauvegarde-donnees.json', textContent: JSON.stringify(data, null, 2), contentMimeType:'application/json',
@@ -1155,6 +1162,54 @@
       var p = (newId && oldId && newId!==oldId) ? mcpCall('trash_file', {fileId:oldId}).catch(function(){}) : Promise.resolve();
       return p.then(function(){ return configSet({ backupFileId: newId || oldId, lastBackupAt: nowIso() }); });
     }).catch(function(err){ console.warn('backup error', err); });
+  }
+  /* Recherche un fichier par titre dans un dossier donné — utilisé pour retrouver la sauvegarde JSON
+     même depuis un appareil qui ne l'a jamais poussée lui-même (son id local en cache,
+     state.config.backupFileId, n'existe que sur l'appareil qui l'a créée). */
+  function findFileByTitle(folderId, title){
+    if(!folderId) return Promise.resolve(null);
+    var q = "title = '"+title.replace(/'/g,"\\'")+"' and '"+folderId+"' in parents";
+    return mcpCall('search_files', {query:q, pageSize:5, excludeContentSnippets:true}).then(function(res){
+      var files = (res.payload && res.payload.files) || [];
+      return files.length ? files[0] : null;
+    });
+  }
+  /* Télécharge et lit la sauvegarde JSON existante dans le dossier « Sauvegardes », si elle existe —
+     c'est ce qui permet à zones/établissements/enseignants/documents/référentiel/modèles d'être
+     réellement synchronisés entre plusieurs appareils (auparavant cette sauvegarde n'était écrite
+     que dans un sens, jamais relue par l'app elle-même). */
+  function pullJsonBackup(folderId){
+    if(!folderId) return Promise.resolve(null);
+    return findFileByTitle(folderId, 'sauvegarde-donnees.json').then(function(file){
+      if(!file) return null;
+      return mcpCall('download_file_content', {fileId: file.id}).then(function(res){
+        var payload = res.payload || {};
+        if(!payload.content) return null;
+        try{ return JSON.parse(b64ToUtf8(payload.content)); }catch(e){ return null; }
+      });
+    }).catch(function(){ return null; });
+  }
+  /* Fusionne une sauvegarde distante téléchargée dans l'état local : zones/établissements/
+     enseignants/documents par enregistrement (le plus récent par id, comme les tâches via
+     mergeById) ; référentiel régions/DP et modèles de documents en bloc, à la dernière modification
+     la plus récente. Les tâches, elles, sont déjà fusionnées séparément via la feuille CSV. */
+  function mergeRemoteBackupIntoLocal(remote){
+    if(!remote) return;
+    ['zones','etablissements','enseignants','documents'].forEach(function(coll){
+      if(Array.isArray(remote[coll])){ state[coll] = mergeById(state[coll], remote[coll]); saveLocal(coll); }
+    });
+    if(Array.isArray(remote.regionsMaroc) && remote.regionsMarocUpdatedAt &&
+       (!state.regionsMarocUpdatedAt || new Date(remote.regionsMarocUpdatedAt) > new Date(state.regionsMarocUpdatedAt))){
+      state.regionsMaroc = remote.regionsMaroc; state.regionsMarocUpdatedAt = remote.regionsMarocUpdatedAt; saveLocal('regionsMaroc');
+    }
+    if(remote.templates && remote.templates.updatedAt &&
+       (!state.templates.updatedAt || new Date(remote.templates.updatedAt) > new Date(state.templates.updatedAt))){
+      var rp = remote.templates;
+      state.templates = { entete: rp.entete||DEFAULT_ENTETE, criteres: rp.criteres||DEFAULT_CRITERES.slice(),
+        profil: Object.assign({}, DEFAULT_PROFIL, rp.profil||{}), updatedAt: rp.updatedAt };
+      saveLocal('templates');
+    }
+    render();
   }
   function doSync(){
     if(!state.config.sheetFileId){ openSettings(); return; }
@@ -1174,7 +1229,7 @@
         var payload = res.payload || {};
         var csv = payload.content ? b64ToUtf8(payload.content) : '';
         var remote = csvToTasks(csv);
-        var merged = mergeTasks(state.tasks, remote);
+        var merged = mergeById(state.tasks, remote);
         return persistMergedLocally(merged).then(function(){ return merged; });
       })
       .then(function(merged){
@@ -1197,13 +1252,27 @@
       })
       .then(function(){
         if(!folderRef) return Promise.resolve();
+        /* La sauvegarde JSON est maintenant une vraie synchronisation à double sens : on la
+           télécharge et on la fusionne dans l'état local (zones, établissements, enseignants,
+           documents, référentiel régions/DP, modèles) AVANT de repousser la version fusionnée —
+           c'est ce qui rend ces données réellement disponibles sur plusieurs appareils, comme les
+           tâches le sont déjà via la feuille CSV. */
         return ensureBackupFolder(folderRef.id).catch(function(){ return null; })
-          .then(function(bf){ return pushJsonBackup(bf ? bf.id : folderRef.id); });
+          .then(function(bf){
+            var bid = bf ? bf.id : folderRef.id;
+            return pullJsonBackup(bid).then(function(remote){
+              mergeRemoteBackupIntoLocal(remote);
+              return pushJsonBackup(bid);
+            });
+          });
       })
       .then(function(){ state.syncing = false; render(); toast('Synchronisation réussie.'); })
       .catch(function(err){ console.warn('sync error', err); state.syncing = false; state.syncError = mcpErrorMessage(err); render(); });
   }
-  function mergeTasks(local, remote){
+  /* Fusion générique par id : conserve, pour chaque enregistrement, la version dont updatedAt est
+     la plus récente (locale ou distante) — utilisée aussi bien pour les tâches (via la feuille CSV)
+     que pour zones/établissements/enseignants/documents (via la sauvegarde JSON, voir doSync). */
+  function mergeById(local, remote){
     var byId = {}; local.forEach(function(t){ byId[t.id] = t; });
     remote.forEach(function(r){
       var l = byId[r.id];
@@ -1312,11 +1381,14 @@
     pushModal({type:'zone', isNew: !rec});
   }
   var CYCLES = [{v:'', l:'—'}, {v:'primaire', l:'Primaire'}, {v:'college', l:'Collégial'}, {v:'qualifiant', l:'Qualifiant'}];
-  /* Référentiel officiel : les 12 académies régionales (AREF, réforme de 2015) et leurs directions
-     provinciales (une par province/préfecture). Données statiques (le découpage administratif du
-     Maroc ne change pas au fil de l'usage courant de l'application) — fiable hors-ligne, à la
-     différence d'une feuille de calcul qui serait écrasée à chaque synchronisation (voir doSync). */
-  var REGIONS_MAROC = [
+  /* Référentiel de départ : les 12 académies régionales (AREF, réforme de 2015) et leurs directions
+     provinciales (une par province/préfecture) telles que connues aujourd'hui. Ce n'est qu'un point
+     de départ (état.regionsMaroc, modifiable depuis Réglages → Référentiel) : le découpage
+     administratif du Maroc peut changer, tout comme les DP elles-mêmes ; le référentiel réellement
+     utilisé par l'app vit donc dans les données (state.regionsMaroc), synchronisées avec Google
+     Drive comme le reste, plutôt que figé dans le code. Cette liste sert de valeur initiale et de
+     base pour le bouton « Réinitialiser à la liste par défaut ». */
+  var DEFAULT_REGIONS_MAROC = [
     {aref:'AREF Tanger-Tétouan-Al Hoceïma', dps:['DP Tanger-Assilah','DP M\'diq-Fnideq','DP Tétouan','DP Fahs-Anjra','DP Larache','DP Al Hoceïma','DP Chefchaouen','DP Ouezzane']},
     {aref:"AREF de l'Oriental", dps:['DP Oujda-Angad','DP Nador','DP Driouch','DP Jerada','DP Berkane','DP Taourirt','DP Guercif','DP Figuig']},
     {aref:'AREF Fès-Meknès', dps:['DP Fès','DP Meknès','DP El Hajeb','DP Ifrane','DP Moulay Yacoub','DP Sefrou','DP Boulemane','DP Taounate','DP Taza']},
@@ -1330,12 +1402,13 @@
     {aref:'AREF Laâyoune-Sakia El Hamra', dps:['DP Laâyoune','DP Boujdour','DP Tarfaya','DP Es-Semara']},
     {aref:'AREF Dakhla-Oued Ed-Dahab', dps:['DP Oued Ed-Dahab','DP Aousserd']}
   ];
-  function dpsForAref(aref){ var r = REGIONS_MAROC.find(function(x){ return x.aref===aref; }); return r ? r.dps : []; }
+  function cloneDefaultRegions(){ return DEFAULT_REGIONS_MAROC.map(function(r){ return {aref:r.aref, dps:r.dps.slice()}; }); }
+  function dpsForAref(aref){ var r = state.regionsMaroc.find(function(x){ return x.aref===aref; }); return r ? r.dps : []; }
   function arefSelectOptionsHtml(current){
-    var found = REGIONS_MAROC.some(function(r){ return r.aref===current; });
+    var found = state.regionsMaroc.some(function(r){ return r.aref===current; });
     var html = '<option value="">— Sélectionner —</option>';
     if(current && !found) html += '<option value="'+esc(current)+'" selected>'+esc(current)+' (existant)</option>';
-    html += REGIONS_MAROC.map(function(r){ return '<option value="'+esc(r.aref)+'"'+(r.aref===current?' selected':'')+'>'+esc(r.aref)+'</option>'; }).join('');
+    html += state.regionsMaroc.map(function(r){ return '<option value="'+esc(r.aref)+'"'+(r.aref===current?' selected':'')+'>'+esc(r.aref)+'</option>'; }).join('');
     return html;
   }
   function dpSelectOptionsHtml(aref, current){
@@ -1345,6 +1418,14 @@
     if(current && !found) html += '<option value="'+esc(current)+'" selected>'+esc(current)+' (existant)</option>';
     html += dps.map(function(d){ return '<option value="'+esc(d)+'"'+(d===current?' selected':'')+'>'+esc(d)+'</option>'; }).join('');
     return html;
+  }
+  /* Écrit une modification du référentiel régions/DP dans state.regionsMaroc, horodate le
+     changement (regionsMarocUpdatedAt sert à la fusion lors de la synchronisation Drive — voir
+     doSync) et persiste localement. */
+  function regionsMarocSet(list){
+    state.regionsMaroc = list;
+    state.regionsMarocUpdatedAt = nowIso();
+    saveLocal('regionsMaroc'); render();
   }
   /* Suggestion de commune : construite à partir des valeurs déjà saisies par l'utilisateur dans ses
      propres zones (aucun référentiel officiel exhaustif des ~1500 communes n'est chargé ici),
@@ -2202,7 +2283,8 @@
       '<div class="sheet-head"><h2>Paramètres</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
       '<div class="chips" style="margin-bottom:14px;"><button class="chip" data-stab="sync" aria-pressed="'+(tab==='sync')+'">Synchronisation</button>'+
       '<button class="chip" data-stab="profil" aria-pressed="'+(tab==='profil')+'">Profil inspecteur</button>'+
-      '<button class="chip" data-stab="templates" aria-pressed="'+(tab==='templates')+'">Modèles de documents</button></div>';
+      '<button class="chip" data-stab="templates" aria-pressed="'+(tab==='templates')+'">Modèles de documents</button>'+
+      '<button class="chip" data-stab="referentiel" aria-pressed="'+(tab==='referentiel')+'">Régions / DP</button></div>';
 
     if(tab==='sync'){
       var cid = c.googleClientId || '';
@@ -2227,7 +2309,7 @@
         if(showLink) html += '<div class="field" style="margin-top:14px;"><label for="sheetSearch">Rechercher une feuille</label>'+
           '<div class="search-row"><input type="text" id="sheetSearch" placeholder="Nom de la feuille…"><button type="button" id="sheetSearchBtn">OK</button></div>'+
           '<div id="sheetResults" class="doc-list" style="margin-top:9px;"></div></div>';
-        html += '<p style="font-size:11.5px;color:var(--ink-faint);margin-top:8px;">La synchronisation fusionne vos tâches locales et celles de la feuille (version la plus récente conservée), puis réécrit entièrement la feuille — évitez de modifier les colonnes à la main entre deux synchronisations. Une copie complète de toutes les données de l\'application (tâches, enseignants, établissements, documents) est aussi enregistrée en JSON dans ce même dossier à chaque synchronisation. L\'application n\'accède qu\'aux fichiers qu\'elle crée elle-même dans votre Drive, jamais au reste de votre compte.</p>';
+        html += '<p style="font-size:11.5px;color:var(--ink-faint);margin-top:8px;">La synchronisation fusionne vos tâches locales et celles de la feuille (version la plus récente conservée), puis réécrit entièrement la feuille — évitez de modifier les colonnes à la main entre deux synchronisations. Zones, établissements, enseignants, documents, modèles et référentiel régions/DP sont, eux, fusionnés de la même façon (le plus récent l\'emporte) via un fichier JSON dans ce même dossier : vos données restent donc à jour sur tous vos appareils après chaque synchronisation. L\'application n\'accède qu\'aux fichiers qu\'elle crée elle-même dans votre Drive, jamais au reste de votre compte.</p>';
       } else {
         html += '<p style="font-size:11.5px;color:var(--ink-faint);margin-top:8px;">Toutes vos données restent d\'abord enregistrées sur cet appareil. La connexion à Google Drive est optionnelle : elle sert uniquement à sauvegarder une copie dans votre propre compte et à la retrouver sur un autre appareil. C\'est votre compte Google gratuit qui est utilisé — aucun frais ni passage par Claude.</p>';
       }
@@ -2248,14 +2330,42 @@
         profilImageFieldHtml('cachet', 'Cachet', p.cachetAssetId)+
         profilImageFieldHtml('signature', 'Signature', p.signatureAssetId)+
         '<div class="btn-row"><button class="btn primary" id="btnSaveProfil" type="button">Enregistrer le profil</button></div>';
-    } else {
+    } else if(tab==='templates'){
       html += '<div class="field"><label for="tmplEntete">En-tête des documents (utilisé sur les impressions)</label><textarea id="tmplEntete" rows="2">'+esc(state.templates.entete)+'</textarea></div>'+
         '<div class="field"><label>Critères de la grille d\'observation</label><div id="critList">'+
         state.templates.criteres.map(function(c2,i){ return '<div class="rowline"><input type="text" class="crit-input" data-i="'+i+'" value="'+esc(c2)+'" style="flex:1;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;"><button class="rm" data-rmcrit="'+i+'" type="button">'+ICONS.trash+'</button></div>'; }).join('')+
         '</div><button class="addline" id="btnAddCrit" type="button">'+ICONS.plus+' Ajouter un critère</button></div>'+
         '<div class="btn-row"><button class="btn ghost" id="btnResetTmpl" type="button">Réinitialiser</button><button class="btn primary" id="btnSaveTmpl" type="button">Enregistrer les modèles</button></div>';
+    } else if(tab==='referentiel'){
+      html += referentielTabHtml();
     }
     html += '</div></div>';
+    return html;
+  }
+  /* Éditeur du référentiel régions/DP (Réglages → Régions / DP) : académies régionales et directions
+     provinciales modifiables — nécessaire car ce découpage peut changer, contrairement à ce qu'un
+     référentiel figé dans le code permettrait. Même logique d'édition que les critères de la grille
+     d'observation ci-dessus : ajouter/supprimer une ligne modifie state.regionsMaroc et redessine
+     tout de suite, mais le texte tapé n'est lu (et réellement persisté/synchronisé) qu'au clic sur
+     « Enregistrer », pour ne pas perdre le focus/curseur à chaque frappe. */
+  function referentielTabHtml(){
+    var html = '<p style="font-size:11.5px;color:var(--ink-faint);margin-bottom:10px;">Académies régionales et directions provinciales proposées dans le formulaire de zone. Modifiable ici si le découpage change — les changements sont synchronisés avec votre Google Drive comme le reste de vos données, séparément de la feuille de tâches.</p>';
+    html += '<div id="refList">'+state.regionsMaroc.map(function(r, ai){
+      return '<div class="setup-card" data-arefblock="'+ai+'" style="margin-bottom:10px;">'+
+        '<div class="field-row" style="align-items:flex-end;"><div class="field" style="flex:1;margin-bottom:0;"><label>Académie régionale</label>'+
+        '<input type="text" class="aref-input" data-ai="'+ai+'" value="'+esc(r.aref)+'"></div>'+
+        '<button class="btn danger sm" data-rmaref="'+ai+'" type="button">Supprimer</button></div>'+
+        '<div class="field" style="margin-top:8px;margin-bottom:0;"><label>Directions provinciales</label>'+
+        r.dps.map(function(dp, di){
+          return '<div class="rowline"><input type="text" class="dp-input" data-ai="'+ai+'" data-di="'+di+'" value="'+esc(dp)+'" style="flex:1;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;">'+
+            '<button class="rm" data-rmdp="'+ai+':'+di+'" type="button">'+ICONS.trash+'</button></div>';
+        }).join('')+
+        '</div><button class="addline" data-adddp="'+ai+'" type="button">'+ICONS.plus+' Ajouter une direction provinciale</button>'+
+        '</div>';
+    }).join('')+'</div>';
+    html += '<div class="btn-row" style="margin-top:2px;"><button class="btn ghost sm" id="btnAddAref" type="button">'+ICONS.plus+' Ajouter une académie régionale</button></div>';
+    html += '<div class="btn-row" style="margin-top:14px;"><button class="btn ghost" id="btnResetRegions" type="button">Réinitialiser à la liste par défaut</button>'+
+      '<button class="btn primary" id="btnSaveRegions" type="button">Enregistrer les modifications</button></div>';
     return html;
   }
   function profilImageFieldHtml(key, label, assetId){
@@ -2583,6 +2693,32 @@
       var resetTmpl = $('btnResetTmpl'); if(resetTmpl) resetTmpl.onclick = function(){ templatesSet({entete:DEFAULT_ENTETE, criteres:DEFAULT_CRITERES.slice()}); toast('Modèles réinitialisés.'); };
     }
     function syncCritInputs(){ document.querySelectorAll('.crit-input').forEach(function(inp){ state.templates.criteres[parseInt(inp.getAttribute('data-i'))] = inp.value; }); }
+
+    /* -- référentiel régions / directions provinciales -- */
+    var refList = $('refList');
+    if(refList){
+      function syncRefInputs(){
+        document.querySelectorAll('.aref-input').forEach(function(inp){ var r=state.regionsMaroc[parseInt(inp.getAttribute('data-ai'))]; if(r) r.aref=inp.value; });
+        document.querySelectorAll('.dp-input').forEach(function(inp){ var r=state.regionsMaroc[parseInt(inp.getAttribute('data-ai'))]; if(r) r.dps[parseInt(inp.getAttribute('data-di'))]=inp.value; });
+      }
+      document.querySelectorAll('[data-rmaref]').forEach(function(el){ el.onclick=function(){ syncRefInputs(); state.regionsMaroc.splice(parseInt(el.getAttribute('data-rmaref')),1); render(); }; });
+      document.querySelectorAll('[data-rmdp]').forEach(function(el){ el.onclick=function(){
+        syncRefInputs(); var parts=el.getAttribute('data-rmdp').split(':'); var r=state.regionsMaroc[parseInt(parts[0])]; if(r) r.dps.splice(parseInt(parts[1]),1); render();
+      }; });
+      document.querySelectorAll('[data-adddp]').forEach(function(el){ el.onclick=function(){
+        syncRefInputs(); var r=state.regionsMaroc[parseInt(el.getAttribute('data-adddp'))]; if(r) r.dps.push('Nouvelle direction provinciale'); render();
+      }; });
+      var addAref = $('btnAddAref'); if(addAref) addAref.onclick = function(){ syncRefInputs(); state.regionsMaroc.push({aref:'Nouvelle académie régionale', dps:[]}); render(); };
+      var saveRegions = $('btnSaveRegions'); if(saveRegions) saveRegions.onclick = function(){
+        syncRefInputs();
+        regionsMarocSet(state.regionsMaroc.map(function(r){ return {aref:(r.aref||'').trim()||'(sans nom)', dps:r.dps.map(function(d){ return (d||'').trim(); }).filter(Boolean)}; }));
+        toast('Référentiel régions / DP enregistré.');
+      };
+      var resetRegions = $('btnResetRegions'); if(resetRegions) resetRegions.onclick = function(){
+        if(!confirm('Réinitialiser le référentiel à la liste des 12 académies régionales par défaut ? Vos propres modifications seront perdues.')) return;
+        regionsMarocSet(cloneDefaultRegions()); toast('Référentiel réinitialisé.');
+      };
+    }
 
     /* -- profil inspecteur -- */
     function syncProfilFields(){
