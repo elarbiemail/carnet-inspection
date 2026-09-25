@@ -761,7 +761,7 @@
     dbReady: false, mcpReady: false, downloadsReady: false, sampleReady: false, assetsReady: false,
     syncing: false, syncError: null,
     modalStack: [], draftTask: null, draftRecord: null, draftDoc: null,
-    setupBusy: false, setupError: null, driveSetupError: null,
+    setupBusy: false, setupError: null, driveSetupError: null, geminiKeyError: null,
     ensQuery: '', ensHoraireMode: false, horaireJour: 'Lundi', horaireHeure: '09:00',
     bilanPeriod: 'mois', bilanCustomFrom: '', bilanCustomTo: '',
     subEtab: 'zones', subDocs: 'generes', docsGenQuery: '', docsGenFilter: 'all', searchQuery: '',
@@ -776,7 +776,8 @@
   /* ================= démarrage (stockage local uniquement) ================= */
   function initCapabilities(){
     loadLocalAll();
-    state.dbReady = true; state.downloadsReady = true; state.assetsReady = true; state.sampleReady = false;
+    state.dbReady = true; state.downloadsReady = true; state.assetsReady = true;
+    state.sampleReady = !!geminiApiKey();
     render();
   }
 
@@ -871,6 +872,7 @@
   }
   function configSet(patch){
     state.config = Object.assign({}, state.config, patch);
+    state.sampleReady = !!geminiApiKey();
     saveLocal('config'); render();
     return Promise.resolve();
   }
@@ -1042,29 +1044,119 @@
     }
   }
 
-  /* ================= sample (AI drafting) ================= */
-  function sampleErrorMessage(err){
+  /* ================= assistant de rédaction IA (Google Gemini, clé personnelle) =================
+     Même logique « BYOK » (bring your own key) que la connexion Google Drive ci-dessus : l'utilisateur
+     colle sa propre clé API Gemini (gratuite, obtenue sur aistudio.google.com) dans Réglages → Assistant
+     IA ; elle est enregistrée dans state.config (jamais codée en dur dans ce fichier ni poussée sur
+     GitHub) et chaque génération appelle directement generativelanguage.googleapis.com depuis le
+     navigateur — aucun serveur intermédiaire, rien ne transite par Claude/Anthropic. state.sampleReady
+     (recalculé à chaque configSet) reflète simplement la présence de cette clé et réactive les boutons
+     IA déjà présents dans les formulaires (`state.sampleReady ?` dans le HTML). */
+  function geminiApiKey(){ return (state.config && state.config.geminiApiKey) || ''; }
+  var GEMINI_MODEL = 'gemini-flash-latest';
+  function geminiErrorMessage(err){
     var code = err && err.code;
     switch(code){
-      case 'not_granted': return "L'assistant de rédaction n'est pas autorisé pour cette page.";
-      case 'sampling_disabled': return "L'assistant IA n'est pas disponible pour ce compte.";
-      case 'rate_limited': return "Trop de demandes à la fois : réessayez dans un instant.";
-      case 'session_expired': return "Reconnectez-vous pour utiliser l'assistant IA.";
-      case 'refused': return "La demande a été refusée. Reformulez votre requête.";
+      case 'not_configured': return "Ajoutez votre clé API Gemini dans Réglages → Assistant IA pour activer l'assistant de rédaction.";
+      case 'invalid_key': return "Clé API Gemini invalide ou refusée par Google. Vérifiez-la dans Réglages → Assistant IA.";
+      case 'rate_limited': return "Trop de demandes à la fois auprès de Gemini : réessayez dans un instant.";
+      case 'not_found': return "Modèle IA momentanément indisponible. Réessayez plus tard.";
+      case 'blocked': return "La demande a été bloquée par les filtres de sécurité de Gemini. Reformulez votre requête.";
       case 'empty_completion': return "Aucun texte généré. Essayez une demande plus précise.";
-      case 'prompt_too_large': return "Le contenu est trop long pour l'assistant IA.";
-      case 'cancelled': return "Rédaction annulée.";
-      case 'capability_disabled': case 'capability_removed': case 'not_declared':
-        return "L'assistant IA n'est pas disponible dans cet aperçu.";
-      default: return "Erreur de l'assistant IA" + (code?' ('+code+')':'') + ".";
+      case 'network': return "Impossible de joindre le service Gemini (vérifiez votre connexion internet).";
+      default: return "Erreur de l'assistant IA" + (err && err.message ? ' : '+err.message : (code?' ('+code+')':'')) + ".";
     }
   }
-  /* L'assistant de rédaction IA nécessitait la capacité Claude "sample" ; l'app étant maintenant
-     autonome, state.sampleReady reste à false et les boutons IA ne s'affichent plus (voir les
-     conditions `state.sampleReady ?` dans les formulaires). Cette fonction reste en place, inerte,
-     au cas où une clé d'API IA serait branchée plus tard. */
-  function aiDraft(btn, statusEl, targetTextarea, prompt){
-    toast("L'assistant de rédaction IA n'est pas disponible dans cette version autonome.");
+  /* Appel direct à l'API Gemini (generateContent) avec la clé de l'utilisateur — retourne le texte
+     généré (Promise<string>) ou rejette avec {code, message} (voir geminiErrorMessage ci-dessus). */
+  function geminiGenerate(prompt){
+    var key = geminiApiKey();
+    if(!key) return Promise.reject({code:'not_configured'});
+    var url = 'https://generativelanguage.googleapis.com/v1beta/models/'+GEMINI_MODEL+':generateContent?key='+encodeURIComponent(key);
+    return fetch(url, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+    }).then(function(res){
+      return res.json().catch(function(){ return {}; }).then(function(data){
+        if(!res.ok){
+          var code = res.status===429 ? 'rate_limited' : (res.status===400 || res.status===403) ? 'invalid_key' : res.status===404 ? 'not_found' : 'tool_error';
+          return Promise.reject({code: code, message: (data.error && data.error.message) || res.statusText});
+        }
+        if((!data.candidates || !data.candidates.length) && data.promptFeedback && data.promptFeedback.blockReason){
+          return Promise.reject({code:'blocked'});
+        }
+        var cand = data.candidates && data.candidates[0];
+        if(cand && cand.finishReason==='SAFETY') return Promise.reject({code:'blocked'});
+        var text = (cand && cand.content && cand.content.parts) ? cand.content.parts.map(function(p){ return p.text||''; }).join('') : '';
+        if(!text.trim()) return Promise.reject({code:'empty_completion'});
+        return text.trim();
+      });
+    }, function(){ return Promise.reject({code:'network'}); });
+  }
+  /* Exécute un prompt IA et pose le résultat dans le champ texte visé : mêmes conventions que le
+     reste de l'app (ex. runBilanGen) — le champ ciblé (targetTextarea) est une référence DOM directe,
+     lue seulement à l'enregistrement (syncDocGenericFields), donc aucun render() n'est déclenché ici
+     pour ne pas écraser la valeur qu'on vient d'y poser. */
+  function runAiPrompt(btn, statusEl, targetTextarea, prompt){
+    if(!geminiApiKey()){ toast(geminiErrorMessage({code:'not_configured'})); return; }
+    if(btn) btn.disabled = true;
+    if(statusEl){ statusEl.hidden = false; statusEl.className = 'banner info'; statusEl.textContent = 'Génération en cours avec Gemini…'; }
+    geminiGenerate(prompt).then(function(text){
+      if(targetTextarea) targetTextarea.value = text;
+      if(statusEl) statusEl.hidden = true;
+      if(btn) btn.disabled = false;
+    }).catch(function(err){
+      if(statusEl){ statusEl.hidden = false; statusEl.className = 'banner err'; statusEl.textContent = geminiErrorMessage(err); }
+      if(btn) btn.disabled = false;
+    });
+  }
+  function aiDraft(btn, statusEl, targetTextarea, prompt){ runAiPrompt(btn, statusEl, targetTextarea, prompt); }
+  /* Traduction FR ↔ arabe : plusieurs types de documents (RTL_DOC_TYPES) impriment déjà leur mise en
+     forme (titres, libellés, en-têtes de tableaux) en arabe alors que le contenu est saisi dans les
+     mêmes champs français de l'application — ce bouton traduit sur place le texte déjà présent dans
+     le champ, avec le même mécanisme que l'assistant de rédaction. Le sens de traduction est détecté
+     automatiquement à partir du texte (présence de caractères arabes ou non), pour n'avoir qu'un seul
+     bouton plutôt que deux. */
+  function aiTranslate(btn, statusEl, targetTextarea){
+    if(!targetTextarea) return;
+    var text = (targetTextarea.value||'').trim();
+    if(!text){ toast('Rien à traduire : le champ est vide.'); return; }
+    var isArabic = /[؀-ۿ]/.test(text);
+    var prompt = isArabic
+      ? "Traduis fidèlement ce texte administratif en français, ton formel, sans rien ajouter ni commenter — retourne uniquement le texte traduit :\n\n"+text
+      : "Traduis fidèlement ce texte administratif en arabe standard moderne, ton formel, sans rien ajouter ni commenter — retourne uniquement le texte traduit :\n\n"+text;
+    runAiPrompt(btn, statusEl, targetTextarea, prompt);
+  }
+  /* Conception d'un plan d'action (compte-rendu de réunion) : contrairement aux autres boutons IA qui
+     posent un simple texte dans un champ, celui-ci vise une LISTE structurée (state.draftDoc.actions,
+     déjà éditable ligne par ligne dans le formulaire) — on demande donc à Gemini un tableau JSON, qu'on
+     extrait tolérant (au cas où la réponse serait entourée de texte ou de balises ```json```), avant de
+     remplacer la liste et de redessiner le formulaire pour l'afficher. L'échéance de chaque action reste
+     volontairement vide : l'IA ne peut pas connaître de vraies contraintes de calendrier, c'est à
+     l'inspecteur(trice) de la compléter. */
+  function runAiActionsPlan(btn, statusEl, prompt){
+    if(!geminiApiKey()){ toast(geminiErrorMessage({code:'not_configured'})); return; }
+    if(btn) btn.disabled = true;
+    if(statusEl){ statusEl.hidden = false; statusEl.className = 'banner info'; statusEl.textContent = 'Génération en cours avec Gemini…'; }
+    geminiGenerate(prompt).then(function(text){
+      var items = parseAiActionsJson(text);
+      if(!items.length) return Promise.reject({code:'empty_completion'});
+      state.draftDoc.actions = items;
+      render();
+    }).catch(function(err){
+      if(statusEl){ statusEl.hidden = false; statusEl.className = 'banner err'; statusEl.textContent = geminiErrorMessage(err); }
+      if(btn) btn.disabled = false;
+    });
+  }
+  function parseAiActionsJson(text){
+    var m = text.match(/\[[\s\S]*\]/);
+    if(!m) return [];
+    try{
+      var arr = JSON.parse(m[0]);
+      if(!Array.isArray(arr)) return [];
+      return arr.map(function(x){ return { action:String((x&&x.action)||'').trim(), responsable:String((x&&x.responsable)||'').trim(), echeance:'' }; }).filter(function(a){ return a.action; });
+    }catch(e){ return []; }
   }
 
   /* ================= assets (photos / pièces jointes / logo / cachet / signature) =================
@@ -2149,7 +2241,7 @@
 
     html += '<div class="setup-card"><h2>Générer un bilan</h2><p>Rédigez une courte synthèse (ou laissez l\'IA la proposer) puis générez le document.</p>'+
       '<div class="field"><textarea id="bilanSynthText" placeholder="Synthèse de la période…"></textarea></div>'+
-      (state.sampleReady ? '<div class="btn-row"><button class="btn ai" id="btnAiBilan" type="button">'+ICONS.ai+' Proposer une synthèse</button></div><div class="banner info" id="bilanAiStatus" hidden style="margin-top:8px;"></div>' : '')+
+      (state.sampleReady ? '<div class="btn-row"><button class="btn ai" id="btnAiBilan" type="button">'+ICONS.ai+' Proposer une synthèse</button><button class="btn ghost sm" id="btnTrBilan" type="button">'+ICONS.ai+' Traduire</button></div><div class="banner info" id="bilanAiStatus" hidden style="margin-top:8px;"></div>' : '')+
       '<div class="setup-actions"><button class="btn ghost sm" id="btnGenBilan" type="button">'+ICONS.print+' Imprimer</button>'+
       '<button class="btn ghost sm" id="btnBilanExcel" type="button">'+ICONS.sheet+' Excel (.csv)</button>'+
       '<button class="btn ghost sm" id="btnBilanPdf" type="button">'+ICONS.pdf+' PDF</button>'+
@@ -2179,6 +2271,7 @@
       var prompt = "Tu es un inspecteur pédagogique au Maroc. Rédige une courte synthèse (6-10 lignes, en français, style administratif sobre) du bilan d'activité d'inspection pour la période du "+fmtDate(r.from.toISOString())+" au "+fmtDate(r.to.toISOString())+". Voici les tâches réalisées :\n"+lines+"\nMets en avant les tendances, les établissements les plus visités, et une remarque générale sur l'avancement.";
       aiDraft(aiBtn, $('bilanAiStatus'), $('bilanSynthText'), prompt);
     };
+    var trBtn = $('btnTrBilan'); if(trBtn) trBtn.onclick = function(){ aiTranslate(trBtn, $('bilanAiStatus'), $('bilanSynthText')); };
   }
   function objKeysLabel(obj, labelMap){
     var out = {}; Object.keys(obj).forEach(function(k){ out[labelMap[k]||k] = obj[k]; }); return out;
@@ -2398,7 +2491,8 @@
       '<div class="chips" style="margin-bottom:14px;"><button class="chip" data-stab="sync" aria-pressed="'+(tab==='sync')+'">Synchronisation</button>'+
       '<button class="chip" data-stab="profil" aria-pressed="'+(tab==='profil')+'">Profil inspecteur</button>'+
       '<button class="chip" data-stab="templates" aria-pressed="'+(tab==='templates')+'">Modèles de documents</button>'+
-      '<button class="chip" data-stab="referentiel" aria-pressed="'+(tab==='referentiel')+'">Régions / DP</button></div>';
+      '<button class="chip" data-stab="referentiel" aria-pressed="'+(tab==='referentiel')+'">Régions / DP</button>'+
+      '<button class="chip" data-stab="ia" aria-pressed="'+(tab==='ia')+'">Assistant IA</button></div>';
 
     if(tab==='sync'){
       var cid = c.googleClientId || '';
@@ -2452,8 +2546,32 @@
         '<div class="btn-row"><button class="btn ghost" id="btnResetTmpl" type="button">Réinitialiser</button><button class="btn primary" id="btnSaveTmpl" type="button">Enregistrer les modèles</button></div>';
     } else if(tab==='referentiel'){
       html += referentielTabHtml();
+    } else if(tab==='ia'){
+      html += iaTabHtml();
     }
     html += '</div></div>';
+    return html;
+  }
+  /* Éditeur de la clé API Gemini (Réglages → Assistant IA) : même principe « clé personnelle collée
+     dans l'app » que l'identifiant client Google ci-dessus (aucune clé codée en dur, jamais poussée
+     sur GitHub). Dès qu'une clé est enregistrée, state.sampleReady passe à true (voir configSet) et
+     les boutons IA déjà présents dans les formulaires (bilan, comptes-rendus, rapports, lettres,
+     recommandations…) réapparaissent automatiquement. */
+  function iaTabHtml(){
+    var key = state.config.geminiApiKey || '';
+    var html = '<p style="font-size:11.5px;color:var(--ink-faint);margin-bottom:10px;">Collez votre propre clé API Google Gemini (gratuite, personnelle) pour activer l\'assistant de rédaction IA — synthèses, comptes-rendus, rapports, lettres, recommandations, plan d\'action — ainsi que la traduction français ↔ arabe, directement dans les formulaires concernés. Chaque génération appelle directement les serveurs Google depuis votre navigateur : la clé n\'est jamais envoyée à Claude ni à Anthropic, et reste enregistrée uniquement sur cet appareil (et dans votre propre Drive si vous synchronisez).</p>';
+    if(state.geminiKeyError) html += '<div class="banner err" style="margin-bottom:10px;">'+ICONS.warn+'<div>'+esc(state.geminiKeyError)+'</div></div>';
+    html += '<div class="field"><label for="geminiKeyInput">Clé API Google Gemini</label>'+
+      '<input type="text" id="geminiKeyInput" value="'+esc(key)+'" placeholder="AIzaSy…" autocomplete="off" autocapitalize="off" spellcheck="false"></div>';
+    html += '<div class="btn-row">'+(key ? '<button class="btn danger" id="btnClearGeminiKey" type="button">Réinitialiser</button>' : '')+
+      '<button class="btn primary" id="btnSaveGeminiKey" type="button">Enregistrer</button></div>';
+    html += '<details style="margin:14px 0;font-size:12px;color:var(--ink-faint);"><summary style="cursor:pointer;font-weight:600;color:var(--ink);">Comment obtenir une clé gratuite ?</summary>'+
+      '<ol style="margin:8px 0 0 18px;padding:0;line-height:1.6;">'+
+        '<li>Ouvrez <b>aistudio.google.com/apikey</b> et connectez-vous avec votre compte Google.</li>'+
+        '<li>Touchez <b>« Create API key »</b> (créer une clé API), dans un nouveau projet ou un projet existant.</li>'+
+        '<li>Copiez la clé générée (elle commence par <code>AIza…</code>) et collez-la ci-dessus, puis touchez « Enregistrer ».</li>'+
+      '</ol><p style="margin-top:8px;">Le niveau gratuit de Gemini couvre largement un usage personnel courant. Cette clé est propre à votre compte Google : gardez-la confidentielle, ne la partagez pas.</p></details>';
+    if(key) html += '<p style="font-size:11px;color:var(--ink-faint);">Assistant actif — modèle utilisé : Gemini Flash (le modèle rapide le plus récent disponible sur votre compte).</p>';
     return html;
   }
   /* Éditeur du référentiel régions/DP (Réglages → Régions / DP) : académies régionales et directions
@@ -2681,13 +2799,15 @@
         '<div class="field"><label for="dPresents">Présents</label><input type="text" id="dPresents" value="'+esc(d.presents)+'"></div>'+
         '<div class="field"><label for="dOJ">Ordre du jour</label><textarea id="dOJ">'+esc(d.ordreJour)+'</textarea></div>'+
         '<div class="field"><label for="dPD">Points discutés</label><textarea id="dPD" rows="4">'+esc(d.pointsDiscutes)+'</textarea>'+
-        (state.sampleReady ? '<div class="btn-row"><button class="btn ai sm" id="btnAiPD" type="button">'+ICONS.ai+' Rédiger avec l\'IA (à partir de notes)</button></div><div class="banner info" id="aiPDStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>'+
+        (state.sampleReady ? '<div class="btn-row"><button class="btn ai sm" id="btnAiPD" type="button">'+ICONS.ai+' Rédiger avec l\'IA (à partir de notes)</button><button class="btn ghost sm" id="btnTrPD" type="button">'+ICONS.ai+' Traduire</button></div><div class="banner info" id="aiPDStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>'+
         '<div class="field"><label for="dDec">Décisions</label><textarea id="dDec">'+esc(d.decisions)+'</textarea></div>'+
         '<div class="field"><label>Plan d\'action</label><div id="actList">'+(d.actions||[]).map(function(a,i){
           return '<div class="rowline"><input type="text" data-act="action" data-i="'+i+'" value="'+esc(a.action)+'" placeholder="Action" style="flex:2;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;">'+
             '<input type="text" data-act="responsable" data-i="'+i+'" value="'+esc(a.responsable)+'" placeholder="Responsable" style="flex:1;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;">'+
             '<input type="date" data-act="echeance" data-i="'+i+'" value="'+esc(a.echeance)+'" style="border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 6px;"><button class="rm" data-rmact="'+i+'" type="button">'+ICONS.trash+'</button></div>';
-        }).join('')+'</div><button class="addline" id="btnAddAct" type="button">'+ICONS.plus+' Ajouter une action</button></div>';
+        }).join('')+'</div><button class="addline" id="btnAddAct" type="button">'+ICONS.plus+' Ajouter une action</button>'+
+        (state.sampleReady ? '<div class="btn-row" style="margin-top:6px;"><button class="btn ai sm" id="btnAiActions" type="button">'+ICONS.ai+' Proposer un plan d\'action</button></div><div class="banner info" id="aiActionsStatus" hidden style="margin-top:6px;"></div>' : '')+
+        '</div>';
     } else if(m.docType==='observation'){
       body += '<div class="field-row"><div class="field"><label for="dEns">Enseignant(e)</label><input type="text" id="dEns" value="'+esc(d.enseignantNom)+'"></div><div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div></div>'+
         '<div class="field-row"><div class="field"><label for="dClasse">Classe</label><input type="text" id="dClasse" value="'+esc(d.classe)+'"></div><div class="field"><label for="dMat">Matière</label><input type="text" id="dMat" value="'+esc(d.matiere)+'"></div><div class="field"><label for="dDuree">Durée</label><input type="text" id="dDuree" value="'+esc(d.duree)+'" placeholder="50 min"></div></div>'+
@@ -2698,11 +2818,11 @@
         '<div class="field"><label for="dPF">Points forts</label><textarea id="dPF">'+esc(d.pointsForts)+'</textarea></div>'+
         '<div class="field"><label for="dAA">Axes d\'amélioration</label><textarea id="dAA">'+esc(d.axesAmelioration)+'</textarea></div>'+
         '<div class="field"><label for="dSynth">Synthèse</label><textarea id="dSynth" rows="4">'+esc(d.synthese)+'</textarea>'+
-        (state.sampleReady ? '<div class="btn-row"><button class="btn ai sm" id="btnAiSynth" type="button">'+ICONS.ai+' Proposer une synthèse</button></div><div class="banner info" id="aiSynthStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>';
+        (state.sampleReady ? '<div class="btn-row"><button class="btn ai sm" id="btnAiSynth" type="button">'+ICONS.ai+' Proposer une synthèse</button><button class="btn ghost sm" id="btnTrSynth" type="button">'+ICONS.ai+' Traduire</button></div><div class="banner info" id="aiSynthStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>';
     } else if(m.docType==='rapport'){
       body += '<div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div>'+
         '<div class="field"><label for="dTexte">Rapport</label><textarea id="dTexte" rows="8">'+esc(d.texte)+'</textarea>'+
-        (state.sampleReady ? '<div class="btn-row"><button class="btn ai sm" id="btnAiRapport" type="button">'+ICONS.ai+' Rédiger avec l\'IA</button></div><div class="banner info" id="aiRapportStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>';
+        (state.sampleReady ? '<div class="btn-row"><button class="btn ai sm" id="btnAiRapport" type="button">'+ICONS.ai+' Rédiger avec l\'IA</button><button class="btn ghost sm" id="btnTrRapport" type="button">'+ICONS.ai+' Traduire</button></div><div class="banner info" id="aiRapportStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>';
     } else if(m.docType==='attestation'){
       body += '<div class="field-row"><div class="field"><label for="dBenef">Bénéficiaire</label><input type="text" id="dBenef" value="'+esc(d.beneficiaireNom)+'"></div><div class="field"><label for="dFonction">Fonction</label><input type="text" id="dFonction" value="'+esc(d.fonction)+'"></div></div>'+
         '<div class="field-row"><div class="field"><label for="dLieu">Lieu</label><input type="text" id="dLieu" value="'+esc(d.lieu)+'"></div><div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div></div>'+
@@ -2711,14 +2831,14 @@
       body += '<div class="field"><label for="dDestinataire">Destinataire</label><input type="text" id="dDestinataire" value="'+esc(d.destinataire)+'"></div>'+
         '<div class="field-row"><div class="field"><label for="dObjet">Objet</label><input type="text" id="dObjet" value="'+esc(d.objet)+'"></div><div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div></div>'+
         '<div class="field"><label for="dCorps">Corps de la lettre</label><textarea id="dCorps" rows="6">'+esc(d.corps)+'</textarea>'+
-        (state.sampleReady ? '<div class="btn-row"><button class="btn ai sm" id="btnAiLettre" type="button">'+ICONS.ai+' Rédiger avec l\'IA</button></div><div class="banner info" id="aiLettreStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>';
+        (state.sampleReady ? '<div class="btn-row"><button class="btn ai sm" id="btnAiLettre" type="button">'+ICONS.ai+' Rédiger avec l\'IA</button><button class="btn ghost sm" id="btnTrLettre" type="button">'+ICONS.ai+' Traduire</button></div><div class="banner info" id="aiLettreStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>';
     } else if(m.docType==='rapport_inspection'){
       body += '<div class="field-row"><div class="field"><label for="dEns">Enseignant(e)</label><input type="text" id="dEns" value="'+esc(d.enseignantNom)+'"></div><div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div></div>'+
         '<div class="field-row"><div class="field"><label for="dLieu">Établissement</label><input type="text" id="dLieu" value="'+esc(d.lieu)+'"></div><div class="field"><label for="dClasse">Classe</label><input type="text" id="dClasse" value="'+esc(d.classe)+'"></div><div class="field"><label for="dMat">Matière</label><input type="text" id="dMat" value="'+esc(d.matiere)+'"></div></div>'+
         '<div class="field"><label>Appréciation générale</label><div class="seg" id="dAppSeg">'+NOTE_SCALE.map(function(n){ return '<button type="button" data-v="'+n+'" aria-pressed="'+(d.appreciation===n)+'">'+n+'</button>'; }).join('')+'</div></div>'+
         '<div class="field"><label for="dConstats">Constats</label><textarea id="dConstats" rows="4">'+esc(d.constats)+'</textarea></div>'+
         '<div class="field"><label for="dRecom">Recommandations</label><textarea id="dRecom" rows="4">'+esc(d.recommandations)+'</textarea>'+
-        (state.sampleReady ? '<div class="btn-row"><button class="btn ai sm" id="btnAiRecom" type="button">'+ICONS.ai+' Proposer des recommandations</button></div><div class="banner info" id="aiRecomStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>';
+        (state.sampleReady ? '<div class="btn-row"><button class="btn ai sm" id="btnAiRecom" type="button">'+ICONS.ai+' Proposer des recommandations</button><button class="btn ghost sm" id="btnTrRecom" type="button">'+ICONS.ai+' Traduire</button></div><div class="banner info" id="aiRecomStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>';
     } else {
       body += '<div class="field-row"><div class="field"><label for="dDestinataire">Destinataire</label><input type="text" id="dDestinataire" value="'+esc(d.destinataire)+'"></div><div class="field"><label for="dRef">Référence</label><input type="text" id="dRef" value="'+esc(d.reference)+'" placeholder="N° .../2026"></div></div>'+
         '<div class="field-row"><div class="field"><label for="dObjet">Objet</label><input type="text" id="dObjet" value="'+esc(d.objet)+'"></div><div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div></div>'+
@@ -2871,6 +2991,21 @@
         regionsMarocSet(cloneDefaultRegions()); toast('Référentiel réinitialisé.');
       };
     }
+
+    /* -- assistant IA (clé API Gemini) -- */
+    var btnSaveGeminiKey = $('btnSaveGeminiKey');
+    if(btnSaveGeminiKey) btnSaveGeminiKey.onclick = function(){
+      var val = ($('geminiKeyInput').value||'').trim();
+      if(!val){ state.geminiKeyError = 'Collez votre clé API Gemini.'; render(); return; }
+      state.geminiKeyError = null;
+      configSet({ geminiApiKey: val }).then(function(){ toast("Clé API Gemini enregistrée — l'assistant IA est maintenant actif."); });
+    };
+    var btnClearGeminiKey = $('btnClearGeminiKey');
+    if(btnClearGeminiKey) btnClearGeminiKey.onclick = function(){
+      if(!confirm("Retirer la clé API Gemini ? Les boutons d'assistance IA seront masqués jusqu'à ce que vous en enregistriez une nouvelle.")) return;
+      state.geminiKeyError = null;
+      configSet({ geminiApiKey: null }).then(function(){ toast('Clé API Gemini retirée.'); });
+    };
 
     /* -- profil inspecteur -- */
     function syncProfilFields(){
@@ -3031,27 +3166,38 @@
       if(!notes.trim()){ toast('Ajoutez quelques notes/mots-clés dans le champ avant de lancer l\'IA.'); return; }
       aiDraft(aiPD, $('aiPDStatus'), $('dPD'), "Tu rédiges pour un inspecteur pédagogique au Maroc. À partir de ces notes brèves, rédige un paragraphe formel et clair en français (compte-rendu de réunion, ton administratif sobre), sans inventer de faits non mentionnés :\n\n"+notes);
     };
+    var trPD = $('btnTrPD'); if(trPD) trPD.onclick = function(){ aiTranslate(trPD, $('aiPDStatus'), $('dPD')); };
+    var aiActions = $('btnAiActions'); if(aiActions) aiActions.onclick = function(){
+      syncDocGenericFields();
+      var d = state.draftDoc;
+      var prompt = "Tu es un inspecteur pédagogique au Maroc. À partir de ce compte-rendu de réunion, propose un plan d'action de 3 à 5 actions concrètes et réalistes. Réponds UNIQUEMENT avec un tableau JSON valide, sans aucun texte ni balise de code autour, au format exact : [{\"action\":\"...\",\"responsable\":\"...\"}]. Chaque action est une phrase courte et concrète ; responsable est un rôle plausible (ex. « Direction de l'établissement », « Enseignant(e) concerné(e) », « Inspecteur(trice) »).\n\nOrdre du jour : "+(d.ordreJour||'—')+"\nPoints discutés : "+(d.pointsDiscutes||'—')+"\nDécisions : "+(d.decisions||'—');
+      runAiActionsPlan(aiActions, $('aiActionsStatus'), prompt);
+    };
     var aiSynth = $('btnAiSynth'); if(aiSynth) aiSynth.onclick = function(){
       syncDocGenericFields();
       var d = state.draftDoc;
       var critTxt = (d.criteres||[]).map(function(c){ return '- '+c.nom+': '+(c.note||'non noté')+(c.commentaire?' ('+c.commentaire+')':''); }).join('\n');
       aiDraft(aiSynth, $('aiSynthStatus'), $('dSynth'), "Tu es un inspecteur pédagogique au Maroc. Rédige une synthèse (5-8 lignes, français, ton professionnel et bienveillant) d'une observation de séance, à partir de cette grille :\n"+critTxt+"\nPoints forts notés : "+(d.pointsForts||'—')+"\nAxes d'amélioration notés : "+(d.axesAmelioration||'—'));
     };
+    var trSynth = $('btnTrSynth'); if(trSynth) trSynth.onclick = function(){ aiTranslate(trSynth, $('aiSynthStatus'), $('dSynth')); };
     var aiRap = $('btnAiRapport'); if(aiRap) aiRap.onclick = function(){
       var m = state.modalStack[state.modalStack.length-1];
       var task = state.tasks.find(function(t){ return t.id===m.taskId; });
       aiDraft(aiRap, $('aiRapportStatus'), $('dTexte'), "Tu es un inspecteur pédagogique au Maroc. Rédige un court rapport de synthèse (8-12 lignes, français, ton administratif) pour la tâche suivante : \""+(task?task.titre:'')+"\" ("+(task?TT_LABEL[task.taskType]:'')+"), établissement : "+(task?(task.etablissementNom||etabName(task.etablissementId)):'')+", enseignant concerné : "+(task?(task.enseignantNom||ensName(task.enseignantId)):'—')+", notes : "+(task?task.description:'')+".");
     };
+    var trRap = $('btnTrRapport'); if(trRap) trRap.onclick = function(){ aiTranslate(trRap, $('aiRapportStatus'), $('dTexte')); };
     var aiLettre = $('btnAiLettre'); if(aiLettre) aiLettre.onclick = function(){
       syncDocGenericFields();
       var d = state.draftDoc;
       aiDraft(aiLettre, $('aiLettreStatus'), $('dCorps'), "Tu es un inspecteur pédagogique au Maroc. Rédige le corps d'une lettre d'information administrative (4-8 lignes, français, ton formel), adressée à : "+(d.destinataire||'')+", objet : "+(d.objet||'')+".");
     };
+    var trLettre = $('btnTrLettre'); if(trLettre) trLettre.onclick = function(){ aiTranslate(trLettre, $('aiLettreStatus'), $('dCorps')); };
     var aiRecom = $('btnAiRecom'); if(aiRecom) aiRecom.onclick = function(){
       syncDocGenericFields();
       var d = state.draftDoc;
       aiDraft(aiRecom, $('aiRecomStatus'), $('dRecom'), "Tu es un inspecteur pédagogique au Maroc. À partir de ces constats d'inspection, propose 3 à 5 recommandations concrètes et bienveillantes (français, ton professionnel) :\n"+(d.constats||'—'));
     };
+    var trRecom = $('btnTrRecom'); if(trRecom) trRecom.onclick = function(){ aiTranslate(trRecom, $('aiRecomStatus'), $('dRecom')); };
     var printBtn = $('btnPrintDoc'); if(printBtn) printBtn.onclick = function(){ syncDocGenericFields(); doPrint(); };
     var saveDocBtn = $('btnSaveDoc'); if(saveDocBtn) saveDocBtn.onclick = function(){ syncDocGenericFields(); saveDoc(); };
     var delDoc = $('btnDeleteDoc'); if(delDoc) delDoc.onclick = function(){ recordDelete('document', state.draftDoc.id).then(function(){ closeTopModal(); toast('Document supprimé.'); }); };
