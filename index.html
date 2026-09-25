@@ -370,9 +370,11 @@
     #printRoot{ display:block !important; }
     body{ background:#fff; color:#111; font-size:12px; }
     .p-page{ padding:0; }
-    .p-head{ text-align:center; margin-bottom:14px; border-bottom:2px solid #111; padding-bottom:8px; }
+    .p-head{ text-align:center; margin-bottom:14px; border-bottom:2px solid #111; padding-bottom:8px; position:relative; }
     .p-head .org{ font-size:11px; white-space:pre-line; }
     .p-head h1{ font-size:16px; margin-top:6px; }
+    .p-head .photo{ position:absolute; top:0; right:0; width:24mm; height:30mm; object-fit:cover; border:1px solid #999; }
+    .p-page[dir="rtl"] .p-head .photo{ right:auto; left:0; }
     .p-meta{ display:flex; justify-content:space-between; font-size:11px; margin-bottom:10px; flex-wrap:wrap; gap:6px; }
     table.p-table{ width:100%; border-collapse:collapse; margin-bottom:12px; }
     table.p-table th, table.p-table td{ border:1px solid #999; padding:5px 7px; font-size:11px; text-align:left; }
@@ -405,6 +407,9 @@
         </div>
       </div>
       <div class="topbar-actions">
+        <button class="icon-btn" id="btnSearch" type="button" title="Rechercher" aria-label="Recherche globale">
+          <svg width="19" height="19" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2.1"/><path d="M21 21l-4.3-4.3" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/></svg>
+        </button>
         <button class="icon-btn" id="btnSync" type="button" title="Synchroniser" aria-label="Synchroniser avec Google Sheets">
           <svg width="19" height="19" viewBox="0 0 24 24" fill="none"><path d="M20 11a8 8 0 1 0-2.3 5.6M20 11V5m0 6h-6" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
@@ -759,7 +764,7 @@
     setupBusy: false, setupError: null, driveSetupError: null,
     ensQuery: '', ensHoraireMode: false, horaireJour: 'Lundi', horaireHeure: '09:00',
     bilanPeriod: 'mois', bilanCustomFrom: '', bilanCustomTo: '',
-    subEtab: 'zones', subDocs: 'generes', docsGenQuery: '', docsGenFilter: 'all',
+    subEtab: 'zones', subDocs: 'generes', docsGenQuery: '', docsGenFilter: 'all', searchQuery: '',
     pickTarget: null // {kind:'enseignant'|'etablissement'|'zone', onPick}
   };
   /* L'app est autonome : stockage 100% local (navigateur), aucune dépendance à Claude.
@@ -817,9 +822,28 @@
     var coll = collFor(kind);
     var arr = stateArr(kind);
     var i = arr.findIndex(function(x){ return x.id===obj.id; });
+    /* Diversification du workflow : une tâche qui bascule à « Clôturée » — par n'importe quel écran,
+       puisque tous passent par recordSet — doit toujours produire un bordereau de transmission.
+       Détecté ici (avant l'écrasement de l'ancien enregistrement) pour ne réagir qu'au moment précis
+       où le statut DEVIENT clôturée, jamais à chaque simple ré-enregistrement d'une tâche déjà close. */
+    var justClosed = (kind==='task' && obj.statut==='cloturee' && !(i>=0 && arr[i].statut==='cloturee'));
     if(i>=0) arr[i]=obj; else arr.push(obj);
     saveLocal(coll); render();
+    if(justClosed) ensureBordereauForTask(obj);
     return Promise.resolve();
+  }
+  /* Garantit qu'un bordereau de transmission existe toujours pour une tâche clôturée : n'en crée un
+     que s'il n'en existe pas déjà un pour cette tâche (jamais de doublon), et le pré-remplit avec la
+     liste des documents déjà générés pour la tâche comme pièces jointes — c'est précisément l'objet
+     d'un bordereau. Reste un document normal, éditable ensuite comme tout autre. */
+  function ensureBordereauForTask(task){
+    var already = state.documents.some(function(d){ return d.taskId===task.id && d.type==='bordereau'; });
+    if(already) return;
+    var d = buildDefaultDoc(task, 'bordereau');
+    var otherDocs = state.documents.filter(function(x){ return x.taskId===task.id; });
+    if(otherDocs.length) d.pieces = otherDocs.map(function(x){ return {designation:(DOC_TYPE_INFO[x.type]||{}).label||x.titre||'', nombre:'1'}; });
+    recordSet('document', d);
+    toast('Bordereau de transmission généré automatiquement pour cette tâche clôturée.');
   }
   function recordDelete(kind, id){
     var coll = collFor(kind);
@@ -1566,13 +1590,13 @@
     $('printRoot').innerHTML = '<div class="p-page" dir="'+(rtl?'rtl':'ltr')+'" lang="'+(rtl?'ar':'fr')+'">'+bodyHtml+'</div>';
     setTimeout(function(){ window.print(); }, 60);
   }
-  function printHead(titre, meta){
-    return '<div class="p-head"><div class="org">'+esc(state.templates.entete)+'</div><h1>'+esc(titre)+'</h1></div>'+
+  function printHead(titre, meta, photoUrl){
+    return '<div class="p-head">'+(photoUrl?'<img class="photo" src="'+photoUrl+'" alt="">':'')+'<div class="org">'+esc(state.templates.entete)+'</div><h1>'+esc(titre)+'</h1></div>'+
       '<div class="p-meta">'+meta.map(function(m){ return '<span><b>'+esc(m[0])+' :</b> '+esc(m[1]||'—')+'</span>'; }).join('')+'</div>';
   }
 
   function printFromSpec(spec){
-    var html = printHead(spec.titre, spec.meta);
+    var html = printHead(spec.titre, spec.meta, spec.photoAssetId ? assetUrl(spec.photoAssetId) : '');
     (spec.tables||[]).forEach(function(tb){
       if(tb.heading) html += '<div class="p-section"><h3>'+esc(tb.heading)+'</h3></div>';
       html += '<table class="p-table"><thead><tr>'+tb.headers.map(function(h){ return '<th>'+esc(h)+'</th>'; }).join('')+'</tr></thead><tbody>';
@@ -1591,7 +1615,7 @@
   }
 
   /* ================= génération de fichiers PDF / Word ================= */
-  function buildDocSpec(d, task){
+  function buildDocSpecInner(d, task){
     if(d.type==='presence'){
       return { rtl:true, titre:'لائحة الحضور', meta:[['المؤسسة',d.lieu],['التاريخ',fmtDate(d.date)],['الموضوع',d.objet]],
         tables:[{headers:['#','الاسم الكامل','الصفة','التوقيع'], rows:(d.participants||[]).map(function(p,i){ return [String(i+1), p.nom||'', p.fonction||'', '']; })}],
@@ -1634,6 +1658,25 @@
         sections: d.observations ? [{heading:'ملاحظات', text:d.observations}] : [], signatures:['توقيع المفتش(ة)'] };
     }
     return { titre:d.titre||'Document', meta:[['Date',fmtDate(d.date)]], tables:[], sections:[], signatures:null };
+  }
+  /* Types de documents concernant nommément un(e) enseignant(e) (correspondance administrative,
+     attestation, rapport, grille) : c'est là qu'une photo d'identité de l'enseignant(e), si elle a
+     été ajoutée à sa fiche, a du sens sur le document imprimé/exporté. */
+  var TEACHER_DOC_TYPES = { lettre_information:true, attestation:true, rapport_inspection:true, observation:true };
+  function docPhotoAssetId(d, task){
+    var ens = null;
+    if(task && task.enseignantId) ens = state.enseignants.find(function(x){ return x.id===task.enseignantId; });
+    if(!ens && d.enseignantNom) ens = state.enseignants.find(function(x){ return x.nom===d.enseignantNom; });
+    if(!ens && d.beneficiaireNom) ens = state.enseignants.find(function(x){ return x.nom===d.beneficiaireNom; });
+    return (ens && ens.photoAssetId) ? ens.photoAssetId : null;
+  }
+  function buildDocSpec(d, task){
+    var spec = buildDocSpecInner(d, task);
+    if(TEACHER_DOC_TYPES[d.type]){
+      var pid = docPhotoAssetId(d, task);
+      if(pid) spec.photoAssetId = pid;
+    }
+    return spec;
   }
   function buildBilanSpec(){
     var s = bilanStats(), r = periodRange();
@@ -1683,6 +1726,10 @@
     var logoUrl = profil.logoAssetId ? assetUrl(profil.logoAssetId) : '';
     var logoFmt = logoUrl ? pdfImageFormat(logoUrl) : null;
     if(logoUrl && logoFmt){ try{ doc.addImage(logoUrl, logoFmt, margin, 9, 15, 15); }catch(e){} }
+    if(spec.photoAssetId){
+      var photoUrl = assetUrl(spec.photoAssetId), photoFmt = photoUrl ? pdfImageFormat(photoUrl) : null;
+      if(photoUrl && photoFmt){ try{ doc.addImage(photoUrl, photoFmt, pageW-margin-22, 9, 22, 28); }catch(e){} }
+    }
     doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(100);
     var enteteLines = doc.splitTextToSize(state.templates.entete||'', maxW);
     doc.text(enteteLines, pageW/2, y, {align:'center'}); y += enteteLines.length*4 + 4;
@@ -1751,6 +1798,13 @@
       try{
         children.push(new d.Paragraph({ alignment:d.AlignmentType.CENTER, spacing:{after:120},
           children:[ new d.ImageRun({ data: dataUrlToUint8Array(logoUrl), transformation:{width:60,height:60} }) ] }));
+      }catch(e){}
+    }
+    var photoUrl = spec.photoAssetId ? assetUrl(spec.photoAssetId) : '';
+    if(photoUrl){
+      try{
+        children.push(new d.Paragraph({ alignment: rtl?d.AlignmentType.LEFT:d.AlignmentType.RIGHT, spacing:{after:120},
+          children:[ new d.ImageRun({ data: dataUrlToUint8Array(photoUrl), transformation:{width:70,height:90} }) ] }));
       }catch(e){}
     }
     (state.templates.entete||'').split('\n').forEach(function(line){
@@ -2225,6 +2279,7 @@
       if(m.type==='zone') return zoneModalHtml(idx);
       if(m.type==='docedit') return docEditModalHtml(idx, m);
       if(m.type==='driveSetup') return driveSetupModalHtml(idx, m);
+      if(m.type==='search') return searchModalHtml(idx);
       return '';
     }).join('');
     wireModalEvents();
@@ -2272,6 +2327,65 @@
         '<div class="doc-info"><div class="t">'+esc(DOC_TYPE_INFO[d.type].label)+'</div><div class="s">'+fmtDate(d.date)+'</div></div></div>'; }).join('')+'</div>' : '<div class="empty">Aucun document généré pour cette tâche.</div>')+
       '<div class="btn-row" style="margin-top:16px;"><button class="btn ghost" id="btnEditTask" type="button">Modifier</button><button class="btn danger" id="btnDeleteTask2" type="button">Supprimer</button></div>'+
       '</div></div>';
+    return html;
+  }
+
+  /* ---- Recherche globale ---- */
+  function openGlobalSearch(){ state.searchQuery = ''; pushModal({type:'search'}); }
+  /* Comparaison insensible à la casse et aux accents, pour retrouver « Sefrou » en tapant « sefrou »
+     ou « Fès » en tapant « fes ». */
+  function normalizeSearch(s){
+    return (s||'').toString().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+  }
+  function globalSearchResults(q){
+    var nq = normalizeSearch(q);
+    if(!nq) return null;
+    function has(s){ return s && normalizeSearch(s).indexOf(nq) !== -1; }
+    return {
+      zones: state.zones.filter(function(z){ return has(z.nom)||has(z.academieRegionale)||has(z.directionProvinciale)||has(z.commune); }),
+      etablissements: state.etablissements.filter(function(e){ return has(e.nom)||has(e.adresse); }),
+      enseignants: state.enseignants.filter(function(e){ return has(e.nom)||has(e.matiere); }),
+      tasks: state.tasks.filter(function(t){ return has(t.titre)||has(t.description)||has(t.enseignantNom||ensName(t.enseignantId))||has(t.etablissementNom||etabName(t.etablissementId)); }),
+      documents: state.documents.filter(function(d){ return has(d.titre)||has(DOC_TYPE_INFO[d.type]&&DOC_TYPE_INFO[d.type].label); })
+    };
+  }
+  /* Chaque ligne de résultat porte son propre attribut data-search* (jamais .rec-row/data-id/
+     .task-card réutilisés tels quels) pour ne jamais entrer en collision avec le câblage — non
+     cantonné à un host — d'une autre vue restée affichée sous cette fenêtre de recherche (voir
+     data-pickrec pour le même principe déjà appliqué au sélecteur générique). */
+  function searchModalHtml(idx){
+    var q = state.searchQuery || '';
+    var res = globalSearchResults(q);
+    var html = '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
+      '<div class="sheet-head"><h2>Recherche</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
+      '<div class="search-row"><input type="text" id="globalSearchInput" placeholder="Zone, établissement, enseignant(e), tâche, document…" value="'+esc(q)+'"></div>';
+    if(!q.trim()){
+      html += '<div class="empty" style="margin-top:10px;">Tapez pour rechercher dans toutes vos données : zones, établissements, enseignant(e)s, tâches et documents générés.</div>';
+    } else {
+      var total = res.zones.length+res.etablissements.length+res.enseignants.length+res.tasks.length+res.documents.length;
+      if(!total){
+        html += '<div class="empty" style="margin-top:10px;">Aucun résultat pour « '+esc(q)+' ».</div>';
+      } else {
+        if(res.zones.length) html += '<div class="section-label">Zones ('+res.zones.length+')</div><div class="rec-list">'+res.zones.map(function(z){
+          return '<div class="rec-row" data-searchzone="'+z.id+'"><div class="avatar">'+ICONS.folder+'</div><div class="rec-info"><div class="t">'+esc(z.nom)+'</div><div class="s">'+esc(zoneHierLine(z)||'—')+'</div></div></div>';
+        }).join('')+'</div>';
+        if(res.etablissements.length) html += '<div class="section-label">Établissements ('+res.etablissements.length+')</div><div class="rec-list">'+res.etablissements.map(function(e){
+          return '<div class="rec-row" data-searchetab="'+e.id+'"><div class="avatar">'+ICONS.folder+'</div><div class="rec-info"><div class="t">'+esc(e.nom)+'</div><div class="s">'+esc(zoneName(e.zoneId)||'Sans zone')+'</div></div></div>';
+        }).join('')+'</div>';
+        if(res.enseignants.length) html += '<div class="section-label">Enseignant(e)s ('+res.enseignants.length+')</div><div class="rec-list">'+res.enseignants.map(function(e){
+          var av = e.photoAssetId ? '<img src="'+assetUrl(e.photoAssetId)+'" alt="">' : initials(e.nom);
+          return '<div class="rec-row" data-searchens="'+e.id+'"><div class="avatar">'+av+'</div><div class="rec-info"><div class="t">'+esc(e.nom)+'</div><div class="s">'+esc([e.matiere, etabName(e.etablissementId)].filter(Boolean).join(' · ')||'—')+'</div></div></div>';
+        }).join('')+'</div>';
+        if(res.tasks.length) html += '<div class="section-label">Tâches ('+res.tasks.length+')</div><div class="rec-list">'+res.tasks.map(function(t){
+          var meta = [t.enseignantNom||ensName(t.enseignantId), t.etablissementNom||etabName(t.etablissementId)].filter(Boolean).join(' · ');
+          return '<div class="rec-row" data-searchtask="'+t.id+'"><div class="avatar">'+ICONS.doc+'</div><div class="rec-info"><div class="t">'+esc(t.titre)+'</div><div class="s">'+esc([WF_LABEL[t.statut], meta].filter(Boolean).join(' · '))+'</div></div></div>';
+        }).join('')+'</div>';
+        if(res.documents.length) html += '<div class="section-label">Documents générés ('+res.documents.length+')</div><div class="doc-list">'+res.documents.map(function(d){
+          return '<div class="doc-row" data-searchdoc="'+d.id+'" style="cursor:pointer;"><div class="doc-ico">'+ICONS.doc+'</div><div class="doc-info"><div class="t">'+esc((DOC_TYPE_INFO[d.type]||{}).label||d.titre)+'</div><div class="s tnum">'+fmtDate(d.date)+'</div></div></div>';
+        }).join('')+'</div>';
+      }
+    }
+    html += '</div></div>';
     return html;
   }
 
@@ -2470,8 +2584,32 @@
           '<div class="rec-info"><div class="t">'+esc(t.titre)+'</div><div class="s">'+esc(sub)+'</div></div></div>';
       }).join('')+'</div>';
     }
+    if(visits.length){
+      html += '<div class="setup-actions" style="margin-top:8px;"><button class="btn ghost sm" id="btnPrintHistorique" type="button">'+ICONS.print+' Imprimer l\'historique</button>'+
+        '<button class="btn ghost sm" id="btnPdfHistorique" type="button">PDF</button>'+
+        '<button class="btn ghost sm" id="btnDocxHistorique" type="button">Word</button></div>';
+    }
     html += '</div>';
     return html;
+  }
+  /* « Pièce jointe » historique des activités d'un(e) enseignant(e) : un document de synthèse
+     (imprimable, PDF, Word — comme le Bilan) listant toutes ses visites/inspections, avec sa photo
+     si elle a été ajoutée à sa fiche. Généré à la demande depuis sa fiche, sans créer d'enregistrement
+     « document » séparé (comme le Bilan), puisqu'il reflète toujours l'état courant de ses tâches. */
+  function buildEnsHistoriqueSpec(e){
+    var visits = state.tasks.filter(function(t){ return t.enseignantId===e.id; })
+      .sort(function(a,b){ return (b.echeance||b.updatedAt||'').localeCompare(a.echeance||a.updatedAt||''); });
+    var etab = state.etablissements.find(function(x){ return x.id===e.etablissementId; });
+    var spec = {
+      titre: 'Historique des activités — '+e.nom,
+      meta: [['Enseignant(e)', e.nom], ['Établissement', etab?etab.nom:'—'], ['Matière', e.matiere||'—'], ["Date d'édition", fmtDate(todayStr())]],
+      tables: [{ headers:['Date','Type','Titre','Statut'], rows: visits.map(function(t){
+        return [t.echeance?fmtDate(t.echeance):'—', TT_LABEL[t.taskType]||t.taskType, t.titre, WF_LABEL[t.statut]||t.statut];
+      }) }],
+      sections: [], signatures: ["Signature de l'inspecteur(trice)"]
+    };
+    if(e.photoAssetId) spec.photoAssetId = e.photoAssetId;
+    return spec;
   }
   function horaireLineHtml(sl, i){
     return '<div class="rowline"><select data-hor="jour" data-i="'+i+'" style="flex:1.3;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 6px;">'+
@@ -2609,6 +2747,20 @@
   function wireModalEvents(){
     document.querySelectorAll('[data-close-modal]').forEach(function(el){ el.onclick = function(){ closeTopModal(); }; });
     document.querySelectorAll('.overlay').forEach(function(el){ el.addEventListener('click', function(ev){ if(ev.target===el) closeTopModal(); }); });
+
+    /* -- recherche globale -- */
+    var gsInput = $('globalSearchInput');
+    if(gsInput){
+      gsInput.oninput = function(){
+        state.searchQuery = gsInput.value; render();
+        setTimeout(function(){ var el=$('globalSearchInput'); if(el){ el.focus(); el.selectionStart=el.selectionEnd=el.value.length; } },0);
+      };
+      document.querySelectorAll('[data-searchzone]').forEach(function(el){ el.onclick=function(){ var z=state.zones.find(function(x){return x.id===el.getAttribute('data-searchzone');}); if(z){ closeTopModal(); openZoneEditor(z); } }; });
+      document.querySelectorAll('[data-searchetab]').forEach(function(el){ el.onclick=function(){ var e=state.etablissements.find(function(x){return x.id===el.getAttribute('data-searchetab');}); if(e){ closeTopModal(); openEtablissementEditor(e); } }; });
+      document.querySelectorAll('[data-searchens]').forEach(function(el){ el.onclick=function(){ var e=state.enseignants.find(function(x){return x.id===el.getAttribute('data-searchens');}); if(e){ closeTopModal(); openEnseignantEditor(e); } }; });
+      document.querySelectorAll('[data-searchtask]').forEach(function(el){ el.onclick=function(){ var t=state.tasks.find(function(x){return x.id===el.getAttribute('data-searchtask');}); if(t){ closeTopModal(); openTaskDetail(t); } }; });
+      document.querySelectorAll('[data-searchdoc]').forEach(function(el){ el.onclick=function(){ var d=state.documents.find(function(x){return x.id===el.getAttribute('data-searchdoc');}); if(d){ closeTopModal(); openDocEditor(d.taskId, d.type, d); } }; });
+    }
 
     /* -- task editor -- */
     function syncTaskFields(){
@@ -2792,6 +2944,15 @@
     var btnAddAttach = $('btnAddAttach'); if(btnAddAttach) btnAddAttach.onclick = function(){ syncEnsFields(); $('fileAttachInput').click(); };
     document.querySelectorAll('[data-rmattach]').forEach(function(el){ el.onclick=function(){ syncEnsFields(); state.draftRecord.attachments.splice(parseInt(el.getAttribute('data-rmattach')),1); render(); }; });
     document.querySelectorAll('[data-visit]').forEach(function(el){ el.onclick=function(){ var t=state.tasks.find(function(x){ return x.id===el.getAttribute('data-visit'); }); if(t) openTaskDetail(t); }; });
+    var printHist = $('btnPrintHistorique'); if(printHist) printHist.onclick = function(){ printFromSpec(buildEnsHistoriqueSpec(state.draftRecord)); };
+    var pdfHist = $('btnPdfHistorique'); if(pdfHist) pdfHist.onclick = function(){
+      pdfHist.disabled = true;
+      downloadPdf(buildEnsHistoriqueSpec(state.draftRecord), safeFileName('Historique_'+state.draftRecord.nom)).then(function(){ pdfHist.disabled = false; });
+    };
+    var docxHist = $('btnDocxHistorique'); if(docxHist) docxHist.onclick = function(){
+      docxHist.disabled = true;
+      downloadDocx(buildEnsHistoriqueSpec(state.draftRecord), safeFileName('Historique_'+state.draftRecord.nom)).then(function(){ docxHist.disabled = false; });
+    };
     var saveEns = $('btnSaveEns');
     if(saveEns) saveEns.onclick = function(){
       syncEnsFields();
@@ -2965,6 +3126,7 @@
   $('btnSideSync').onclick = function(){ closeSidebar(); doSync(); };
   $('btnSideSettings').onclick = function(){ closeSidebar(); openSettings(); };
   $('btnSideTemplates').onclick = function(){ closeSidebar(); pushModal({type:'settings', tab:'templates'}); };
+  $('btnSearch').onclick = openGlobalSearch;
   $('btnSync').onclick = doSync;
   $('btnSettings').onclick = openSettings;
   $('syncLink').onclick = function(){ if(!state.mcpReady) connectGoogleDrive(); else if(!state.config.sheetFileId) openSettings(); else doSync(); };
