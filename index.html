@@ -500,6 +500,10 @@
     <div class="side-divider"></div>
     <div class="side-section-label">Outils</div>
     <div class="side-nav">
+      <button type="button" id="btnSidePlanAction">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M5 3v18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M5 4.5c2-1.2 4-1.2 6 0s4 1.2 6 0v9c-2 1.2-4 1.2-6 0s-4-1.2-6 0v-9Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        Plan d'action
+      </button>
       <button type="button" id="btnSideSync">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M20 11a8 8 0 1 0-2.3 5.6M20 11V5m0 6h-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         Synchroniser
@@ -689,12 +693,12 @@
     rapport_inspection: {label:"Rapport d'inspection"}, bordereau: {label:'Bordereau de transmission'},
     plan_action: {label:"Plan d'action"}
   };
-  /* Règle de langue (précisée par l'utilisateur) : seuls les rapports — « Rapport de synthèse »
-     (visite conseil) et « Rapport d'inspection » — sont rédigés entièrement en français ; TOUS les
-     autres documents, y compris la grille d'observation et le plan d'action, sont rédigés en arabe
-     (langue de l'administration marocaine). Voir buildDocSpecInner() : ces deux seuls types y ont des
-     libellés et un contenu en français ; tous les autres ont déjà des libellés arabes et rtl:true. */
-  var RTL_DOC_TYPES = { presence:true, compte_rendu:true, attestation:true, lettre_information:true, bordereau:true, observation:true, plan_action:true };
+  /* Règle de langue (précisée par l'utilisateur) : les rapports — « Rapport de synthèse » (visite
+     conseil) et « Rapport d'inspection » — ainsi que la grille d'observation sont rédigés entièrement
+     en français ; TOUS les autres documents (y compris le plan d'action) sont rédigés en arabe (langue
+     de l'administration marocaine). Voir buildDocSpecInner() : ces trois types y ont des libellés et
+     un contenu en français ; tous les autres ont déjà des libellés arabes et rtl:true. */
+  var RTL_DOC_TYPES = { presence:true, compte_rendu:true, attestation:true, lettre_information:true, bordereau:true, plan_action:true };
   /* ---- Modèles personnalisés (Réglages → Modèles de documents → Modèles personnalisés) : un modèle
      par type de document associe un logo optionnel (state.templates.docTemplates[type].logoAssetId,
      utilisé à la place du logo global du profil dans les exports PDF/Word de ce type précis — voir
@@ -820,7 +824,8 @@
     users: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none"><circle cx="9" cy="8" r="3" stroke="currentColor" stroke-width="1.6"/><path d="M3 20c0-3.3 2.7-5.8 6-5.8s6 2.5 6 5.8M16 8.3a2.6 2.6 0 1 1 1 5M19.5 20c0-2.6-1.7-4.7-4-5.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
     calendar: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none"><rect x="3.5" y="5" width="17" height="15.5" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 9.5h17M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
     clock: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.6"/><path d="M12 7.5V12l3 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-    pin: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M12 21s7-6.4 7-11.5A7 7 0 0 0 5 9.5C5 14.6 12 21 12 21Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="12" cy="9.5" r="2.4" stroke="currentColor" stroke-width="1.7"/></svg>'
+    pin: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M12 21s7-6.4 7-11.5A7 7 0 0 0 5 9.5C5 14.6 12 21 12 21Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="12" cy="9.5" r="2.4" stroke="currentColor" stroke-width="1.7"/></svg>',
+    flag: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M5 3v18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M5 4.5c2-1.2 4-1.2 6 0s4 1.2 6 0v9c-2 1.2-4 1.2-6 0s-4-1.2-6 0v-9Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>'
   };
   function docIcon(mime, ext){
     if(mime==='application/vnd.google-apps.spreadsheet') return ICONS.sheet;
@@ -839,7 +844,7 @@
     config: {}, docs: [], docsQuery: '', docsLoading: false, docsError: null,
     dbReady: false, mcpReady: false, downloadsReady: false, sampleReady: false, assetsReady: false,
     syncing: false, syncError: null,
-    modalStack: [], draftTask: null, draftRecord: null, draftDoc: null,
+    modalStack: [], draftTask: null, draftRecord: null, draftDoc: null, quickPlanAction: null,
     setupBusy: false, setupError: null, driveSetupError: null, geminiKeyError: null,
     ensQuery: '', ensHoraireMode: false, horaireJour: 'Lundi', horaireHeure: '09:00',
     bilanPeriod: 'mois', bilanCustomFrom: '', bilanCustomTo: '',
@@ -1278,6 +1283,21 @@
       return arr.map(function(x){ return { action:String((x&&x.action)||'').trim(), responsable:String((x&&x.responsable)||'').trim(), echeance:'' }; }).filter(function(a){ return a.action; });
     }catch(e){ return []; }
   }
+  /* Génération d'un plan d'action complet (contexte + objectifs + actions) à partir de quelques
+     bribes/notes brèves — voir openQuickPlanAction() : contrairement à parseAiActionsJson ci-dessus
+     (une simple liste), la réponse attendue ici est un objet JSON unique regroupant les trois champs. */
+  function parseAiPlanActionJson(text){
+    var m = text.match(/\{[\s\S]*\}/);
+    if(!m) return null;
+    try{
+      var obj = JSON.parse(m[0]);
+      if(!obj || typeof obj !== 'object') return null;
+      var actions = Array.isArray(obj.actions) ? obj.actions.map(function(x){
+        return { action:String((x&&x.action)||'').trim(), responsable:String((x&&x.responsable)||'').trim(), echeance:'' };
+      }).filter(function(a){ return a.action; }) : [];
+      return { contexte:String(obj.contexte||'').trim(), objectifs:String(obj.objectifs||'').trim(), actions:actions };
+    }catch(e){ return null; }
+  }
 
   /* ================= assets (photos / pièces jointes / logo / cachet / signature) =================
      Stockage 100% local : chaque fichier est encodé en data URL (base64) et conservé dans
@@ -1363,6 +1383,78 @@
   }
   function ensureBackupFolder(appFolderId){ return ensureSubfolder(appFolderId, 'Sauvegardes', 'backupFolderId'); }
   function ensureDocsFolder(appFolderId){ return ensureSubfolder(appFolderId, 'Documents générés', 'docsFolderId'); }
+  function ensureAttachFolder(appFolderId){ return ensureSubfolder(appFolderId, 'Pièces jointes', 'attachFolderId'); }
+  function ensureTemplatesFolder(appFolderId){ return ensureSubfolder(appFolderId, 'Modèles', 'templatesFolderId'); }
+  /* Modèles de documents sur Google Docs (Réglages → Modèles de documents → Modèles personnalisés) :
+     alternative à la simple zone de texte de l'app pour un texte long ou nécessitant une mise en forme
+     plus riche — le Google Doc créé sert de brouillon éditable dans l'éditeur Google Docs habituel ;
+     son contenu n'est ramené dans docTemplates[type].corps qu'au clic explicite sur « Récupérer le
+     texte » (pas de synchronisation automatique/silencieuse, pour que l'inspecteur(trice) garde le
+     contrôle du moment où le nouveau texte remplace l'ancien). */
+  function openOrCreateTemplateGdoc(type){
+    var docTmpls = Object.assign({}, state.templates.docTemplates||{});
+    var cur = docTmpls[type] || {};
+    if(cur.gdocUrl){ window.open(cur.gdocUrl, '_blank', 'noopener'); return Promise.resolve(cur); }
+    var label = (DOC_TYPE_INFO[type]||{}).label || type;
+    var tagsHint = DOC_TEMPLATE_TAGS.map(function(tg){ return '{{'+tg.tag+'}} = '+tg.label; }).join('\n');
+    var body = cur.corps || ('Modèle : '+label+'\n\nRemplacez ce texte par le contenu de départ souhaité pour ce type de document. '+
+      'Recopiez les balises ci-dessous telles quelles à l\'endroit voulu : elles seront automatiquement remplacées par les informations de la tâche à la création d\'un nouveau document.\n\n'+tagsHint);
+    return ensureAppFolder().then(function(appFolder){
+      return ensureTemplatesFolder(appFolder.id).catch(function(){ return null; }).then(function(folder){
+        return mcpCall('create_file', {
+          title: 'Modèle - '+label, textContent: body, contentMimeType:'text/plain',
+          parentId: (folder && folder.id) || appFolder.id, convertToGoogleDoc:true
+        });
+      });
+    }).then(function(res){
+      var f = res && res.payload;
+      if(!f) return Promise.reject({code:'tool_error'});
+      var url = googleDocEditUrl(f.id);
+      docTmpls[type] = Object.assign({}, cur, {gdocFileId:f.id, gdocUrl:url});
+      templatesSet({docTemplates:docTmpls});
+      window.open(url, '_blank', 'noopener');
+      return docTmpls[type];
+    });
+  }
+  function pullTemplateFromGdoc(type){
+    var docTmpls = state.templates.docTemplates||{};
+    var cur = docTmpls[type];
+    if(!cur || !cur.gdocFileId) return Promise.reject({code:'not_configured'});
+    return mcpCall('download_file_content', {fileId: cur.gdocFileId, exportMimeType:'text/plain'}).then(function(res){
+      var payload = res.payload || {};
+      var text = payload.content ? b64ToUtf8(payload.content) : '';
+      var docTmpls2 = Object.assign({}, state.templates.docTemplates||{});
+      docTmpls2[type] = Object.assign({}, docTmpls2[type], {corps: text.trim()});
+      templatesSet({docTemplates:docTmpls2});
+      return text.trim();
+    });
+  }
+  /* Téléversement best-effort d'une pièce jointe (enseignant ou tâche) vers le sous-dossier
+     « Pièces jointes » du Drive de l'application — en complément (jamais en remplacement) du stockage
+     local déjà fait par uploadAsset : si Drive n'est pas connecté, ou si l'envoi échoue pour une
+     raison quelconque (hors-ligne, quota…), on résout simplement avec null sans jamais faire échouer
+     l'ajout local de la pièce jointe, qui reste toujours utilisable même sans Drive. */
+  function uploadAttachmentToDrive(file){
+    if(!state.mcpReady || !file) return Promise.resolve(null);
+    return new Promise(function(resolve, reject){
+      var reader = new FileReader();
+      reader.onload = function(){ resolve(String(reader.result).split(',')[1] || ''); };
+      reader.onerror = function(){ reject(new Error('read-failed')); };
+      reader.readAsDataURL(file);
+    }).then(function(b64){
+      return ensureAppFolder().then(function(appFolder){
+        return ensureAttachFolder(appFolder.id).catch(function(){ return null; }).then(function(attachFolder){
+          return mcpCall('create_file', {
+            title: file.name || 'piece-jointe', base64Content: b64, contentMimeType: file.type || 'application/octet-stream',
+            parentId: (attachFolder && attachFolder.id) || appFolder.id, disableConversionToGoogleType: true
+          });
+        });
+      });
+    }).then(function(res){
+      var f = res && res.payload;
+      return f ? { driveFileId: f.id, driveUrl: 'https://drive.google.com/file/d/'+f.id+'/view' } : null;
+    }).catch(function(){ return null; });
+  }
   /* Envoi best-effort d'un document généré (PDF/Word) vers le sous-dossier « Documents générés » —
      n'échoue jamais l'enregistrement local : les erreurs sont avalées par l'appelant. Quand
      convertToGoogleDoc est vrai (utilisé pour le .docx), Drive convertit le fichier envoyé en Google
@@ -1613,6 +1705,17 @@
   function openPicker(kind, onPick, filterFn){
     state.pickTarget = {kind:kind, onPick:onPick, filterFn:filterFn};
     pushModal({type:'picker', kind:kind});
+  }
+
+  /* Accès rapide « Plan d'action » depuis le menu (Outils) : contrairement aux autres types de
+     documents, toujours créés depuis une tâche existante, celui-ci doit pouvoir être lancé
+     indépendamment. On fait donc saisir juste un objet/établissement/quelques notes, puis on crée en
+     coulisse une tâche légère (taskType:'autre', qui propose déjà « plan_action » dans DOCS_FOR_TYPE)
+     pour servir d'ancrage au document — l'inspecteur(trice) n'a pas besoin de savoir qu'une tâche a
+     été créée, mais la retrouve naturellement dans « Tâches » si besoin. */
+  function openQuickPlanAction(){
+    state.quickPlanAction = {lieu:'', objet:'', notes:'', contexte:'', objectifs:'', actions:[]};
+    pushModal({type:'quickPlanAction'});
   }
 
   function openEnseignantEditor(rec){
@@ -1892,10 +1995,10 @@
         signatures:['رئيس(ة) الجلسة','كاتب(ة) الجلسة'] };
     }
     if(d.type==='observation'){
-      return { rtl:true, titre:'شبكة ملاحظة الحصة', meta:[['الأستاذ(ة)',d.enseignantNom],['المؤسسة',task?task.etablissementNom:''],['القسم',d.classe],['المادة',d.matiere],['التاريخ',fmtDate(d.date)],['المدة',d.duree]],
-        tables:[{headers:['المعيار','التقدير','الملاحظة'], rows:(d.criteres||[]).map(function(c){ return [c.nom, c.note||'—', c.commentaire||'']; })}],
-        sections:[{heading:'نقط القوة', text:d.pointsForts||'—'},{heading:'محاور التحسين', text:d.axesAmelioration||'—'},{heading:'الخلاصة', text:d.synthese||'—'}],
-        signatures:['توقيع المفتش(ة)','توقيع الأستاذ(ة)'] };
+      return { titre:"Grille d'observation de séance", meta:[['Enseignant(e)',d.enseignantNom],['Établissement',task?task.etablissementNom:''],['Classe',d.classe],['Matière',d.matiere],['Date',fmtDate(d.date)],['Durée',d.duree]],
+        tables:[{headers:['Critère','Appréciation','Commentaire'], rows:(d.criteres||[]).map(function(c){ return [c.nom, c.note||'—', c.commentaire||'']; })}],
+        sections:[{heading:'Points forts', text:d.pointsForts||'—'},{heading:"Axes d'amélioration", text:d.axesAmelioration||'—'},{heading:'Synthèse', text:d.synthese||'—'}],
+        signatures:["Signature de l'inspecteur(trice)","Signature de l'enseignant(e)"] };
     }
     if(d.type==='rapport'){
       return { titre:'Rapport de synthèse', meta:[['Objet',task?task.titre:d.titre],['Établissement',task?task.etablissementNom:''],['Date',fmtDate(d.date)]],
@@ -2704,6 +2807,7 @@
       if(m.type==='docedit') return docEditModalHtml(idx, m);
       if(m.type==='driveSetup') return driveSetupModalHtml(idx, m);
       if(m.type==='search') return searchModalHtml(idx);
+      if(m.type==='quickPlanAction') return quickPlanActionModalHtml(idx);
       return '';
     }).join('');
     wireModalEvents();
@@ -2777,7 +2881,7 @@
       (docs.length ? '<div class="doc-list">'+docs.map(function(d){ return '<div class="doc-row" data-opendoc="'+d.id+'" style="cursor:pointer;"><div class="doc-ico">'+ICONS.doc+'</div>'+
         '<div class="doc-info"><div class="t">'+esc(DOC_TYPE_INFO[d.type].label)+(d.beneficiaireNom?' — '+esc(d.beneficiaireNom):'')+'</div><div class="s">'+fmtDate(d.date)+'</div></div></div>'; }).join('')+'</div>' : '<div class="empty">Aucun document généré pour cette tâche.</div>')+
       '<div class="section-label" style="margin-top:14px;">Documents de travail utilisés <span style="font-weight:400;color:var(--ink-faint);">(pièces jointes)</span></div>'+
-      '<div id="taskAttachList">'+(attachments.length ? attachments.map(function(a,i){ return '<div class="attach-row"><span class="t">'+esc(a.titre)+'</span><a href="'+assetUrl(a.assetId)+'" target="_blank" rel="noopener" class="icon-btn" style="width:30px;height:30px;">'+ICONS.ext+'</a><button class="icon-btn" data-rmtaskattach="'+i+'" style="width:30px;height:30px;color:var(--danger);">'+ICONS.trash+'</button></div>'; }).join('') : '<div class="empty">Aucun document de travail joint.</div>')+'</div>'+
+      '<div id="taskAttachList">'+(attachments.length ? attachments.map(function(a,i){ return '<div class="attach-row"><span class="t">'+esc(a.titre)+(a.driveUrl?' <a href="'+esc(a.driveUrl)+'" target="_blank" rel="noopener" style="font-size:10.5px;color:var(--ink-faint);">(sur Drive)</a>':'')+'</span><a href="'+assetUrl(a.assetId)+'" target="_blank" rel="noopener" class="icon-btn" style="width:30px;height:30px;">'+ICONS.ext+'</a><button class="icon-btn" data-rmtaskattach="'+i+'" style="width:30px;height:30px;color:var(--danger);">'+ICONS.trash+'</button></div>'; }).join('') : '<div class="empty">Aucun document de travail joint.</div>')+'</div>'+
       '<button class="addline" id="btnAddTaskAttach" type="button">'+ICONS.upload+' Joindre un document de travail</button>'+
       '<div class="btn-row" style="margin-top:16px;"><button class="btn ghost" id="btnEditTask" type="button">Modifier</button><button class="btn danger" id="btnDeleteTask2" type="button">Supprimer</button></div>'+
       '</div></div>';
@@ -2991,6 +3095,14 @@
       html += '<div class="field"><label for="tmplDocCorps">Texte de départ — champ « '+esc(DOC_FIELD_LABEL[field]||field)+' »</label>'+
         '<textarea id="tmplDocCorps" rows="5" dir="'+(RTL_DOC_TYPES[sel]?'rtl':'ltr')+'">'+esc(dt.corps||'')+'</textarea></div>'+
         '<p style="font-size:11px;color:var(--ink-faint);margin:-4px 0 10px;">Balises disponibles : '+tagsHint+'</p>';
+      if(state.mcpReady){
+        html += '<div class="field"><label>Modifier ce modèle sur Google Docs <span style="font-weight:400;color:var(--ink-faint);">(pratique pour un texte long ou mis en forme)</span></label>'+
+          '<div class="btn-row">'+(dt.gdocUrl
+            ? '<a class="btn ghost sm" href="'+esc(dt.gdocUrl)+'" target="_blank" rel="noopener">'+ICONS.ext+' Ouvrir sur Google Docs</a><button class="btn ghost sm" id="btnDocTmplGdocPull" type="button">'+ICONS.dl+' Récupérer le texte depuis Google Docs</button>'
+            : '<button class="btn ghost sm" id="btnDocTmplGdocOpen" type="button">'+ICONS.ext+' Créer le modèle sur Google Docs</button>')+'</div>'+
+          (dt.gdocUrl ? '<p style="font-size:11px;color:var(--ink-faint);margin-top:4px;">Modifiez le texte sur Google Docs, puis touchez « Récupérer le texte » pour le ramener ici comme texte de départ (les balises {{...}} restent actives).</p>' : '')+
+          '<div class="banner err" id="tmplGdocStatus" hidden style="margin-top:6px;"></div></div>';
+      }
     } else {
       html += '<p style="font-size:11.5px;color:var(--ink-faint);">Ce type de document ne propose pas de texte de départ personnalisable ici — seul le logo peut être remplacé.</p>';
     }
@@ -3074,7 +3186,7 @@
         '</div>') : '')+
       '<div class="field"><label>Horaire hebdomadaire</label><div id="horaireList">'+(e.horaire||[]).map(horaireLineHtml).join('')+'</div>'+
       '<button class="addline" id="btnAddHoraire" type="button">'+ICONS.plus+' Ajouter un créneau</button></div>'+
-      '<div class="field"><label>Pièces jointes</label><div id="attachList">'+(e.attachments||[]).map(function(a,i){ return '<div class="attach-row"><span class="t">'+esc(a.titre)+'</span><a href="'+assetUrl(a.assetId)+'" target="_blank" rel="noopener" class="icon-btn" style="width:30px;height:30px;">'+ICONS.ext+'</a><button class="icon-btn" data-rmattach="'+i+'" style="width:30px;height:30px;color:var(--danger);">'+ICONS.trash+'</button></div>'; }).join('')+'</div>'+
+      '<div class="field"><label>Pièces jointes</label><div id="attachList">'+(e.attachments||[]).map(function(a,i){ return '<div class="attach-row"><span class="t">'+esc(a.titre)+(a.driveUrl?' <a href="'+esc(a.driveUrl)+'" target="_blank" rel="noopener" style="font-size:10.5px;color:var(--ink-faint);">(sur Drive)</a>':'')+'</span><a href="'+assetUrl(a.assetId)+'" target="_blank" rel="noopener" class="icon-btn" style="width:30px;height:30px;">'+ICONS.ext+'</a><button class="icon-btn" data-rmattach="'+i+'" style="width:30px;height:30px;color:var(--danger);">'+ICONS.trash+'</button></div>'; }).join('')+'</div>'+
       '<button class="addline" id="btnAddAttach" type="button">'+ICONS.upload+' Joindre un document/photo</button></div>'+
       '<div class="field"><label for="eNotes">Notes</label><textarea id="eNotes">'+esc(e.notes)+'</textarea></div>'+
       (state.modalStack[idx].isNew ? '' : ensVisitHistoryHtml(e))+
@@ -3183,6 +3295,23 @@
       }).join('') : '<div class="empty" style="padding:10px;">Aucun établissement enregistré pour l\'instant.</div>')+
       '</div></div>'+
       '<div class="btn-row">'+(state.modalStack[idx].isNew?'':'<button class="btn danger" id="btnDeleteZone" type="button">Supprimer</button>')+'<button class="btn primary" id="btnSaveZone" type="button">Enregistrer</button></div>'+
+      '</div></div>';
+  }
+
+  /* ---- Plan d'action rapide (accès depuis le menu, indépendant d'une tâche) ---- */
+  function quickPlanActionModalHtml(idx){
+    var q = state.quickPlanAction || {lieu:'', objet:'', notes:'', contexte:'', objectifs:'', actions:[]};
+    var hasAiResult = !!(q.contexte || q.objectifs || (q.actions&&q.actions.length));
+    return '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
+      '<div class="sheet-head"><h2>Nouveau plan d\'action</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
+      '<p style="font-size:12px;color:var(--ink-faint);line-height:1.5;">Créez un plan d\'action indépendamment d\'une tâche existante. Notez juste quelques bribes (mots-clés, phrases courtes) sur la situation : l\'assistant IA peut en tirer un contexte, des objectifs et des actions concrètes, à relire et compléter ensuite.</p>'+
+      '<div class="field"><label for="qpaEtab">Établissement <span style="font-weight:400;color:var(--ink-faint);">(optionnel)</span></label><input type="text" id="qpaEtab" value="'+esc(q.lieu)+'" list="qpaEtabOptions"></div>'+
+      '<datalist id="qpaEtabOptions">'+state.etablissements.map(function(e){ return '<option value="'+esc(e.nom)+'">'; }).join('')+'</datalist>'+
+      '<div class="field"><label for="qpaObjet">Objet du plan</label><input type="text" id="qpaObjet" value="'+esc(q.objet)+'" placeholder="Ex. Amélioration de l\'assiduité des élèves"></div>'+
+      '<div class="field"><label for="qpaNotes">Notes / bribes</label><textarea id="qpaNotes" rows="4" placeholder="Quelques mots-clés ou phrases courtes : problèmes constatés, pistes envisagées…">'+esc(q.notes)+'</textarea>'+
+      (state.sampleReady ? '<div class="btn-row"><button class="btn ai sm" id="btnQpaGenerate" type="button">'+ICONS.ai+' Générer le plan avec l\'IA</button></div><div class="banner info" id="qpaStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>'+
+      (hasAiResult ? '<div class="banner info" style="margin-top:2px;margin-bottom:10px;">'+ICONS.check+'<div>Contexte, objectifs'+(q.actions&&q.actions.length?' et '+q.actions.length+' action(s)':'')+' générés — vous pourrez les relire et les modifier juste après la création.</div></div>' : '')+
+      '<div class="btn-row" style="margin-top:6px;"><button class="btn primary" id="btnQpaCreate" type="button">Créer le plan d\'action</button></div>'+
       '</div></div>';
   }
 
@@ -3372,6 +3501,57 @@
       recordSet('task', nt);
     }; });
 
+    /* -- plan d'action rapide (menu) -- */
+    function syncQpaFields(){
+      var q = state.quickPlanAction, el;
+      if(!q) return;
+      el=$('qpaEtab'); if(el) q.lieu=el.value; el=$('qpaObjet'); if(el) q.objet=el.value; el=$('qpaNotes'); if(el) q.notes=el.value;
+    }
+    var qpaGenerate = $('btnQpaGenerate');
+    if(qpaGenerate) qpaGenerate.onclick = function(){
+      syncQpaFields();
+      var q = state.quickPlanAction;
+      if(!(q.notes||'').trim()){ toast('Ajoutez quelques notes avant de lancer l\'IA.'); return; }
+      qpaGenerate.disabled = true;
+      var statusEl = $('qpaStatus'); if(statusEl){ statusEl.hidden=false; statusEl.className='banner info'; statusEl.textContent='Génération en cours avec Gemini…'; }
+      var prompt = "Tu es un inspecteur pédagogique au Maroc. À partir de ces notes brèves (bribes, mots-clés) sur une situation à traiter, rédige un plan d'action structuré. Réponds UNIQUEMENT avec un objet JSON valide, sans aucun texte ni balise de code autour, au format exact : {\"contexte\":\"...\",\"objectifs\":\"...\",\"actions\":[{\"action\":\"...\",\"responsable\":\"...\"}]}. Le contexte est un paragraphe de 3 à 5 lignes ; les objectifs regroupent 2 à 4 objectifs concrets et mesurables dans un seul texte (une ligne par objectif) ; actions contient 3 à 6 actions concrètes avec, pour chacune, un responsable plausible (ex. « Direction de l'établissement », « Enseignant(e) concerné(e) », « Inspecteur(trice) »). Tous les textes (contexte, objectifs, action, responsable) doivent être rédigés en arabe standard moderne (ce document est un document arabe), même si les notes ci-dessous sont en français.\n\nObjet du plan : "+(q.objet||'—')+"\nÉtablissement : "+(q.lieu||'—')+"\nNotes : "+q.notes;
+      geminiGenerate(prompt).then(function(text){
+        var obj = parseAiPlanActionJson(text);
+        if(!obj || (!obj.contexte && !obj.objectifs && !obj.actions.length)) return Promise.reject({code:'empty_completion'});
+        state.quickPlanAction = Object.assign({}, state.quickPlanAction, obj);
+        qpaGenerate.disabled = false;
+        if(statusEl) statusEl.hidden = true;
+        toast('Plan généré — vous pourrez le relire et le compléter juste après.');
+        render();
+      }).catch(function(err){
+        qpaGenerate.disabled = false;
+        if(statusEl){ statusEl.hidden=false; statusEl.className='banner err'; statusEl.textContent = geminiErrorMessage(err); }
+      });
+    };
+    var btnQpaCreate = $('btnQpaCreate');
+    if(btnQpaCreate) btnQpaCreate.onclick = function(){
+      syncQpaFields();
+      var q = state.quickPlanAction;
+      var lieu = (q.lieu||'').trim();
+      var task = {
+        id: uid(), titre: (q.objet||'').trim() || "Plan d'action", statut:'a_planifier', priorite:'moyenne', taskType:'autre',
+        enseignantId:null, enseignantNom:'', etablissementId:null, etablissementNom: lieu,
+        heure:'', echeance:'', description:'', docTitre:'', docUrl:'', noteGlobale:'', notificationEnvoyee:false,
+        invites:[], attachments:[]
+      };
+      var matchedEtab = lieu ? state.etablissements.find(function(e){ return e.nom.toLowerCase()===lieu.toLowerCase(); }) : null;
+      if(matchedEtab){ task.etablissementId = matchedEtab.id; task.etablissementNom = matchedEtab.nom; }
+      recordSet('task', task).then(function(){
+        var d = buildDefaultDoc(task, 'plan_action');
+        d.contexte = q.contexte || q.notes || d.contexte;
+        if(q.objectifs) d.objectifs = q.objectifs;
+        if(q.actions && q.actions.length) d.actions = q.actions;
+        state.draftDoc = d;
+        closeTopModal();
+        pushModal({type:'docedit', docType:'plan_action', taskId:task.id, isNew:true});
+      });
+    };
+
     /* -- settings -- */
     document.querySelectorAll('[data-stab]').forEach(function(el){ el.onclick=function(){ var m=state.modalStack[state.modalStack.length-1]; m.tab=el.getAttribute('data-stab'); render(); }; });
     var btnConnectDrive = $('btnConnectDrive'); if(btnConnectDrive) btnConnectDrive.onclick = connectGoogleDrive;
@@ -3449,6 +3629,36 @@
       docTmpls[type] = Object.assign({}, cur, corpsEl ? {corps: corpsEl.value} : {});
       templatesSet({docTemplates:docTmpls});
       toast('Modèle enregistré pour « '+(DOC_TYPE_INFO[type]||{}).label+' ».');
+    };
+    var btnDocTmplGdocOpen = $('btnDocTmplGdocOpen');
+    if(btnDocTmplGdocOpen) btnDocTmplGdocOpen.onclick = function(){
+      var type = state.tmplEditorType || Object.keys(DOC_TYPE_INFO)[0];
+      var corpsEl = $('tmplDocCorps');
+      if(corpsEl){
+        var docTmpls0 = Object.assign({}, state.templates.docTemplates||{});
+        docTmpls0[type] = Object.assign({}, docTmpls0[type], {corps: corpsEl.value});
+        templatesSet({docTemplates:docTmpls0});
+      }
+      btnDocTmplGdocOpen.disabled = true;
+      openOrCreateTemplateGdoc(type).then(function(){
+        render();
+      }).catch(function(err){
+        btnDocTmplGdocOpen.disabled = false;
+        var statusEl = $('tmplGdocStatus');
+        if(statusEl){ statusEl.hidden = false; statusEl.textContent = mcpErrorMessage(err); }
+      });
+    };
+    var btnDocTmplGdocPull = $('btnDocTmplGdocPull');
+    if(btnDocTmplGdocPull) btnDocTmplGdocPull.onclick = function(){
+      var type = state.tmplEditorType || Object.keys(DOC_TYPE_INFO)[0];
+      btnDocTmplGdocPull.disabled = true;
+      var statusEl = $('tmplGdocStatus'); if(statusEl) statusEl.hidden = true;
+      pullTemplateFromGdoc(type).then(function(){
+        render(); toast('Texte récupéré depuis Google Docs.');
+      }).catch(function(err){
+        btnDocTmplGdocPull.disabled = false;
+        if(statusEl){ statusEl.hidden = false; statusEl.textContent = mcpErrorMessage(err); }
+      });
     };
     var btnResetDocTmpl = $('btnResetDocTmpl');
     if(btnResetDocTmpl) btnResetDocTmpl.onclick = function(){
@@ -3701,20 +3911,20 @@
       syncDocGenericFields();
       var d = state.draftDoc;
       var critTxt = (d.criteres||[]).map(function(c){ return '- '+c.nom+': '+(c.note||'non noté')+(c.commentaire?' ('+c.commentaire+')':''); }).join('\n');
-      aiDraft(aiSynth, $('aiSynthStatus'), $('dSynth'), "Tu es un inspecteur pédagogique au Maroc. Rédige une synthèse (5-8 lignes, en arabe standard moderne — la grille d'observation est rédigée en arabe —, ton professionnel et bienveillant) d'une observation de séance, à partir de cette grille :\n"+critTxt+"\nPoints forts notés : "+(d.pointsForts||'—')+"\nAxes d'amélioration notés : "+(d.axesAmelioration||'—'));
+      aiDraft(aiSynth, $('aiSynthStatus'), $('dSynth'), "Tu es un inspecteur pédagogique au Maroc. Rédige une synthèse (5-8 lignes, en français, ton professionnel et bienveillant) d'une observation de séance, à partir de cette grille :\n"+critTxt+"\nPoints forts notés : "+(d.pointsForts||'—')+"\nAxes d'amélioration notés : "+(d.axesAmelioration||'—'));
     };
     var trSynth = $('btnTrSynth'); if(trSynth) trSynth.onclick = function(){ aiTranslate(trSynth, $('aiSynthStatus'), $('dSynth')); };
     var aiPF = $('btnAiPF'); if(aiPF) aiPF.onclick = function(){
       syncDocGenericFields();
       var d = state.draftDoc;
       var critTxt = (d.criteres||[]).map(function(c){ return '- '+c.nom+': '+(c.note||'non noté')+(c.commentaire?' ('+c.commentaire+')':''); }).join('\n');
-      aiDraft(aiPF, $('aiPFStatus'), $('dPF'), "Tu es un inspecteur pédagogique au Maroc. À partir de cette grille d'observation, propose 3 à 5 points forts concrets de la séance observée (en arabe standard moderne — la grille d'observation est rédigée en arabe —, ton bienveillant) :\n"+critTxt);
+      aiDraft(aiPF, $('aiPFStatus'), $('dPF'), "Tu es un inspecteur pédagogique au Maroc. À partir de cette grille d'observation, propose 3 à 5 points forts concrets de la séance observée (en français, ton bienveillant) :\n"+critTxt);
     };
     var aiAA = $('btnAiAA'); if(aiAA) aiAA.onclick = function(){
       syncDocGenericFields();
       var d = state.draftDoc;
       var critTxt = (d.criteres||[]).map(function(c){ return '- '+c.nom+': '+(c.note||'non noté')+(c.commentaire?' ('+c.commentaire+')':''); }).join('\n');
-      aiDraft(aiAA, $('aiAAStatus'), $('dAA'), "Tu es un inspecteur pédagogique au Maroc. À partir de cette grille d'observation, propose 2 à 4 axes d'amélioration concrets et bienveillants pour la séance observée (en arabe standard moderne — la grille d'observation est rédigée en arabe) :\n"+critTxt);
+      aiDraft(aiAA, $('aiAAStatus'), $('dAA'), "Tu es un inspecteur pédagogique au Maroc. À partir de cette grille d'observation, propose 2 à 4 axes d'amélioration concrets et bienveillants pour la séance observée (en français) :\n"+critTxt);
     };
     var aiRap = $('btnAiRapport'); if(aiRap) aiRap.onclick = function(){
       var m = state.modalStack[state.modalStack.length-1];
@@ -3799,9 +4009,30 @@
   };
   $('fileAttachInput').onchange = function(){
     var f = this.files[0]; this.value=''; if(!f) return;
+    var recId = state.draftRecord && state.draftRecord.id;
     uploadAsset(f).then(function(res){
-      state.draftRecord.attachments.push({assetId:res.id, titre:f.name, type:res.contentType});
+      var entry = {assetId:res.id, titre:f.name, type:res.contentType, driveFileId:null, driveUrl:null};
+      state.draftRecord.attachments.push(entry);
       render(); toast('Fichier joint.');
+      uploadAttachmentToDrive(f).then(function(drive){
+        if(!drive) return;
+        entry.driveFileId = drive.driveFileId; entry.driveUrl = drive.driveUrl;
+        render();
+        /* Si l'enseignant(e) est déjà enregistré(e) (l'ajout de pièce jointe a eu lieu après
+           « Enregistrer », ou l'upload Drive a résolu après la fermeture du formulaire), on met aussi
+           à jour la copie persistée pour que le lien Drive survive à un rechargement de page — sinon
+           seule la copie en mémoire (state.draftRecord) porterait le lien, jamais sauvegardée telle
+           quelle sur le disque. */
+        var saved = state.enseignants.find(function(x){ return x.id===recId; });
+        if(saved){
+          var idx = (saved.attachments||[]).findIndex(function(a){ return a.assetId===res.id; });
+          if(idx>=0){
+            var updated = Object.assign({}, saved, {attachments: saved.attachments.slice()});
+            updated.attachments[idx] = Object.assign({}, updated.attachments[idx], {driveFileId:drive.driveFileId, driveUrl:drive.driveUrl});
+            recordSet('enseignant', updated);
+          }
+        }
+      });
     }).catch(function(err){ toast(assetsErrorMessage(err)); });
   };
   /* Documents de travail utilisés lors d'une réunion pédagogique / d'un cours expérimental, joints
@@ -3814,9 +4045,19 @@
     uploadAsset(f).then(function(res){
       var t2 = state.tasks.find(function(x){ return x.id===tid; });
       if(!t2) return;
-      var nt = Object.assign({}, t2, {attachments:(t2.attachments||[]).concat([{assetId:res.id, titre:f.name, type:res.contentType}])});
+      var nt = Object.assign({}, t2, {attachments:(t2.attachments||[]).concat([{assetId:res.id, titre:f.name, type:res.contentType, driveFileId:null, driveUrl:null}])});
       recordSet('task', nt);
       toast('Document de travail joint.');
+      uploadAttachmentToDrive(f).then(function(drive){
+        if(!drive) return;
+        var t3 = state.tasks.find(function(x){ return x.id===tid; });
+        if(!t3) return;
+        var idx = (t3.attachments||[]).findIndex(function(a){ return a.assetId===res.id; });
+        if(idx<0) return;
+        var nt2 = Object.assign({}, t3, {attachments: t3.attachments.slice()});
+        nt2.attachments[idx] = Object.assign({}, nt2.attachments[idx], {driveFileId:drive.driveFileId, driveUrl:drive.driveUrl});
+        recordSet('task', nt2);
+      });
     }).catch(function(err){ toast(assetsErrorMessage(err)); });
   };
   function profilImageOnChange(){
@@ -3868,6 +4109,7 @@
   $('btnSideSync').onclick = function(){ closeSidebar(); doSync(); };
   $('btnSideSettings').onclick = function(){ closeSidebar(); openSettings(); };
   $('btnSideTemplates').onclick = function(){ closeSidebar(); pushModal({type:'settings', tab:'templates'}); };
+  $('btnSidePlanAction').onclick = function(){ closeSidebar(); openQuickPlanAction(); };
   $('btnSearch').onclick = openGlobalSearch;
   $('btnSync').onclick = doSync;
   $('btnSettings').onclick = openSettings;

@@ -2,7 +2,7 @@
    Stratégie "cache d'abord, réseau en secours" pour les fichiers de l'application (app shell).
    Les appels réseau vers Google Drive/Sheets (googleapis.com, accounts.google.com) et vers les
    polices Google Fonts ne sont volontairement PAS interceptés : ils passent toujours par le réseau. */
-var CACHE_NAME = 'carnet-inspection-v3';
+var CACHE_NAME = 'carnet-inspection-v5';
 var APP_SHELL = [
   './',
   './index.html',
