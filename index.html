@@ -238,6 +238,7 @@
   .rec-info{ flex:1; min-width:0; }
   .rec-info .t{ font-size:13.5px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .rec-info .s{ font-size:11.5px; color:var(--ink-faint); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .rec-actions{ display:flex; align-items:center; gap:2px; flex-shrink:0; }
   .zone-head{ font-size:12px; font-weight:700; color:var(--ink-faint); text-transform:uppercase; letter-spacing:.05em;
     margin:6px 0 -2px; display:flex; align-items:center; gap:8px; }
   .zone-head .line{ flex:1; height:1px; background:var(--line-soft); }
@@ -583,6 +584,33 @@
     return (parts[0][0]+(parts[1]?parts[1][0]:'')).toUpperCase();
   }
 
+  /* Appel téléphonique et message WhatsApp : liens directs (tel:, wa.me) sans dépendance externe.
+     Un numéro marocain saisi en format local (06xx / 0212xx…) est converti au format international
+     (212…) attendu par wa.me ; un numéro déjà international (+212…) est simplement nettoyé. */
+  function telDigits(tel){
+    return String(tel||'').replace(/[^\d+]/g,'');
+  }
+  function waNumber(tel){
+    var d = telDigits(tel);
+    if(!d) return '';
+    if(d.charAt(0)==='+') d = d.slice(1);
+    else if(d.slice(0,2)==='00') d = d.slice(2);
+    else if(d.charAt(0)==='0') d = '212'+d.slice(1);
+    return d;
+  }
+  function telHref(tel){
+    var d = telDigits(tel);
+    return d ? 'tel:'+d : '';
+  }
+  function waHref(tel, msg){
+    var n = waNumber(tel);
+    if(!n) return '';
+    return 'https://wa.me/'+n+(msg ? '?text='+encodeURIComponent(msg) : '');
+  }
+  function waGreeting(nom){
+    return 'Bonjour '+(nom||'')+', ';
+  }
+
   /* ================= CSV ================= */
   function csvField(v){
     var s = (v==null?'':String(v));
@@ -775,8 +803,79 @@
     reunion_pedagogique:'accent', cours_experimental:'accent',
     recherche_action:'warn', conception_examen:'warn', autre:'neutral' };
   function taskBadgeClass(v){ return TT_BADGE_CLASS[v] || 'neutral'; }
-  var DEFAULT_PROFIL = { nom:'', grade:'', doti:'', cin:'', rib:'', telephone:'', email:'',
-    dateRecrutement:'', dateCadre:'', dateAffectation:'', logoAssetId:null, cachetAssetId:null, signatureAssetId:null };
+  /* Valeurs par défaut pré-remplies avec les informations réelles d'Elarbi (application personnelle,
+     non générique — voir aussi DEFAULT_ENTETE ci-dessus, déjà personnalisé de la même façon) : elles
+     n'écrasent jamais une valeur déjà saisie (Object.assign les place APRÈS le profil existant lors du
+     chargement, voir loadLocalAll/mergeRemoteBackupIntoLocal), elles ne servent qu'à préremplir un
+     champ resté vide. */
+  var DEFAULT_PROFIL = { nom:'EL ADLOUNI EL ARBI', grade:'مفتش التعليم الثانوي الإعدادي', doti:'', cin:'', rib:'',
+    telephone:'', email:'', dateRecrutement:'2000-09-06', dateCadre:'2003-01-01', dateAffectation:'',
+    matiere:'Langue française', numRemuneration:'1176050', academieRegionale:'Fès-Meknès', province:'Sefrou', nbEncadres:'',
+    logoAssetId:null, cachetAssetId:null, signatureAssetId:null };
+
+  /* ---- Programme annuel de travail (corps de l'inspection pédagogique) ----
+     Document officiel distinct des « documents » liés à une tâche : un seul par année scolaire,
+     modifiable en continu (comme le profil), jamais versionné par tâche — voir Réglages → Programme
+     annuel. Structure fixée par le modèle du Ministère : quatre catégories (ordre et libellés
+     officiels), chacune contenant des « types d'activités » eux-mêmes composés de lignes
+     (sujet + nombre d'activités prévues par mois, de septembre à juin). Les mois vont volontairement
+     de '09' à '06' (année scolaire, pas civile) et se lisent, dans le tableau imprimé en arabe (RTL),
+     de droite (09) à gauche (06) — dans le même ordre que la grille officielle. */
+  var MOIS_SCOLAIRES = ['09','10','11','12','01','02','03','04','05','06'];
+  var MOIS_SCOLAIRES_LABELS = {'09':'Sept','10':'Oct','11':'Nov','12':'Déc','01':'Jan','02':'Fév','03':'Mar','04':'Avr','05':'Mai','06':'Juin'};
+  function zeroMois(){ var m={}; MOIS_SCOLAIRES.forEach(function(k){ m[k]=0; }); return m; }
+  function moisWith(vals){ var m=zeroMois(); MOIS_SCOLAIRES.forEach(function(k,i){ if(vals[i]!=null) m[k]=vals[i]; }); return m; }
+  function paRow(sujet, vals){ return { id:uid(), sujet:sujet, mois:moisWith(vals) }; }
+  function paGroup(typeActivite, rows){ return { id:uid(), typeActivite:typeActivite, rows:rows }; }
+  function paCategory(titre, groups){ return { id:uid(), titre:titre, groups:groups }; }
+  /* Pré-rempli avec le programme réel d'Elarbi pour 2026/2027 (fourni en exemple) — comme pour
+     DEFAULT_PROFIL/DEFAULT_ENTETE, il ne s'agit pas d'un modèle générique mais des données concrètes
+     de cette application personnelle ; l'inspecteur peut ensuite tout modifier ou repartir de zéro
+     (bouton « Réinitialiser »). */
+  function defaultProgrammeAnnuel(){
+    return {
+      anneeScolaire: '2026/2027',
+      categories: [
+        paCategory('أولا : التأطير التربوي', [
+          paGroup('Visites', [
+            paRow("Accompagnement des collèges pionniers (en particulier les établissements ayant rejoint le projet cette année) et suivi des enseignants dont les résultats sont en deçà des attentes", [0,2,2,2,2,2,2,2,2,0])
+          ]),
+          paGroup('Cours appliqués ou expérimentés', [
+            paRow("Lycée : cours expérimental sur la réception des œuvres intégrales et la place du métalangage dans l'apprentissage du français et de la littérature", [0,1,1,1,1,1,1,1,1,0]),
+            paRow("Collège : cours expérimental sur le développement des compétences de déchiffrement et des compétences lecturales des apprenants (collèges pionniers)", [0,1,1,1,1,1,1,1,1,0])
+          ]),
+          paGroup('Réunions établissements', [
+            paRow("Pratiques évaluatives des enseignants : suivi et comparaison des notes octroyées avec les copies des élèves", [0,1,1,1,1,1,1,1,1,0]),
+            paRow("Installation du travail par carnet de bord / cahier journal et suivi de l'exploitation de l'évaluation diagnostique", [0,1,1,1,1,1,1,1,1,0])
+          ])
+        ]),
+        paCategory('ثانيا : المراقبة التربوية', [
+          paGroup('Control Pièces', [
+            paRow("Contrôle des carnets de bord / cahiers journaux, de l'exploitation de l'évaluation diagnostique et comparaison des notes octroyées avec les copies des élèves", [0,2,2,2,2,2,2,2,2,0])
+          ]),
+          paGroup('Inspections', [
+            paRow("Inspections de suivi des enseignants dont les résultats sont en deçà des attentes (pratiques évaluatives)", [0,1,1,1,1,1,1,1,1,0]),
+            paRow("Inspections de permission", [0,1,1,1,1,1,1,1,1,0]),
+            paRow("Inspections de titularisation", [0,1,1,1,1,1,1,1,1,0])
+          ])
+        ]),
+        paCategory('ثالثا : البحث التربوي', [
+          paGroup('Troisièmement : Recherche pédagogique', [
+            paRow("Lycée : la place du métalangage dans l'apprentissage du français et de la littérature – recherche-action : la réception des œuvres intégrales et leur actualisation didactique", [0,1,1,1,1,1,1,1,1,0]),
+            paRow("Collège : le développement des compétences lecturales chez les apprenants – recherche-action autour du développement des compétences de déchiffrement chez les apprenants des collèges pionniers", [0,1,1,1,1,1,1,1,1,0])
+          ])
+        ]),
+        paCategory('أنشطة أخرى : الامتحانات المدرسية و الإشهادية, الكفاءة المهنية', [
+          paGroup('Autres activities : Examens scolaires...', [
+            paRow("Participation au concours national de lecture « Cap Lecture »", [0,0,0,0,1,1,1,1,0,0]),
+            paRow("Participation à l'élaboration du dispositif pédagogique des collèges pionniers au niveau central", [0,1,0,1,0,1,0,1,0,0]),
+            paRow("Pilotage des actions à l'aide du tableau de bord stratégique", [0,1,1,1,1,1,1,1,1,0])
+          ])
+        ])
+      ],
+      updatedAt: null
+    };
+  }
   var STATUT_ENS = [{v:'titulaire', l:'Titulaire'}, {v:'stagiaire', l:'Stagiaire'}];
   var GENRE_ENS = [{v:'F', l:'Femme'}, {v:'H', l:'Homme'}];
   var GENRE_ENS_LABEL = {}; GENRE_ENS.forEach(function(g){ GENRE_ENS_LABEL[g.v]=g.l; });
@@ -825,7 +924,9 @@
     calendar: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none"><rect x="3.5" y="5" width="17" height="15.5" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 9.5h17M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
     clock: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.6"/><path d="M12 7.5V12l3 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     pin: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M12 21s7-6.4 7-11.5A7 7 0 0 0 5 9.5C5 14.6 12 21 12 21Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="12" cy="9.5" r="2.4" stroke="currentColor" stroke-width="1.7"/></svg>',
-    flag: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M5 3v18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M5 4.5c2-1.2 4-1.2 6 0s4 1.2 6 0v9c-2 1.2-4 1.2-6 0s-4-1.2-6 0v-9Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>'
+    flag: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M5 3v18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M5 4.5c2-1.2 4-1.2 6 0s4 1.2 6 0v9c-2 1.2-4 1.2-6 0s-4-1.2-6 0v-9Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>',
+    phone: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M6.5 3.5h3l1.3 4.3-2.1 1.8a13 13 0 0 0 5.7 5.7l1.8-2.1 4.3 1.3v3a1.5 1.5 0 0 1-1.6 1.5A16.5 16.5 0 0 1 5 5.1a1.5 1.5 0 0 1 1.5-1.6Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>',
+    chat: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M4 12a8 8 0 1 1 3.3 6.5L4 20l1.2-3.6A7.9 7.9 0 0 1 4 12Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>'
   };
   function docIcon(mime, ext){
     if(mime==='application/vnd.google-apps.spreadsheet') return ICONS.sheet;
@@ -839,6 +940,7 @@
     view: 'home', filter: 'all',
     tasks: [], zones: [], etablissements: [], enseignants: [], documents: [], assets: {},
     regionsMaroc: [], regionsMarocUpdatedAt: null,
+    programmeAnnuel: null,
     templates: { entete: DEFAULT_ENTETE, criteres: DEFAULT_CRITERES.slice(), profil: Object.assign({}, DEFAULT_PROFIL), docTemplates: {} },
     tmplEditorType: null,
     config: {}, docs: [], docsQuery: '', docsLoading: false, docsError: null,
@@ -868,7 +970,7 @@
   /* ---- stockage local (localStorage) — seul et unique moteur de persistance ---- */
   var LS_KEYS = {tasks:'ci_tasks_fallback', zones:'ci_zones_fallback', etablissements:'ci_etabs_fallback',
     enseignants:'ci_ens_fallback', documents:'ci_docs_fallback', config:'ci_config_fallback', templates:'ci_tmpl_fallback',
-    assets:'ci_assets_fallback', regionsMaroc:'ci_regions_fallback'};
+    assets:'ci_assets_fallback', regionsMaroc:'ci_regions_fallback', programmeAnnuel:'ci_programme_fallback'};
   function loadLocalAll(){
     try{
       state.tasks = JSON.parse(localStorage.getItem(LS_KEYS.tasks)||'[]').map(function(t){ t.statut=normStatut(t.statut); t.taskType=normTaskType(t.taskType); return t; });
@@ -883,13 +985,15 @@
       var rm = JSON.parse(localStorage.getItem(LS_KEYS.regionsMaroc)||'null');
       state.regionsMaroc = (rm && rm.list && rm.list.length) ? rm.list : cloneDefaultRegions();
       state.regionsMarocUpdatedAt = (rm && rm.updatedAt) || null;
+      var pa = JSON.parse(localStorage.getItem(LS_KEYS.programmeAnnuel)||'null');
+      state.programmeAnnuel = (pa && pa.categories && pa.categories.length) ? pa : defaultProgrammeAnnuel();
     }catch(e){}
   }
   function saveLocal(coll){
     try{
       var map = {tasks:state.tasks, zones:state.zones, etablissements:state.etablissements, enseignants:state.enseignants,
         documents:state.documents, config:state.config, templates:state.templates, assets:state.assets,
-        regionsMaroc:{list:state.regionsMaroc, updatedAt:state.regionsMarocUpdatedAt}};
+        regionsMaroc:{list:state.regionsMaroc, updatedAt:state.regionsMarocUpdatedAt}, programmeAnnuel:state.programmeAnnuel};
       localStorage.setItem(LS_KEYS[coll], JSON.stringify(map[coll]));
     }catch(e){
       console.warn('storage error', e);
@@ -1322,13 +1426,86 @@
         state.assets[id] = { dataUrl: reader.result, type: file.type||'', name: file.name||'' };
         try{ saveLocal('assets'); }catch(e){ delete state.assets[id]; reject({code:'quota_or_state'}); return; }
         resolve({id: id, contentType: file.type||''});
+        uploadAssetToDrive(id); /* sauvegarde best-effort sur Drive, sans jamais bloquer l'ajout local */
       };
       reader.onerror = function(){ reject({code:'unsupported_type'}); };
       reader.readAsDataURL(file);
     });
   }
-  function assetUrl(id){ return (id && state.assets[id]) ? state.assets[id].dataUrl : ''; }
-  function removeAsset(id){ if(id && state.assets[id]){ delete state.assets[id]; saveLocal('assets'); } }
+  /* Un asset (photo de profil, logo, cachet, signature…) n'a longtemps existé que dans le localStorage
+     de l'appareil qui l'a ajouté. assetUrl() reste synchrone (utilisée partout dans le rendu), mais si
+     l'image n'est pas encore en cache localement alors qu'un autre appareil a déjà indiqué son
+     driveFileId (via la sauvegarde JSON, voir pushJsonBackup/mergeRemoteBackupIntoLocal), on déclenche
+     un téléchargement en arrière-plan qui la mettra en cache puis redessinera l'écran une fois prête. */
+  function assetUrl(id){
+    if(!id) return '';
+    var a = state.assets[id];
+    if(!a) return '';
+    if(a.dataUrl) return a.dataUrl;
+    if(a.driveFileId) fetchAssetFromDrive(id);
+    return '';
+  }
+  function removeAsset(id){
+    if(!id || !state.assets[id]) return;
+    var driveFileId = state.assets[id].driveFileId;
+    delete state.assets[id]; saveLocal('assets');
+    if(driveFileId && state.mcpReady) mcpCall('trash_file', {fileId:driveFileId}).catch(function(){});
+  }
+  function ensurePhotosFolder(appFolderId){ return ensureSubfolder(appFolderId, 'Photos', 'photosFolderId'); }
+  /* Téléverse un asset local vers le sous-dossier Drive « Photos » — même logique best-effort que
+     uploadAttachmentToDrive : jamais bloquant, jamais d'échec remonté à l'appelant. Le driveFileId
+     obtenu est mémorisé sur l'asset lui-même (state.assets[id]) afin d'être inclus dans la prochaine
+     sauvegarde JSON (assetsIndex, voir pushJsonBackup), ce qui permet à un autre appareil connecté au
+     même compte Google de retrouver puis retélécharger cette image (voir fetchAssetFromDrive), même
+     s'il ne l'a jamais eue localement — ex. une photo d'enseignant(e) ajoutée depuis le téléphone,
+     visible ensuite depuis l'ordinateur. */
+  function uploadAssetToDrive(id){
+    if(!state.mcpReady) return Promise.resolve(null);
+    var a = state.assets[id];
+    if(!a || !a.dataUrl || a.driveFileId) return Promise.resolve(null);
+    var b64 = String(a.dataUrl).split(',')[1] || '';
+    if(!b64) return Promise.resolve(null);
+    return ensureAppFolder().then(function(appFolder){
+      return ensurePhotosFolder(appFolder.id).catch(function(){ return null; }).then(function(folder){
+        return mcpCall('create_file', {
+          title: a.name || ('image-'+id), base64Content: b64, contentMimeType: a.type || 'application/octet-stream',
+          parentId: (folder && folder.id) || appFolder.id, disableConversionToGoogleType: true
+        });
+      });
+    }).then(function(res){
+      var f = res && res.payload;
+      if(!f) return null;
+      a.driveFileId = f.id; a.driveUrl = 'https://drive.google.com/file/d/'+f.id+'/view';
+      try{ saveLocal('assets'); }catch(e){}
+      return a;
+    }).catch(function(){ return null; });
+  }
+  /* Téléchargement binaire brut (Blob → data URL), volontairement distinct de mcpCall('download_file_content')
+     qui repasse par res.text()+utf8ToB64 — correct pour du texte (CSV, Google Doc exporté, JSON) mais
+     corromprait les octets d'une image. driveFetch() gère déjà l'injection du jeton OAuth et le 401. */
+  function driveDownloadBinaryAsDataUrl(fileId){
+    return driveFetch(DRIVE_FILES_API+'/'+fileId+'?alt=media').then(function(res){ return res.blob(); }).then(function(blob){
+      return new Promise(function(resolve, reject){
+        var reader = new FileReader();
+        reader.onload = function(){ resolve(String(reader.result)); };
+        reader.onerror = function(){ reject(new Error('read-failed')); };
+        reader.readAsDataURL(blob);
+      });
+    });
+  }
+  var assetFetchInFlight = {}, assetFetchFailed = {};
+  function fetchAssetFromDrive(id){
+    if(assetFetchInFlight[id]) return assetFetchInFlight[id];
+    if(assetFetchFailed[id]) return Promise.resolve(null);
+    var a = state.assets[id];
+    if(!state.mcpReady || !a || a.dataUrl || !a.driveFileId) return Promise.resolve(null);
+    var p = driveDownloadBinaryAsDataUrl(a.driveFileId).then(function(dataUrl){
+      if(state.assets[id]){ state.assets[id].dataUrl = dataUrl; try{ saveLocal('assets'); }catch(e){} render(); }
+      return dataUrl;
+    }).catch(function(){ assetFetchFailed[id] = true; return null; }).then(function(v){ delete assetFetchInFlight[id]; return v; });
+    assetFetchInFlight[id] = p;
+    return p;
+  }
 
   /* ================= sync (tasks <-> Google Sheet) ================= */
   var CSV_HEADERS = ['id','titre','statut','priorite','type','enseignant','etablissement','echeance','description','document_titre','document_url','maj'];
@@ -1490,10 +1667,20 @@
   }
   function pushJsonBackup(folderId){
     if(!folderId) return Promise.resolve();
+    /* assetsIndex ne contient jamais dataUrl (potentiellement lourd, et déjà sur Drive) : seulement le
+       driveFileId de chaque image déjà téléversée (voir uploadAssetToDrive), pour qu'un autre appareil
+       sache où la retélécharger (voir mergeRemoteBackupIntoLocal + fetchAssetFromDrive) sans jamais
+       faire grossir cette sauvegarde JSON avec le contenu binaire des photos. */
+    var assetsIndex = {};
+    Object.keys(state.assets).forEach(function(id){
+      var a = state.assets[id];
+      if(a && a.driveFileId) assetsIndex[id] = {driveFileId:a.driveFileId, driveUrl:a.driveUrl||'', type:a.type||'', name:a.name||''};
+    });
     var data = {
       exportedAt: nowIso(), zones: state.zones, etablissements: state.etablissements,
       enseignants: state.enseignants, tasks: state.tasks, documents: state.documents, templates: state.templates,
-      regionsMaroc: state.regionsMaroc, regionsMarocUpdatedAt: state.regionsMarocUpdatedAt
+      regionsMaroc: state.regionsMaroc, regionsMarocUpdatedAt: state.regionsMarocUpdatedAt, assetsIndex: assetsIndex,
+      programmeAnnuel: state.programmeAnnuel
     };
     return mcpCall('create_file', {
       title: 'sauvegarde-donnees.json', textContent: JSON.stringify(data, null, 2), contentMimeType:'application/json',
@@ -1551,6 +1738,24 @@
         profil: Object.assign({}, DEFAULT_PROFIL, rp.profil||{}), docTemplates: rp.docTemplates||{}, updatedAt: rp.updatedAt };
       saveLocal('templates');
     }
+    /* N'apprend ici que l'EMPLACEMENT Drive de chaque photo (driveFileId) — jamais son contenu : les
+       octets réels ne sont téléchargés qu'à la demande, au moment où l'image est effectivement affichée
+       (voir assetUrl → fetchAssetFromDrive), pour ne jamais alourdir la synchronisation elle-même. */
+    if(remote.assetsIndex){
+      var assetsChanged = false;
+      Object.keys(remote.assetsIndex).forEach(function(id){
+        var ra = remote.assetsIndex[id], la = state.assets[id];
+        if(!la){ state.assets[id] = {dataUrl:'', type:ra.type||'', name:ra.name||'', driveFileId:ra.driveFileId, driveUrl:ra.driveUrl||''}; assetsChanged = true; }
+        else if(!la.driveFileId && ra.driveFileId){ la.driveFileId = ra.driveFileId; la.driveUrl = ra.driveUrl||''; assetsChanged = true; }
+      });
+      if(assetsChanged) saveLocal('assets');
+    }
+    /* Programme annuel de travail : document singleton (comme profil/templates), fusionné en bloc
+       à la dernière modification la plus récente — jamais fusionné champ par champ. */
+    if(remote.programmeAnnuel && remote.programmeAnnuel.updatedAt &&
+       (!state.programmeAnnuel || !state.programmeAnnuel.updatedAt || new Date(remote.programmeAnnuel.updatedAt) > new Date(state.programmeAnnuel.updatedAt))){
+      state.programmeAnnuel = remote.programmeAnnuel; saveLocal('programmeAnnuel');
+    }
     render();
   }
   function doSync(){
@@ -1604,7 +1809,12 @@
             var bid = bf ? bf.id : folderRef.id;
             return pullJsonBackup(bid).then(function(remote){
               mergeRemoteBackupIntoLocal(remote);
-              return pushJsonBackup(bid);
+              /* Meilleur effort : rattrape les photos/logos pas encore envoyés sur Drive (ex. ajoutés
+                 avant la connexion Drive, ou avant l'ajout de cette synchronisation des images) — pour
+                 qu'ils figurent, eux aussi, dans la sauvegarde JSON poussée juste après et deviennent
+                 ainsi accessibles depuis les autres appareils connectés au même compte Google. */
+              var backfill = Object.keys(state.assets).map(function(id){ return uploadAssetToDrive(id); });
+              return Promise.all(backfill).then(function(){ return pushJsonBackup(bid); });
             });
           });
       })
@@ -1781,6 +1991,14 @@
     state.regionsMaroc = list;
     state.regionsMarocUpdatedAt = nowIso();
     saveLocal('regionsMaroc'); render();
+  }
+  /* Programme annuel de travail : document singleton (comme templates/profil), horodaté à chaque
+     enregistrement explicite pour permettre la fusion « le plus récent l'emporte » entre appareils
+     (voir mergeRemoteBackupIntoLocal) — jamais réécrit automatiquement pendant la simple édition. */
+  function programmeAnnuelSet(pa){
+    pa.updatedAt = nowIso();
+    state.programmeAnnuel = pa;
+    saveLocal('programmeAnnuel'); render();
   }
   /* Suggestion de commune : construite à partir des valeurs déjà saisies par l'utilisateur dans ses
      propres zones (aucun référentiel officiel exhaustif des ~1500 communes n'est chargé ici),
@@ -2064,6 +2282,39 @@
         {heading:'Par type', headers:['Type','Nb.'], rows:Object.keys(s.byType).map(function(k){ return [TT_LABEL[k]||k, String(s.byType[k])]; })}
       ],
       sections: synth ? [{heading:'Synthèse', text:synth}] : [], signatures:null };
+  }
+  /* Programme annuel de travail (برنامج العمل السنوي) : reflète toujours l'état courant de
+     state.programmeAnnuel, sans créer d'enregistrement « document » séparé (même principe que le
+     Bilan et l'historique d'un(e) enseignant(e)) — une catégorie officielle par table, les groupes
+     et leurs lignes empilés à l'intérieur (le nom du type d'activité n'apparaît que sur sa première
+     ligne, pour éviter de le répéter inutilement). */
+  function buildProgrammeAnnuelSpec(){
+    var pa = state.programmeAnnuel || defaultProgrammeAnnuel();
+    var p = state.templates.profil || DEFAULT_PROFIL;
+    var headers = ['نوع النشاط', 'الموضوع'].concat(MOIS_SCOLAIRES.map(function(k){ return MOIS_SCOLAIRES_LABELS[k]; }));
+    var tables = (pa.categories||[]).map(function(cat){
+      var rows = [];
+      (cat.groups||[]).forEach(function(g){
+        (g.rows||[]).forEach(function(r, i){
+          rows.push([i===0 ? (g.typeActivite||'') : '', r.sujet||''].concat(MOIS_SCOLAIRES.map(function(k){ return String((r.mois&&r.mois[k])||0); })));
+        });
+      });
+      return { heading: cat.titre, headers: headers, rows: rows };
+    });
+    return {
+      rtl: true,
+      titre: 'برنامج العمل السنوي الخاص بهيئة التفتيش التربوي',
+      meta: [
+        ['السنة الدراسية', pa.anneeScolaire||'—'],
+        ['الاسم الكامل', p.nom||'—'],
+        ['الرتبة', p.grade||'—'],
+        ['المادة', p.matiere||'—'],
+        ['الأكاديمية الجهوية', p.academieRegionale||'—'],
+        ['المديرية الإقليمية', p.province||'—'],
+        ['عدد الأطر المؤطَّرة', (p.nbEncadres!=null && p.nbEncadres!=='') ? String(p.nbEncadres) : '—']
+      ],
+      tables: tables, sections: [], signatures: ['توقيع المفتش(ة) التربوي(ة)']
+    };
   }
 
   /* ---- chargement paresseux des bibliothèques (CDN) ---- */
@@ -2570,6 +2821,7 @@
     var hh = $('horHeure'); if(hh) hh.onchange = function(){ state.horaireHeure = hh.value; render(); };
     var be = $('btnExportEns'); if(be) be.onclick = function(){ exportCSV('enseignants'); };
     var bi = $('btnImportEns'); if(bi) bi.onclick = function(){ importTarget='enseignants'; $('fileImportInput').click(); };
+    host.querySelectorAll('[data-actstop]').forEach(function(el){ el.onclick = function(ev){ ev.stopPropagation(); }; });
     host.querySelectorAll('.rec-row').forEach(function(el){
       el.onclick = function(){ var e = state.enseignants.find(function(x){ return x.id===el.getAttribute('data-id'); }); if(e) openEnseignantEditor(e); };
     });
@@ -2586,8 +2838,12 @@
   function ensRowHtml(e, sub){
     var av = e.photoAssetId ? '<img src="'+assetUrl(e.photoAssetId)+'" alt="">' : initials(e.nom);
     var tags = [e.statut==='stagiaire' ? 'Stagiaire' : '', e.cadre].filter(Boolean).join(' · ');
+    var contactBtns = e.telephone ? ('<div class="rec-actions">'+
+      '<a href="'+telHref(e.telephone)+'" class="icon-btn" data-actstop="1" title="Appeler" style="width:28px;height:28px;color:var(--brand);">'+ICONS.phone+'</a>'+
+      '<a href="'+waHref(e.telephone, waGreeting(e.nom))+'" target="_blank" rel="noopener" class="icon-btn" data-actstop="1" title="Écrire sur WhatsApp" style="width:28px;height:28px;color:var(--brand);">'+ICONS.chat+'</a>'+
+      '</div>') : '';
     return '<div class="rec-row" data-id="'+e.id+'"><div class="avatar">'+av+'</div>'+
-      '<div class="rec-info"><div class="t">'+esc(e.nom)+'</div><div class="s">'+(tags?esc(tags)+' · ':'')+esc(sub||'')+'</div></div></div>';
+      '<div class="rec-info"><div class="t">'+esc(e.nom)+'</div><div class="s">'+(tags?esc(tags)+' · ':'')+esc(sub||'')+'</div></div>'+contactBtns+'</div>';
   }
 
   /* ---- Établissements ---- */
@@ -2859,6 +3115,8 @@
     var t = state.tasks.find(function(x){ return x.id===m.taskId; });
     if(!t) return '';
     var enNom = t.enseignantNom || ensName(t.enseignantId), etNom = t.etablissementNom || etabName(t.etablissementId);
+    var ensRec = t.enseignantId ? state.enseignants.find(function(x){ return x.id===t.enseignantId; }) : null;
+    var ensTel = ensRec ? ensRec.telephone : '';
     var curIdx = WORKFLOW.findIndex(function(w){ return w.v===t.statut; });
     var docs = state.documents.filter(function(d){ return d.taskId===t.id; });
     var avail = DOCS_FOR_TYPE[t.taskType] || ['rapport'];
@@ -2868,6 +3126,8 @@
       '<div class="sheet-head"><h2 style="text-wrap:balance;">'+esc(t.titre)+'</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
       '<div class="task-meta" style="margin-bottom:10px;"><span class="type-badge '+taskBadgeClass(t.taskType)+'">'+esc(TT_LABEL[t.taskType])+'</span>'+
       (enNom?'<span>'+esc(enNom)+'</span>':'')+(etNom?'<span>· '+esc(etNom)+'</span>':'')+(t.echeance?'<span>· '+fmtDate(t.echeance)+(t.heure?' à '+esc(t.heure):'')+'</span>':'')+'</div>'+
+      (ensTel ? '<div class="btn-row" style="margin-bottom:10px;"><a class="btn ghost sm" href="'+telHref(ensTel)+'">'+ICONS.phone+' Appeler '+esc(enNom)+'</a>'+
+        '<a class="btn ghost sm" href="'+waHref(ensTel, waGreeting(enNom))+'" target="_blank" rel="noopener">'+ICONS.chat+' WhatsApp</a></div>' : '')+
       (t.description ? '<p style="font-size:13px;color:var(--ink-soft);white-space:pre-line;margin:0 0 12px;">'+esc(t.description)+'</p>' : '')+
       (invites.length ? '<div class="section-label">Enseignant(e)s invité(e)s ('+invites.length+')</div><p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;line-height:1.6;">'+
         invites.map(function(iv){ return esc(iv.nom)+(iv.ppr?' <span style="color:var(--ink-faint);">(PPR '+esc(iv.ppr)+')</span>':''); }).join(', ')+'</p>' : '')+
@@ -2957,6 +3217,7 @@
       '<button class="chip" data-stab="profil" aria-pressed="'+(tab==='profil')+'">Profil inspecteur</button>'+
       '<button class="chip" data-stab="templates" aria-pressed="'+(tab==='templates')+'">Modèles de documents</button>'+
       '<button class="chip" data-stab="referentiel" aria-pressed="'+(tab==='referentiel')+'">Régions / DP</button>'+
+      '<button class="chip" data-stab="programme" aria-pressed="'+(tab==='programme')+'">Programme annuel</button>'+
       '<button class="chip" data-stab="ia" aria-pressed="'+(tab==='ia')+'">Assistant IA</button></div>';
 
     if(tab==='sync'){
@@ -2968,7 +3229,7 @@
         (state.mcpReady ? '<button class="btn ghost" id="btnDisconnectDrive" type="button">Déconnecter</button>' : (cid ? '<button class="btn primary" id="btnConnectDrive" type="button">Connecter</button>' : ''))+'</div>';
       if(state.mcpReady){
         var showLink = !!m.linkMode || !c.sheetFileId;
-        html += '<div class="settings-row"><div><div class="l">Dossier Drive de l\'application</div><div class="s">'+(c.folderName ? esc(c.folderName) : 'Sera créé automatiquement à la première synchronisation (structure : dossier principal + sous-dossiers « Sauvegardes » et « Documents générés »)')+'</div></div></div>'+
+        html += '<div class="settings-row"><div><div class="l">Dossier Drive de l\'application</div><div class="s">'+(c.folderName ? esc(c.folderName) : 'Sera créé automatiquement à la première synchronisation (structure : dossier principal + sous-dossiers « Sauvegardes », « Documents générés », « Pièces jointes », « Photos » et « Modèles »)')+'</div></div></div>'+
           '<div class="settings-row"><div><div class="l">Feuille Google Sheets</div><div class="s">'+(c.sheetTitle ? esc(c.sheetTitle) : 'Aucune feuille liée')+'</div></div>'+
           (c.sheetFileId ? '<button class="btn ghost" id="btnUnlink" type="button">Réinitialiser</button>' : '')+'</div>'+
           (c.lastBackupAt ? '<div class="settings-row"><div><div class="l">Sauvegarde complète (JSON)</div><div class="s">Dernière copie : '+fmtWhen(c.lastBackupAt)+'</div></div></div>' : '');
@@ -2982,7 +3243,7 @@
         if(showLink) html += '<div class="field" style="margin-top:14px;"><label for="sheetSearch">Rechercher une feuille</label>'+
           '<div class="search-row"><input type="text" id="sheetSearch" placeholder="Nom de la feuille…"><button type="button" id="sheetSearchBtn">OK</button></div>'+
           '<div id="sheetResults" class="doc-list" style="margin-top:9px;"></div></div>';
-        html += '<p style="font-size:11.5px;color:var(--ink-faint);margin-top:8px;">La synchronisation fusionne vos tâches locales et celles de la feuille (version la plus récente conservée), puis réécrit entièrement la feuille — évitez de modifier les colonnes à la main entre deux synchronisations. Zones, établissements, enseignants, documents, modèles et référentiel régions/DP sont, eux, fusionnés de la même façon (le plus récent l\'emporte) via un fichier JSON dans ce même dossier : vos données restent donc à jour sur tous vos appareils après chaque synchronisation. L\'application n\'accède qu\'aux fichiers qu\'elle crée elle-même dans votre Drive, jamais au reste de votre compte.</p>';
+        html += '<p style="font-size:11.5px;color:var(--ink-faint);margin-top:8px;">La synchronisation fusionne vos tâches locales et celles de la feuille (version la plus récente conservée), puis réécrit entièrement la feuille — évitez de modifier les colonnes à la main entre deux synchronisations. Zones, établissements, enseignants, documents, modèles et référentiel régions/DP sont, eux, fusionnés de la même façon (le plus récent l\'emporte) via un fichier JSON dans ce même dossier : vos données restent donc à jour sur tous vos appareils après chaque synchronisation. Les photos (enseignant(e)s, logos, cachet, signature) et les pièces jointes sont, elles aussi, envoyées dans votre Drive et retéléchargées automatiquement sur vos autres appareils dès qu\'elles y sont affichées. L\'application n\'accède qu\'aux fichiers qu\'elle crée elle-même dans votre Drive, jamais au reste de votre compte.</p>';
       } else {
         html += '<p style="font-size:11.5px;color:var(--ink-faint);margin-top:8px;">Toutes vos données restent d\'abord enregistrées sur cet appareil. La connexion à Google Drive est optionnelle : elle sert uniquement à sauvegarder une copie dans votre propre compte et à la retrouver sur un autre appareil. C\'est votre compte Google gratuit qui est utilisé — aucun frais ni passage par Claude.</p>';
       }
@@ -2999,6 +3260,11 @@
         '<div class="field-row"><div class="field"><label for="pDateRec">Date de recrutement</label><input type="date" id="pDateRec" value="'+esc(p.dateRecrutement)+'"></div>'+
         '<div class="field"><label for="pDateCadre">Date d\'accès au cadre</label><input type="date" id="pDateCadre" value="'+esc(p.dateCadre)+'"></div></div>'+
         '<div class="field"><label for="pDateAff">Date d\'affectation actuelle</label><input type="date" id="pDateAff" value="'+esc(p.dateAffectation)+'"></div>'+
+        '<div class="field-row"><div class="field"><label for="pMatiere">Matière</label><input type="text" id="pMatiere" value="'+esc(p.matiere)+'"></div>'+
+        '<div class="field"><label for="pNumRem">Numéro de rémunération</label><input type="text" id="pNumRem" value="'+esc(p.numRemuneration)+'"></div></div>'+
+        '<div class="field-row"><div class="field"><label for="pAcademie">Académie régionale</label><input type="text" id="pAcademie" value="'+esc(p.academieRegionale)+'"></div>'+
+        '<div class="field"><label for="pProvince">Province / Nyaba</label><input type="text" id="pProvince" value="'+esc(p.province)+'"></div></div>'+
+        '<div class="field"><label for="pNbEncadres">Nombre d\'encadré(e)s</label><input type="number" min="0" id="pNbEncadres" value="'+esc(p.nbEncadres)+'"></div>'+
         profilImageFieldHtml('logo', 'Logo / en-tête', p.logoAssetId)+
         profilImageFieldHtml('cachet', 'Cachet', p.cachetAssetId)+
         profilImageFieldHtml('signature', 'Signature', p.signatureAssetId)+
@@ -3012,6 +3278,8 @@
         docTemplatesEditorHtml();
     } else if(tab==='referentiel'){
       html += referentielTabHtml();
+    } else if(tab==='programme'){
+      html += programmeAnnuelTabHtml();
     } else if(tab==='ia'){
       html += iaTabHtml();
     }
@@ -3064,6 +3332,57 @@
     html += '<div class="btn-row" style="margin-top:2px;"><button class="btn ghost sm" id="btnAddAref" type="button">'+ICONS.plus+' Ajouter une académie régionale</button></div>';
     html += '<div class="btn-row" style="margin-top:14px;"><button class="btn ghost" id="btnResetRegions" type="button">Réinitialiser à la liste par défaut</button>'+
       '<button class="btn primary" id="btnSaveRegions" type="button">Enregistrer les modifications</button></div>';
+    return html;
+  }
+  /* ---- Programme annuel de travail (برنامج العمل السنوي) ----
+     Éditeur imbriqué catégorie → type d'activité (groupe) → ligne (sujet + grille de 10 mois),
+     construit sur le même principe que le référentiel régions/DP ci-dessus : les tableaux d'état
+     (state.programmeAnnuel.categories) sont directement mutés par les ajouts/suppressions, et ne
+     sont persistés (localStorage + synchronisation Drive) qu'au clic explicite sur « Enregistrer »
+     — voir syncPaInputs()/programmeAnnuelSet() dans wireModalEvents(). */
+  function paMonthsInputsHtml(ci, gi, ri, mois){
+    return '<div class="pa-months" style="display:flex;gap:3px;flex-wrap:wrap;margin-top:5px;">'+
+      MOIS_SCOLAIRES.map(function(k){
+        return '<div style="text-align:center;"><input type="number" min="0" class="pa-mois-input" data-ci="'+ci+'" data-gi="'+gi+'" data-ri="'+ri+'" data-mk="'+k+'" value="'+((mois&&mois[k])||0)+'" style="width:32px;border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:4px 2px;text-align:center;font-size:11px;">'+
+          '<div style="font-size:9px;color:var(--ink-faint);margin-top:2px;">'+MOIS_SCOLAIRES_LABELS[k]+'</div></div>';
+      }).join('')+
+    '</div>';
+  }
+  function paRowHtml(ci, gi, ri, row){
+    return '<div class="setup-card" data-parow="'+ci+':'+gi+':'+ri+'" style="margin-top:8px;padding:9px 10px;">'+
+      '<div class="rowline"><input type="text" class="pa-sujet-input" data-ci="'+ci+'" data-gi="'+gi+'" data-ri="'+ri+'" value="'+esc(row.sujet)+'" placeholder="Sujet / description de l\'activité" style="flex:1;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:8px 9px;font-size:12.5px;">'+
+      '<button class="rm" data-rmparow="'+ci+':'+gi+':'+ri+'" type="button">'+ICONS.trash+'</button></div>'+
+      paMonthsInputsHtml(ci,gi,ri,row.mois)+
+    '</div>';
+  }
+  function paGroupHtml(ci, gi, group){
+    return '<div class="setup-card" data-pagroup="'+ci+':'+gi+'" style="margin-top:10px;background:var(--surface-2);">'+
+      '<div class="rowline"><input type="text" class="pa-group-input" data-ci="'+ci+'" data-gi="'+gi+'" value="'+esc(group.typeActivite)+'" placeholder="Type d\'activité" style="flex:1;font-weight:600;border:1px solid var(--line);background:var(--surface);border-radius:9px;padding:8px 9px;font-size:12.5px;">'+
+      '<button class="rm" data-rmpagroup="'+ci+':'+gi+'" type="button">'+ICONS.trash+'</button></div>'+
+      (group.rows||[]).map(function(r,ri){ return paRowHtml(ci,gi,ri,r); }).join('')+
+      '<button class="addline" data-addparow="'+ci+':'+gi+'" type="button">'+ICONS.plus+' Ajouter une ligne</button>'+
+    '</div>';
+  }
+  function paCategoryHtml(ci, cat){
+    return '<div class="setup-card" data-pacat="'+ci+'" style="margin-top:14px;">'+
+      '<div class="field-row" style="align-items:flex-end;"><div class="field" style="flex:1;margin-bottom:0;"><label>Catégorie ('+(ci+1)+')</label>'+
+      '<textarea class="pa-cat-input" data-ci="'+ci+'" rows="2" dir="rtl" style="font-size:13px;">'+esc(cat.titre)+'</textarea></div>'+
+      '<button class="btn danger sm" data-rmpacat="'+ci+'" type="button">Supprimer</button></div>'+
+      (cat.groups||[]).map(function(g,gi){ return paGroupHtml(ci,gi,g); }).join('')+
+      '<button class="addline" data-addpagroup="'+ci+'" type="button">'+ICONS.plus+' Ajouter un type d\'activité</button>'+
+    '</div>';
+  }
+  function programmeAnnuelTabHtml(){
+    var pa = state.programmeAnnuel || defaultProgrammeAnnuel();
+    var html = '<p style="font-size:11.5px;color:var(--ink-faint);margin-bottom:10px;">Votre programme de travail annuel, au format officiel (برنامج العمل السنوي الخاص بهيئة التفتيش التربوي) — pré-rempli avec votre propre programme et entièrement modifiable. Le nombre saisi dans chaque case représente le nombre d\'activités prévues ce mois-là pour cette ligne.</p>';
+    html += '<div class="field"><label for="paAnnee">Année scolaire</label><input type="text" id="paAnnee" value="'+esc(pa.anneeScolaire)+'" placeholder="Ex. 2026/2027" style="max-width:160px;"></div>';
+    html += '<div id="paCatList">'+(pa.categories||[]).map(function(c,ci){ return paCategoryHtml(ci,c); }).join('')+'</div>';
+    html += '<div class="btn-row" style="margin-top:10px;"><button class="btn ghost sm" id="btnAddPaCat" type="button">'+ICONS.plus+' Ajouter une catégorie</button></div>';
+    html += '<div class="setup-actions" style="margin-top:14px;"><button class="btn ghost sm" id="btnPrintProgramme" type="button">'+ICONS.print+' Imprimer</button>'+
+      '<button class="btn ghost sm" id="btnDocxProgramme" type="button">Word</button></div>'+
+      '<div class="banner info" id="progGenStatus" hidden style="margin-top:8px;"></div>';
+    html += '<div class="btn-row" style="margin-top:14px;"><button class="btn ghost" id="btnResetProgramme" type="button">Réinitialiser</button>'+
+      '<button class="btn primary" id="btnSaveProgramme" type="button">Enregistrer</button></div>';
     return html;
   }
   function profilImageFieldHtml(key, label, assetId){
@@ -3176,6 +3495,8 @@
       '<div class="field"><label for="ePpr">PPR</label><input type="text" id="ePpr" value="'+esc(e.ppr)+'" placeholder="Numéro PPR" autocapitalize="off"></div>'+
       '<div class="field-row"><div class="field"><label for="eTel">Téléphone</label><input type="tel" id="eTel" value="'+esc(e.telephone)+'"></div>'+
       '<div class="field"><label for="eEmail">Email</label><input type="email" id="eEmail" value="'+esc(e.email)+'"></div></div>'+
+      '<div class="btn-row"><a class="btn ghost sm" id="btnEnsCall" href="'+telHref(e.telephone)+'">'+ICONS.phone+' Appeler</a>'+
+      '<a class="btn ghost sm" id="btnEnsWa" href="'+waHref(e.telephone, waGreeting(e.nom))+'" target="_blank" rel="noopener">'+ICONS.chat+' WhatsApp</a></div>'+
       '<div class="field"><label for="eCadre">Cadre / échelle</label><input type="text" id="eCadre" value="'+esc(e.cadre)+'" placeholder="Ex. PES, échelle 11"></div>'+
       '<div class="field"><label>Genre</label><div class="seg" id="eGenreSeg"><button type="button" data-v="" aria-pressed="'+(!e.genre)+'">Non précisé</button>'+
       GENRE_ENS.map(function(g){ return '<button type="button" data-v="'+g.v+'" aria-pressed="'+(e.genre===g.v)+'">'+g.l+'</button>'; }).join('')+'</div></div>'+
@@ -3698,6 +4019,66 @@
       };
     }
 
+    /* -- programme annuel de travail -- */
+    var paCatList = $('paCatList');
+    if(paCatList){
+      function syncPaInputs(){
+        var elA = $('paAnnee'); if(elA) state.programmeAnnuel.anneeScolaire = elA.value;
+        document.querySelectorAll('.pa-cat-input').forEach(function(inp){
+          var c = state.programmeAnnuel.categories[parseInt(inp.getAttribute('data-ci'))]; if(c) c.titre = inp.value;
+        });
+        document.querySelectorAll('.pa-group-input').forEach(function(inp){
+          var c = state.programmeAnnuel.categories[parseInt(inp.getAttribute('data-ci'))];
+          var g = c && c.groups[parseInt(inp.getAttribute('data-gi'))]; if(g) g.typeActivite = inp.value;
+        });
+        document.querySelectorAll('.pa-sujet-input').forEach(function(inp){
+          var c = state.programmeAnnuel.categories[parseInt(inp.getAttribute('data-ci'))];
+          var g = c && c.groups[parseInt(inp.getAttribute('data-gi'))];
+          var r = g && g.rows[parseInt(inp.getAttribute('data-ri'))]; if(r) r.sujet = inp.value;
+        });
+        document.querySelectorAll('.pa-mois-input').forEach(function(inp){
+          var c = state.programmeAnnuel.categories[parseInt(inp.getAttribute('data-ci'))];
+          var g = c && c.groups[parseInt(inp.getAttribute('data-gi'))];
+          var r = g && g.rows[parseInt(inp.getAttribute('data-ri'))];
+          if(r) r.mois[inp.getAttribute('data-mk')] = parseInt(inp.value,10) || 0;
+        });
+      }
+      document.querySelectorAll('[data-rmpacat]').forEach(function(el){ el.onclick=function(){ syncPaInputs(); state.programmeAnnuel.categories.splice(parseInt(el.getAttribute('data-rmpacat')),1); render(); }; });
+      document.querySelectorAll('[data-rmpagroup]').forEach(function(el){ el.onclick=function(){
+        syncPaInputs(); var parts=el.getAttribute('data-rmpagroup').split(':'); var c=state.programmeAnnuel.categories[parseInt(parts[0])]; if(c) c.groups.splice(parseInt(parts[1]),1); render();
+      }; });
+      document.querySelectorAll('[data-rmparow]').forEach(function(el){ el.onclick=function(){
+        syncPaInputs(); var parts=el.getAttribute('data-rmparow').split(':'); var c=state.programmeAnnuel.categories[parseInt(parts[0])]; var g=c&&c.groups[parseInt(parts[1])]; if(g) g.rows.splice(parseInt(parts[2]),1); render();
+      }; });
+      document.querySelectorAll('[data-addparow]').forEach(function(el){ el.onclick=function(){
+        syncPaInputs(); var parts=el.getAttribute('data-addparow').split(':'); var c=state.programmeAnnuel.categories[parseInt(parts[0])]; var g=c&&c.groups[parseInt(parts[1])]; if(g) g.rows.push(paRow('Nouvelle activité', [0,0,0,0,0,0,0,0,0,0])); render();
+      }; });
+      document.querySelectorAll('[data-addpagroup]').forEach(function(el){ el.onclick=function(){
+        syncPaInputs(); var c=state.programmeAnnuel.categories[parseInt(el.getAttribute('data-addpagroup'))]; if(c) c.groups.push(paGroup("Nouveau type d'activité", [])); render();
+      }; });
+      var addPaCat = $('btnAddPaCat'); if(addPaCat) addPaCat.onclick = function(){ syncPaInputs(); state.programmeAnnuel.categories.push(paCategory('عنوان جديد', [])); render(); };
+      var savePa = $('btnSaveProgramme'); if(savePa) savePa.onclick = function(){
+        syncPaInputs();
+        state.programmeAnnuel.anneeScolaire = (state.programmeAnnuel.anneeScolaire||'').trim();
+        programmeAnnuelSet(state.programmeAnnuel);
+        toast('Programme annuel enregistré.');
+      };
+      var resetPa = $('btnResetProgramme'); if(resetPa) resetPa.onclick = function(){
+        if(!confirm('Réinitialiser le programme annuel à votre version de départ (2026/2027) ? Vos modifications seront perdues.')) return;
+        programmeAnnuelSet(defaultProgrammeAnnuel());
+      };
+      var printPa = $('btnPrintProgramme'); if(printPa) printPa.onclick = function(){ syncPaInputs(); printFromSpec(buildProgrammeAnnuelSpec()); };
+      var docxPa = $('btnDocxProgramme'); if(docxPa) docxPa.onclick = function(){
+        syncPaInputs();
+        docxPa.disabled = true;
+        var paStatusEl = $('progGenStatus');
+        downloadDocx(buildProgrammeAnnuelSpec(), safeFileName('Programme_annuel_'+(state.programmeAnnuel.anneeScolaire||''))).then(function(gdocUrl){
+          docxPa.disabled = false;
+          if(gdocUrl) showGdocLink(paStatusEl, gdocUrl);
+        });
+      };
+    }
+
     /* -- assistant IA (clé API Gemini) -- */
     var btnSaveGeminiKey = $('btnSaveGeminiKey');
     if(btnSaveGeminiKey) btnSaveGeminiKey.onclick = function(){
@@ -3720,6 +4101,9 @@
       el=$('pCin'); if(el) p.cin=el.value; el=$('pRib'); if(el) p.rib=el.value; el=$('pTel'); if(el) p.telephone=el.value;
       el=$('pEmail'); if(el) p.email=el.value; el=$('pDateRec'); if(el) p.dateRecrutement=el.value;
       el=$('pDateCadre'); if(el) p.dateCadre=el.value; el=$('pDateAff'); if(el) p.dateAffectation=el.value;
+      el=$('pMatiere'); if(el) p.matiere=el.value; el=$('pNumRem'); if(el) p.numRemuneration=el.value;
+      el=$('pAcademie'); if(el) p.academieRegionale=el.value; el=$('pProvince'); if(el) p.province=el.value;
+      el=$('pNbEncadres'); if(el) p.nbEncadres=el.value;
     }
     document.querySelectorAll('[data-picprofil]').forEach(function(el){
       el.onclick = function(){ syncProfilFields(); var key=el.getAttribute('data-picprofil'); profilImageTarget=key; $('file'+key.charAt(0).toUpperCase()+key.slice(1)+'Input').click(); };
@@ -3779,6 +4163,14 @@
         enseignantId:e.id, enseignantNom:e.nom, etablissementId:e.etablissementId, etablissementNom:etabName(e.etablissementId),
         echeance: w ? isoDate(w.start) : '' });
     };
+    var ensTelInput = $('eTel');
+    if(ensTelInput) ensTelInput.oninput = function(){
+      var callA = $('btnEnsCall'), waA = $('btnEnsWa');
+      if(callA) callA.href = telHref(ensTelInput.value);
+      if(waA) waA.href = waHref(ensTelInput.value, waGreeting(($('eNom')||{}).value||state.draftRecord.nom));
+    };
+    var btnEnsCall = $('btnEnsCall'); if(btnEnsCall) btnEnsCall.onclick = function(ev){ if(!telHref(($('eTel')||{}).value)){ ev.preventDefault(); toast('Ajoutez un numéro de téléphone.'); } };
+    var btnEnsWa = $('btnEnsWa'); if(btnEnsWa) btnEnsWa.onclick = function(ev){ if(!waHref(($('eTel')||{}).value)){ ev.preventDefault(); toast('Ajoutez un numéro de téléphone.'); } };
     var btnPickEtab2 = $('btnPickEtab2'); if(btnPickEtab2) btnPickEtab2.onclick = function(){ syncEnsFields(); openPicker('etablissement', function(r){ state.draftRecord.etablissementId=r.id; }); };
     var btnPickPhoto = $('btnPickPhoto'); if(btnPickPhoto) btnPickPhoto.onclick = function(){ syncEnsFields(); $('filePhotoInput').click(); };
     var btnRmPhoto = $('btnRmPhoto'); if(btnRmPhoto) btnRmPhoto.onclick = function(){ syncEnsFields(); state.draftRecord.photoAssetId=null; render(); };

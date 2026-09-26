@@ -95,9 +95,10 @@ se fait directement dans l'application.
    (non sécurisé) »**, et enfin **Autoriser**. Vous ne verrez cet écran
    qu'à la première connexion.
 4. C'est terminé : l'application peut désormais créer, dans votre Drive, un
-   dossier principal « Carnet d'Inspection — Données » avec deux
-   sous-dossiers (« Sauvegardes » et « Documents générés ») ainsi qu'une
-   feuille de calcul, pour synchroniser vos tâches et documents.
+   dossier principal « Carnet d'Inspection — Données » avec ses sous-dossiers
+   (« Sauvegardes », « Documents générés », « Pièces jointes », « Photos » et
+   « Modèles ») ainsi qu'une feuille de calcul, pour synchroniser vos tâches
+   et vos documents.
 
 ## Que synchronise exactement le bouton de synchronisation ?
 
@@ -114,6 +115,13 @@ où vous utilisez l'application. À chaque synchronisation :
   « Sauvegardes » — c'est ce qui vous permet de retrouver les mêmes données
   à jour sur un ordinateur, une tablette ou un téléphone différents, du
   moment que vous vous connectez avec le même compte Google sur chacun.
+- Les **photos** (portrait d'un(e) enseignant(e), logo, cachet, signature)
+  et les **pièces jointes** sont, elles aussi, envoyées dans les sous-dossiers
+  « Photos » et « Pièces jointes » de votre Drive dès que vous les ajoutez.
+  Un autre appareil apprend, à la synchronisation suivante, où se trouve
+  chaque image, puis la retélécharge automatiquement en arrière-plan la
+  première fois qu'elle doit s'afficher (fiche d'un(e) enseignant(e), document
+  imprimé…) — inutile de les réenvoyer manuellement.
 
 En cas de modification du même enregistrement sur deux appareils avant
 synchronisation, c'est toujours la modification la plus récente qui est
