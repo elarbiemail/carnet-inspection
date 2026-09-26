@@ -500,6 +500,7 @@
 <input type="file" id="fileImportInput" accept=".csv,text/csv" hidden>
 <input type="file" id="filePhotoInput" accept="image/png,image/jpeg,image/webp" hidden>
 <input type="file" id="fileAttachInput" accept="image/png,image/jpeg,image/webp,application/pdf" hidden>
+<input type="file" id="fileTaskAttachInput" accept="image/png,image/jpeg,image/webp,application/pdf,.doc,.docx,.odt" hidden>
 <input type="file" id="fileLogoInput" accept="image/png,image/jpeg" hidden>
 <input type="file" id="fileCachetInput" accept="image/png,image/jpeg" hidden>
 <input type="file" id="fileSignatureInput" accept="image/png,image/jpeg" hidden>
@@ -845,6 +846,24 @@
     if(otherDocs.length) d.pieces = otherDocs.map(function(x){ return {designation:(DOC_TYPE_INFO[x.type]||{}).label||x.titre||'', nombre:'1'}; });
     recordSet('document', d);
     toast('Bordereau de transmission généré automatiquement pour cette tâche clôturée.');
+  }
+  /* Génère en une fois une attestation de présence par enseignant(e) invité(e) à une réunion
+     pédagogique / un cours expérimental (t.invites) — plutôt que de répéter manuellement le formulaire
+     d'attestation pour chacun(e). Ignore les invité(e)s qui ont déjà une attestation pour cette tâche
+     (identifiée par le nom, comme buildDefaultDoc n'attribue pas d'id d'enseignant à une attestation)
+     pour ne jamais créer de doublon en cliquant plusieurs fois. */
+  function ensureAttestationsForInvites(task){
+    var created = 0;
+    (task.invites||[]).forEach(function(inv){
+      var already = state.documents.some(function(d){ return d.taskId===task.id && d.type==='attestation' && d.beneficiaireNom===inv.nom; });
+      if(already) return;
+      var d = buildDefaultDoc(task, 'attestation');
+      d.beneficiaireNom = inv.nom; d.lieu = inv.etablissementNom || task.etablissementNom || '';
+      state.documents.push(d);
+      created++;
+    });
+    if(created){ saveLocal('documents'); render(); toast(created+' attestation(s) générée(s) pour les enseignant(e)s invité(e)s.'); }
+    else toast('Une attestation existe déjà pour chaque enseignant(e) invité(e).');
   }
   function recordDelete(kind, id){
     var coll = collFor(kind);
@@ -1477,18 +1496,20 @@
   function pushModal(m){ state.modalStack.push(m); render(); }
 
   function openTaskEditor(task){
-    state.draftTask = task ? Object.assign({}, task) : {
+    state.draftTask = task ? Object.assign({heure:'', invites:[], attachments:[]}, JSON.parse(JSON.stringify(task))) : {
       id: uid(), titre:'', statut:'a_planifier', priorite:'moyenne', taskType:'inspection',
-      enseignantId:null, enseignantNom:'', etablissementId:null, etablissementNom:'',
-      echeance:'', description:'', docTitre:'', docUrl:'', noteGlobale:'', notificationEnvoyee:false
+      enseignantId:null, enseignantNom:'', etablissementId:null, etablissementNom:'', heure:'',
+      echeance:'', description:'', docTitre:'', docUrl:'', noteGlobale:'', notificationEnvoyee:false,
+      invites:[], attachments:[]
     };
     pushModal({type:'task', isNew: !task});
   }
   function openTaskEditorPrefilled(partial){
     state.draftTask = Object.assign({
       id: uid(), titre:'', statut:'a_planifier', priorite:'moyenne', taskType:'inspection',
-      enseignantId:null, enseignantNom:'', etablissementId:null, etablissementNom:'',
-      echeance:'', description:'', docTitre:'', docUrl:'', noteGlobale:'', notificationEnvoyee:false
+      enseignantId:null, enseignantNom:'', etablissementId:null, etablissementNom:'', heure:'',
+      echeance:'', description:'', docTitre:'', docUrl:'', noteGlobale:'', notificationEnvoyee:false,
+      invites:[], attachments:[]
     }, partial);
     pushModal({type:'task', isNew:true});
   }
@@ -1500,8 +1521,8 @@
   }
 
   function openEnseignantEditor(rec){
-    state.draftRecord = rec ? Object.assign({statut:'titulaire', sessionTitularisation:'', cadre:''}, JSON.parse(JSON.stringify(rec))) : {
-      id: uid(), nom:'', etablissementId:null, matiere:'', cycle:'', telephone:'', email:'',
+    state.draftRecord = rec ? Object.assign({statut:'titulaire', sessionTitularisation:'', cadre:'', ppr:''}, JSON.parse(JSON.stringify(rec))) : {
+      id: uid(), nom:'', etablissementId:null, matiere:'', cycle:'', telephone:'', email:'', ppr:'',
       statut:'titulaire', sessionTitularisation:'', cadre:'',
       photoAssetId:null, horaire:[], attachments:[], notes:''
     };
@@ -1584,12 +1605,17 @@
   }
   function buildDefaultDoc(task, type){
     var base = { id: uid(), taskId: task.id, type: type, titre: DOC_TYPE_INFO[type].label, date: task.echeance || todayStr() };
+    var invites = task.invites || [];
     if(type==='presence'){
-      var parts = state.enseignants.filter(function(e){ return e.etablissementId===task.etablissementId; })
-        .map(function(e){ return {nom:e.nom, fonction:'Enseignant(e)'}; });
+      /* Priorité à la liste d'enseignant(e)s invité(e)s explicitement choisie pour la tâche (réunion
+         pédagogique / cours expérimental) — plus fiable que l'ancien repli « tous les enseignants de
+         l'établissement », gardé pour les tâches qui n'ont pas (encore) de liste d'invités. */
+      var parts = invites.length ? invites.map(function(iv){ return {nom:iv.nom, fonction:'Enseignant(e)'}; })
+        : state.enseignants.filter(function(e){ return e.etablissementId===task.etablissementId; }).map(function(e){ return {nom:e.nom, fonction:'Enseignant(e)'}; });
       base.objet = task.titre; base.lieu = task.etablissementNom||''; base.participants = parts;
     } else if(type==='compte_rendu'){
-      base.lieu = task.etablissementNom||''; base.presents=''; base.absents=''; base.ordreJour=''; base.pointsDiscutes='';
+      base.lieu = task.etablissementNom||''; base.presents= invites.length ? invites.map(function(iv){ return iv.nom; }).join(', ') : '';
+      base.absents=''; base.ordreJour=''; base.pointsDiscutes='';
       base.decisions=''; base.actions=[];
     } else if(type==='observation'){
       base.enseignantNom = task.enseignantNom||''; base.classe=''; base.matiere=''; base.duree='';
@@ -1600,9 +1626,19 @@
     } else if(type==='attestation'){
       base.beneficiaireNom = task.enseignantNom||''; base.fonction='Enseignant(e)'; base.objet = task.titre; base.lieu = task.etablissementNom||'';
     } else if(type==='lettre_information'){
-      base.destinataire = "Monsieur/Madame le/la Directeur(trice) de "+(task.etablissementNom||"l'établissement");
+      /* Pour une réunion pédagogique / un cours expérimental, le courrier d'information est adressé au
+         service pédagogique (et non au/à la directeur(trice) de l'établissement comme pour une visite
+         d'inspection classique), et le corps mentionne la date ET l'heure ainsi que la liste des
+         enseignant(e)s invité(e)s — reprise dans un tableau à l'impression/export (voir
+         buildDocSpecInner et TEACHER_DOC_TYPES plus bas). */
+      base.destinataire = TASK_TYPES_NOTIFY[task.taskType] ? 'Service pédagogique'
+        : "Monsieur/Madame le/la Directeur(trice) de "+(task.etablissementNom||"l'établissement");
       base.objet = task.titre; base.lieu = task.etablissementNom||'';
-      base.corps = "J'ai l'honneur de vous informer que "+(TT_LABEL[task.taskType]||'une visite').toLowerCase()+" aura lieu le "+fmtDate(task.echeance)+(task.enseignantNom?" concernant l'enseignant(e) "+task.enseignantNom:"")+". Je vous prie de bien vouloir prendre les dispositions nécessaires à cet effet.";
+      base.invites = invites.slice();
+      var quandTxt = fmtDate(task.echeance)+(task.heure?' à '+task.heure:'');
+      base.corps = invites.length
+        ? "J'ai l'honneur de vous informer que "+(TT_LABEL[task.taskType]||'une réunion').toLowerCase()+" aura lieu le "+quandTxt+(task.etablissementNom?" à "+task.etablissementNom:"")+", avec la participation des enseignant(e)s dont la liste figure ci-après. Je vous prie de bien vouloir prendre les dispositions nécessaires à cet effet."
+        : "J'ai l'honneur de vous informer que "+(TT_LABEL[task.taskType]||'une visite').toLowerCase()+" aura lieu le "+quandTxt+(task.enseignantNom?" concernant l'enseignant(e) "+task.enseignantNom:"")+". Je vous prie de bien vouloir prendre les dispositions nécessaires à cet effet.";
     } else if(type==='rapport_inspection'){
       base.enseignantNom = task.enseignantNom||''; base.lieu = task.etablissementNom||''; base.classe=''; base.matiere='';
       base.appreciation = task.noteGlobale || ''; base.constats=''; base.recommandations='';
@@ -1621,6 +1657,7 @@
   /* ================= import / export ================= */
   var importTarget = null; // 'enseignants' | 'etablissements'
   var profilImageTarget = null; // 'logo' | 'cachet' | 'signature'
+  var taskAttachTargetId = null; // id de la tâche visée par le prochain fichier joint (documents de travail)
   function exportCSV(kind){
     var headers, rows;
     if(kind==='enseignants'){
@@ -1677,7 +1714,7 @@
         objs.forEach(function(o){
           if(!o.nom) return;
           var etId = findOrCreateEtab(o.etablissement, null);
-          recordSet('enseignant', { id: uid(), nom:o.nom, etablissementId: etId, matiere:o.matiere||'', cycle:o.cycle||'',
+          recordSet('enseignant', { id: uid(), nom:o.nom, etablissementId: etId, matiere:o.matiere||'', cycle:o.cycle||'', ppr:o.ppr||'',
             cadre:o.cadre||'', statut: parseEnsStatut(o.statut), sessionTitularisation: ['s1','s2'].indexOf(o.session_titularisation)>=0 ? o.session_titularisation : '',
             telephone:o.telephone||'', email:o.email||'', photoAssetId:null, horaire:[], attachments:[], notes:o.notes||'' });
           count++;
@@ -1756,8 +1793,10 @@
         signatures:['توقيع المفتش(ة)'] };
     }
     if(d.type==='lettre_information'){
+      var invTables = (d.invites && d.invites.length) ? [{heading:'الأساتذة المدعوون', headers:['الاسم الكامل','PPR','المؤسسة'],
+        rows: d.invites.map(function(iv){ return [iv.nom||'', iv.ppr||'', iv.etablissementNom||'']; })}] : [];
       return { rtl:true, titre:'رسالة إخبارية', meta:[['المرسل إليه',d.destinataire],['الموضوع',d.objet],['التاريخ',fmtDate(d.date)]],
-        tables:[], sections:[{heading:null, text:d.corps||'—'}], signatures:['توقيع المفتش(ة)'] };
+        tables:invTables, sections:[{heading:null, text:d.corps||'—'}], signatures:['توقيع المفتش(ة)'] };
     }
     if(d.type==='rapport_inspection'){
       return { titre:"Rapport d'inspection", meta:[['Enseignant(e)',d.enseignantNom],['Établissement',d.lieu],['Classe',d.classe],['Matière',d.matiere],['Date',fmtDate(d.date)],['Appréciation générale',d.appreciation||'—']],
@@ -2428,12 +2467,33 @@
       '<div class="field"><label>Établissement</label><button type="button" class="pickbtn" id="btnPickEtab"><span class="'+(t.etablissementNom||etabName(t.etablissementId)?'':'ph')+' t">'+esc(t.etablissementNom||etabName(t.etablissementId)||'Choisir un établissement…')+'</span></button></div>'+
       '<div class="field"><label>Enseignant(e)</label><button type="button" class="pickbtn" id="btnPickEns"><span class="'+(t.enseignantNom||ensName(t.enseignantId)?'':'ph')+' t">'+esc(t.enseignantNom||ensName(t.enseignantId)||'Choisir un(e) enseignant(e)…')+'</span></button></div>'+
       '<div class="field"><label>Priorité</label><div class="seg" id="fPrioSeg">'+['basse','moyenne','haute'].map(function(v){ return '<button type="button" data-v="'+v+'" aria-pressed="'+(t.priorite===v)+'">'+v.charAt(0).toUpperCase()+v.slice(1)+'</button>'; }).join('')+'</div></div>'+
-      '<div class="field"><label for="fEcheance">Échéance</label><input type="date" id="fEcheance" value="'+esc(t.echeance)+'"></div>'+
+      '<div class="field-row"><div class="field"><label for="fEcheance">Échéance</label><input type="date" id="fEcheance" value="'+esc(t.echeance)+'"></div>'+
+      '<div class="field"><label for="fHeure">Heure</label><input type="time" id="fHeure" value="'+esc(t.heure)+'"></div></div>'+
       (TASK_TYPES_GRADED[t.taskType] ? '<div class="field"><label>Note globale de l\'inspection</label><div class="seg" id="fNoteSeg">'+NOTE_SCALE.map(function(n){ return '<button type="button" data-v="'+n+'" aria-pressed="'+(t.noteGlobale===n)+'">'+n+'</button>'; }).join('')+'</div></div>' : '')+
       (TASK_TYPES_NOTIFY[t.taskType] ? '<div class="field"><label class="chk-row" style="display:flex;align-items:center;gap:8px;font-weight:500;"><input type="checkbox" id="fNotif"'+(t.notificationEnvoyee?' checked':'')+'> Notification envoyée à l\'administration</label></div>' : '')+
+      (TASK_TYPES_NOTIFY[t.taskType] ? taskInvitesFieldHtml(t) : '')+
       '<div class="field"><label for="fDesc">Notes</label><textarea id="fDesc" placeholder="Détails, observations…">'+esc(t.description)+'</textarea></div>'+
       '<div class="btn-row">'+(state.modalStack[idx].isNew ? '' : '<button class="btn danger" id="btnDeleteTask" type="button">Supprimer</button>')+
       '<button class="btn primary" id="btnSaveTask" type="button">Enregistrer</button></div></div></div>';
+  }
+  /* Liste des enseignant(e)s invité(e)s (réunion pédagogique / cours expérimental) : cocher un nom
+     l'ajoute à t.invites avec un instantané {enseignantId, nom, ppr, etablissementNom} — un instantané
+     plutôt qu'une simple référence d'id, pour que le courrier d'information et les attestations
+     gardent les bonnes informations même si la fiche enseignant est modifiée ensuite (même principe
+     que enseignantNom/etablissementNom déjà dénormalisés ailleurs dans une tâche). Lu au moment
+     d'Enregistrer (voir btnSaveTask), comme la checklist d'établissements de la zone. */
+  function taskInvitesFieldHtml(t){
+    var invited = {}; (t.invites||[]).forEach(function(iv){ invited[iv.enseignantId] = true; });
+    var list = state.enseignants.slice().sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||''); });
+    return '<div class="field"><label>Enseignant(e)s invité(e)s <span style="font-weight:400;color:var(--ink-faint);">(pour le courrier d\'information, la liste de présence et les attestations)</span></label>'+
+      '<div id="fInvitesList" style="max-height:230px;overflow:auto;border:1px solid var(--line);border-radius:9px;">'+
+      (list.length ? list.map(function(e){
+        return '<label style="display:flex;align-items:center;gap:9px;padding:9px 11px;border-bottom:1px solid var(--line);">'+
+          '<input type="checkbox" data-invitepick="'+e.id+'"'+(invited[e.id]?' checked':'')+'>'+
+          '<span style="flex:1;">'+esc(e.nom)+(e.ppr?'<span style="color:var(--ink-faint);"> · PPR '+esc(e.ppr)+'</span>':'')+
+          (etabName(e.etablissementId)?'<span style="display:block;font-size:11.5px;color:var(--ink-faint);">'+esc(etabName(e.etablissementId))+'</span>':'')+'</span></label>';
+      }).join('') : '<div class="empty" style="padding:12px;">Aucun enseignant enregistré pour l\'instant.</div>')+
+      '</div></div>';
   }
 
   /* ---- Task detail (workflow + documents) ---- */
@@ -2444,18 +2504,27 @@
     var curIdx = WORKFLOW.findIndex(function(w){ return w.v===t.statut; });
     var docs = state.documents.filter(function(d){ return d.taskId===t.id; });
     var avail = DOCS_FOR_TYPE[t.taskType] || ['rapport'];
+    var invites = t.invites || [];
+    var attachments = t.attachments || [];
     var html = '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
       '<div class="sheet-head"><h2 style="text-wrap:balance;">'+esc(t.titre)+'</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
       '<div class="task-meta" style="margin-bottom:10px;"><span class="type-badge '+taskBadgeClass(t.taskType)+'">'+esc(TT_LABEL[t.taskType])+'</span>'+
-      (enNom?'<span>'+esc(enNom)+'</span>':'')+(etNom?'<span>· '+esc(etNom)+'</span>':'')+(t.echeance?'<span>· '+fmtDate(t.echeance)+'</span>':'')+'</div>'+
+      (enNom?'<span>'+esc(enNom)+'</span>':'')+(etNom?'<span>· '+esc(etNom)+'</span>':'')+(t.echeance?'<span>· '+fmtDate(t.echeance)+(t.heure?' à '+esc(t.heure):'')+'</span>':'')+'</div>'+
       (t.description ? '<p style="font-size:13px;color:var(--ink-soft);white-space:pre-line;margin:0 0 12px;">'+esc(t.description)+'</p>' : '')+
+      (invites.length ? '<div class="section-label">Enseignant(e)s invité(e)s ('+invites.length+')</div><p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;line-height:1.6;">'+
+        invites.map(function(iv){ return esc(iv.nom)+(iv.ppr?' <span style="color:var(--ink-faint);">(PPR '+esc(iv.ppr)+')</span>':''); }).join(', ')+'</p>' : '')+
       '<div class="section-label">Suivi</div><div class="stepper" id="wfStepper">'+WORKFLOW.map(function(w,i){
         return '<button type="button" class="step '+(i<curIdx?'done':(i===curIdx?'current':''))+'" data-v="'+w.v+'"><span class="n">'+(i<curIdx?'✓':(i+1))+'</span>'+w.l+'</button>';
       }).join('')+'</div>'+
       '<div class="section-label" style="margin-top:6px;">Documents</div>'+
-      '<div class="setup-actions" style="margin-bottom:8px;">'+avail.map(function(dt){ return '<button class="btn ghost sm" data-newdoc="'+dt+'" type="button">'+ICONS.plus+' '+DOC_TYPE_INFO[dt].label+'</button>'; }).join('')+'</div>'+
+      '<div class="setup-actions" style="margin-bottom:8px;">'+avail.map(function(dt){ return '<button class="btn ghost sm" data-newdoc="'+dt+'" type="button">'+ICONS.plus+' '+DOC_TYPE_INFO[dt].label+'</button>'; }).join('')+
+      (invites.length && avail.indexOf('attestation')!==-1 ? '<button class="btn ghost sm" id="btnGenAttestations" type="button">'+ICONS.plus+' Attestations des invité(e)s ('+invites.length+')</button>' : '')+
+      '</div>'+
       (docs.length ? '<div class="doc-list">'+docs.map(function(d){ return '<div class="doc-row" data-opendoc="'+d.id+'" style="cursor:pointer;"><div class="doc-ico">'+ICONS.doc+'</div>'+
-        '<div class="doc-info"><div class="t">'+esc(DOC_TYPE_INFO[d.type].label)+'</div><div class="s">'+fmtDate(d.date)+'</div></div></div>'; }).join('')+'</div>' : '<div class="empty">Aucun document généré pour cette tâche.</div>')+
+        '<div class="doc-info"><div class="t">'+esc(DOC_TYPE_INFO[d.type].label)+(d.beneficiaireNom?' — '+esc(d.beneficiaireNom):'')+'</div><div class="s">'+fmtDate(d.date)+'</div></div></div>'; }).join('')+'</div>' : '<div class="empty">Aucun document généré pour cette tâche.</div>')+
+      '<div class="section-label" style="margin-top:14px;">Documents de travail utilisés <span style="font-weight:400;color:var(--ink-faint);">(pièces jointes)</span></div>'+
+      '<div id="taskAttachList">'+(attachments.length ? attachments.map(function(a,i){ return '<div class="attach-row"><span class="t">'+esc(a.titre)+'</span><a href="'+assetUrl(a.assetId)+'" target="_blank" rel="noopener" class="icon-btn" style="width:30px;height:30px;">'+ICONS.ext+'</a><button class="icon-btn" data-rmtaskattach="'+i+'" style="width:30px;height:30px;color:var(--danger);">'+ICONS.trash+'</button></div>'; }).join('') : '<div class="empty">Aucun document de travail joint.</div>')+'</div>'+
+      '<button class="addline" id="btnAddTaskAttach" type="button">'+ICONS.upload+' Joindre un document de travail</button>'+
       '<div class="btn-row" style="margin-top:16px;"><button class="btn ghost" id="btnEditTask" type="button">Modifier</button><button class="btn danger" id="btnDeleteTask2" type="button">Supprimer</button></div>'+
       '</div></div>';
     return html;
@@ -2707,6 +2776,7 @@
       '<div class="field"><label>Établissement</label><button type="button" class="pickbtn" id="btnPickEtab2"><span class="'+(etabName(e.etablissementId)?'':'ph')+' t">'+esc(etabName(e.etablissementId)||'Choisir un établissement…')+'</span></button></div>'+
       '<div class="field-row"><div class="field"><label for="eMatiere">Matière</label><input type="text" id="eMatiere" value="'+esc(e.matiere)+'"></div>'+
       '<div class="field"><label for="eCycle">Cycle</label><input type="text" id="eCycle" value="'+esc(e.cycle)+'" placeholder="TC / 1BAC / 2BAC"></div></div>'+
+      '<div class="field"><label for="ePpr">PPR</label><input type="text" id="ePpr" value="'+esc(e.ppr)+'" placeholder="Numéro PPR" autocapitalize="off"></div>'+
       '<div class="field-row"><div class="field"><label for="eTel">Téléphone</label><input type="tel" id="eTel" value="'+esc(e.telephone)+'"></div>'+
       '<div class="field"><label for="eEmail">Email</label><input type="email" id="eEmail" value="'+esc(e.email)+'"></div></div>'+
       '<div class="field"><label for="eCadre">Cadre / échelle</label><input type="text" id="eCadre" value="'+esc(e.cadre)+'" placeholder="Ex. PES, échelle 11"></div>'+
@@ -2870,7 +2940,9 @@
       body += '<div class="field"><label for="dDestinataire">Destinataire</label><input type="text" id="dDestinataire" value="'+esc(d.destinataire)+'"></div>'+
         '<div class="field-row"><div class="field"><label for="dObjet">Objet</label><input type="text" id="dObjet" value="'+esc(d.objet)+'"></div><div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div></div>'+
         '<div class="field"><label for="dCorps">Corps de la lettre</label><textarea id="dCorps" rows="6">'+esc(d.corps)+'</textarea>'+
-        (state.sampleReady ? '<div class="btn-row"><button class="btn ai sm" id="btnAiLettre" type="button">'+ICONS.ai+' Rédiger avec l\'IA</button><button class="btn ghost sm" id="btnTrLettre" type="button">'+ICONS.ai+' Traduire</button></div><div class="banner info" id="aiLettreStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>';
+        (state.sampleReady ? '<div class="btn-row"><button class="btn ai sm" id="btnAiLettre" type="button">'+ICONS.ai+' Rédiger avec l\'IA</button><button class="btn ghost sm" id="btnTrLettre" type="button">'+ICONS.ai+' Traduire</button></div><div class="banner info" id="aiLettreStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>'+
+        ((d.invites && d.invites.length) ? '<div class="field"><label>Enseignant(e)s invité(e)s <span style="font-weight:400;color:var(--ink-faint);">(repris dans le document imprimé/exporté — modifiable dans la tâche)</span></label>'+
+          '<div class="doc-list">'+d.invites.map(function(iv){ return '<div class="doc-row"><div class="doc-info"><div class="t">'+esc(iv.nom)+'</div><div class="s">'+(iv.ppr?'PPR '+esc(iv.ppr)+' · ':'')+esc(iv.etablissementNom||'')+'</div></div></div>'; }).join('')+'</div></div>' : '');
     } else if(m.docType==='rapport_inspection'){
       body += '<div class="field-row"><div class="field"><label for="dEns">Enseignant(e)</label><input type="text" id="dEns" value="'+esc(d.enseignantNom)+'"></div><div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div></div>'+
         '<div class="field-row"><div class="field"><label for="dLieu">Établissement</label><input type="text" id="dLieu" value="'+esc(d.lieu)+'"></div><div class="field"><label for="dClasse">Classe</label><input type="text" id="dClasse" value="'+esc(d.classe)+'"></div><div class="field"><label for="dMat">Matière</label><input type="text" id="dMat" value="'+esc(d.matiere)+'"></div></div>'+
@@ -2927,8 +2999,19 @@
     /* -- task editor -- */
     function syncTaskFields(){
       var t = state.draftTask, el;
-      el=$('fTitre'); if(el) t.titre=el.value; el=$('fEcheance'); if(el) t.echeance=el.value; el=$('fDesc'); if(el) t.description=el.value;
+      el=$('fTitre'); if(el) t.titre=el.value; el=$('fEcheance'); if(el) t.echeance=el.value; el=$('fHeure'); if(el) t.heure=el.value; el=$('fDesc'); if(el) t.description=el.value;
       el=$('fNotif'); if(el) t.notificationEnvoyee=el.checked;
+      /* Lu à chaque syncTaskFields (pas seulement à l'enregistrement final) pour ne pas perdre les
+         cases cochées si un autre changement (type de tâche, établissement…) redessine le formulaire
+         entre-temps — la checklist n'existe dans le DOM que pour reunion_pedagogique/cours_experimental
+         (voir TASK_TYPES_NOTIFY et taskInvitesFieldHtml). */
+      if($('fInvitesList')){
+        var picked = document.querySelectorAll('[data-invitepick]:checked');
+        t.invites = Array.prototype.map.call(picked, function(cb){
+          var e = state.enseignants.find(function(x){ return x.id===cb.getAttribute('data-invitepick'); });
+          return e ? {enseignantId:e.id, nom:e.nom, ppr:e.ppr||'', etablissementNom: etabName(e.etablissementId)||''} : null;
+        }).filter(Boolean);
+      }
     }
     var selType = $('fTypeSel'); if(selType) selType.onchange = function(){ syncTaskFields(); state.draftTask.taskType=selType.value; render(); };
     var segP = $('fPrioSeg'); if(segP) segP.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ syncTaskFields(); state.draftTask.priorite=b.getAttribute('data-v'); render(); }; });
@@ -2957,6 +3040,25 @@
     document.querySelectorAll('[data-opendoc]').forEach(function(el){ el.onclick = function(){ var d=state.documents.find(function(x){ return x.id===el.getAttribute('data-opendoc'); }); if(d) openDocEditor(d.taskId, d.type, d); }; });
     var editTaskBtn = $('btnEditTask'); if(editTaskBtn) editTaskBtn.onclick = function(){ var m=state.modalStack[state.modalStack.length-1]; var t=state.tasks.find(function(x){return x.id===m.taskId;}); openTaskEditor(t); };
     var delTask2 = $('btnDeleteTask2'); if(delTask2) delTask2.onclick = function(){ var m=state.modalStack[state.modalStack.length-1]; recordDelete('task', m.taskId).then(function(){ closeTopModal(); toast('Tâche supprimée.'); }); };
+    var genAttBtn = $('btnGenAttestations'); if(genAttBtn) genAttBtn.onclick = function(){
+      var m = state.modalStack[state.modalStack.length-1];
+      var t2 = state.tasks.find(function(x){ return x.id===m.taskId; });
+      if(t2) ensureAttestationsForInvites(t2);
+    };
+    var addTaskAttach = $('btnAddTaskAttach'); if(addTaskAttach) addTaskAttach.onclick = function(){
+      var m = state.modalStack[state.modalStack.length-1];
+      taskAttachTargetId = m.taskId;
+      $('fileTaskAttachInput').click();
+    };
+    document.querySelectorAll('[data-rmtaskattach]').forEach(function(el){ el.onclick = function(){
+      var m = state.modalStack[state.modalStack.length-1];
+      var t2 = state.tasks.find(function(x){ return x.id===m.taskId; });
+      if(!t2) return;
+      var idx = parseInt(el.getAttribute('data-rmtaskattach'));
+      var nt = Object.assign({}, t2, {attachments:(t2.attachments||[]).slice()});
+      nt.attachments.splice(idx,1);
+      recordSet('task', nt);
+    }; });
 
     /* -- settings -- */
     document.querySelectorAll('[data-stab]').forEach(function(el){ el.onclick=function(){ var m=state.modalStack[state.modalStack.length-1]; m.tab=el.getAttribute('data-stab'); render(); }; });
@@ -3100,6 +3202,7 @@
       syncHoraireInputs();
       var e = state.draftRecord, el;
       el=$('eNom'); if(el) e.nom=el.value; el=$('eMatiere'); if(el) e.matiere=el.value; el=$('eCycle'); if(el) e.cycle=el.value;
+      el=$('ePpr'); if(el) e.ppr=el.value;
       el=$('eTel'); if(el) e.telephone=el.value; el=$('eEmail'); if(el) e.email=el.value; el=$('eNotes'); if(el) e.notes=el.value;
       el=$('eCadre'); if(el) e.cadre=el.value; el=$('eSession'); if(el) e.sessionTitularisation=el.value;
     }
@@ -3291,6 +3394,21 @@
     uploadAsset(f).then(function(res){
       state.draftRecord.attachments.push({assetId:res.id, titre:f.name, type:res.contentType});
       render(); toast('Fichier joint.');
+    }).catch(function(err){ toast(assetsErrorMessage(err)); });
+  };
+  /* Documents de travail utilisés lors d'une réunion pédagogique / d'un cours expérimental, joints
+     directement à la tâche (task.attachments) — même mécanisme de stockage que les pièces jointes
+     enseignant ci-dessus, mais ciblant la tâche en cours via taskAttachTargetId plutôt que
+     state.draftRecord, puisque ce bouton vit dans le détail de tâche (pas un formulaire d'édition). */
+  $('fileTaskAttachInput').onchange = function(){
+    var f = this.files[0]; this.value=''; var tid = taskAttachTargetId; taskAttachTargetId = null;
+    if(!f || !tid) return;
+    uploadAsset(f).then(function(res){
+      var t2 = state.tasks.find(function(x){ return x.id===tid; });
+      if(!t2) return;
+      var nt = Object.assign({}, t2, {attachments:(t2.attachments||[]).concat([{assetId:res.id, titre:f.name, type:res.contentType}])});
+      recordSet('task', nt);
+      toast('Document de travail joint.');
     }).catch(function(err){ toast(assetsErrorMessage(err)); });
   };
   function profilImageOnChange(){
