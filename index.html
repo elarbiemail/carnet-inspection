@@ -531,6 +531,7 @@
 <input type="file" id="fileLogoInput" accept="image/png,image/jpeg" hidden>
 <input type="file" id="fileCachetInput" accept="image/png,image/jpeg" hidden>
 <input type="file" id="fileSignatureInput" accept="image/png,image/jpeg" hidden>
+<input type="file" id="fileDocTmplLogoInput" accept="image/png,image/jpeg" hidden>
 
 <script>
 (function(){
@@ -672,27 +673,67 @@
   var TASK_TYPES_GRADED = {inspection:true};
   var TASK_TYPES_NOTIFY = {reunion_pedagogique:true, cours_experimental:true};
   var DOCS_FOR_TYPE = {
-    inspection:['lettre_information','observation','rapport_inspection','bordereau'],
-    visite_conseil:['lettre_information','observation','rapport','bordereau'],
-    reunion_pedagogique:['lettre_information','presence','compte_rendu','attestation','bordereau'],
-    cours_experimental:['lettre_information','presence','compte_rendu','attestation','bordereau'],
-    recherche_action:['rapport','bordereau'],
-    observation_examen:['observation','rapport','bordereau'],
-    conception_examen:['rapport','bordereau'],
-    autre:['rapport','bordereau']
+    inspection:['lettre_information','observation','rapport_inspection','plan_action','bordereau'],
+    visite_conseil:['lettre_information','observation','rapport','plan_action','bordereau'],
+    reunion_pedagogique:['lettre_information','presence','compte_rendu','attestation','plan_action','bordereau'],
+    cours_experimental:['lettre_information','presence','compte_rendu','attestation','plan_action','bordereau'],
+    recherche_action:['rapport','plan_action','bordereau'],
+    observation_examen:['observation','rapport','plan_action','bordereau'],
+    conception_examen:['rapport','plan_action','bordereau'],
+    autre:['rapport','plan_action','bordereau']
   };
   var DOC_TYPE_INFO = {
     presence: {label:'Liste de présence'}, compte_rendu: {label:'Compte-rendu de réunion'},
     observation: {label:"Grille d'observation"}, rapport: {label:'Rapport de synthèse'},
     attestation: {label:'Attestation de présence'}, lettre_information: {label:"Lettre d'information"},
-    rapport_inspection: {label:"Rapport d'inspection"}, bordereau: {label:'Bordereau de transmission'}
+    rapport_inspection: {label:"Rapport d'inspection"}, bordereau: {label:'Bordereau de transmission'},
+    plan_action: {label:"Plan d'action"}
   };
   /* Règle de langue (précisée par l'utilisateur) : seuls les rapports — « Rapport de synthèse »
      (visite conseil) et « Rapport d'inspection » — sont rédigés entièrement en français ; TOUS les
-     autres documents, y compris la grille d'observation, sont rédigés en arabe (langue de
-     l'administration marocaine). Voir buildDocSpecInner() : ces deux seuls types y ont des libellés
-     et un contenu en français ; tous les autres ont déjà des libellés arabes et rtl:true. */
-  var RTL_DOC_TYPES = { presence:true, compte_rendu:true, attestation:true, lettre_information:true, bordereau:true, observation:true };
+     autres documents, y compris la grille d'observation et le plan d'action, sont rédigés en arabe
+     (langue de l'administration marocaine). Voir buildDocSpecInner() : ces deux seuls types y ont des
+     libellés et un contenu en français ; tous les autres ont déjà des libellés arabes et rtl:true. */
+  var RTL_DOC_TYPES = { presence:true, compte_rendu:true, attestation:true, lettre_information:true, bordereau:true, observation:true, plan_action:true };
+  /* ---- Modèles personnalisés (Réglages → Modèles de documents → Modèles personnalisés) : un modèle
+     par type de document associe un logo optionnel (state.templates.docTemplates[type].logoAssetId,
+     utilisé à la place du logo global du profil dans les exports PDF/Word de ce type précis — voir
+     buildDocSpec) et un texte de corps avec balises {{tag}} (state.templates.docTemplates[type].corps),
+     résolu par applyMergeTemplate() à la création d'un nouveau document (voir buildDefaultDoc) : le
+     texte remplace alors la valeur par défaut du champ principal du type indiqué dans
+     DOC_TEMPLATE_FIELD ci-dessous, tout en restant librement modifiable ensuite (y compris avec
+     l'assistant IA). Les tableaux (participants, actions, pièces…) restent gérés automatiquement par
+     l'application et ne font pas partie du modèle. */
+  var DOC_TEMPLATE_FIELD = {
+    compte_rendu:'ordreJour', observation:'synthese', rapport:'texte', attestation:'texteLibre',
+    lettre_information:'corps', rapport_inspection:'constats', bordereau:'observations', plan_action:'contexte'
+  };
+  var DOC_FIELD_LABEL = {
+    ordreJour:'Ordre du jour', synthese:'Synthèse', texte:'Rapport', texteLibre:"Texte de l'attestation",
+    corps:'Corps de la lettre', constats:'Constats', observations:'Observations', contexte:'Contexte'
+  };
+  var DOC_TEMPLATE_TAGS = [
+    {tag:'etablissement', label:'Établissement'}, {tag:'enseignant', label:"Enseignant(e)"},
+    {tag:'classe', label:'Classe'}, {tag:'matiere', label:'Matière'}, {tag:'date', label:'Date'},
+    {tag:'objet', label:'Objet'}, {tag:'lieu', label:'Lieu'}, {tag:'inspecteur', label:"Inspecteur(trice)"}
+  ];
+  function docTemplateMergeValues(type, d, task){
+    var profil = state.templates.profil || {};
+    return {
+      etablissement: (task&&task.etablissementNom) || d.lieu || '',
+      enseignant: (task&&task.enseignantNom) || d.enseignantNom || d.beneficiaireNom || '',
+      classe: d.classe || '', matiere: d.matiere || '',
+      date: fmtDate(d.date || (task&&task.echeance)),
+      objet: d.objet || d.titre || (task&&task.titre) || '',
+      lieu: d.lieu || (task&&task.etablissementNom) || '',
+      inspecteur: profil.nom || ''
+    };
+  }
+  function applyMergeTemplate(text, values){
+    return (text||'').replace(/\{\{\s*([a-zA-Z_]+)\s*\}\}/g, function(m, key){
+      return (values && values.hasOwnProperty(key) && values[key]) ? values[key] : '';
+    });
+  }
   /* ================= navigation : sidebar = menu principal, onglets du bas = sous-menu de la section active ================= */
   var SUBMENUS = {
     tasks: [{key:'all', label:'Toutes'}].concat(WORKFLOW.map(function(w){ return {key:w.v, label:w.l}; })).concat([{key:'late', label:'En retard'}]),
@@ -778,7 +819,8 @@
     home: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-4.5v-6h-5v6H5a1 1 0 0 1-1-1V10.5Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>',
     users: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none"><circle cx="9" cy="8" r="3" stroke="currentColor" stroke-width="1.6"/><path d="M3 20c0-3.3 2.7-5.8 6-5.8s6 2.5 6 5.8M16 8.3a2.6 2.6 0 1 1 1 5M19.5 20c0-2.6-1.7-4.7-4-5.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
     calendar: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none"><rect x="3.5" y="5" width="17" height="15.5" rx="2" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 9.5h17M8 3v4M16 3v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
-    clock: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.6"/><path d="M12 7.5V12l3 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+    clock: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.6"/><path d="M12 7.5V12l3 2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    pin: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M12 21s7-6.4 7-11.5A7 7 0 0 0 5 9.5C5 14.6 12 21 12 21Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><circle cx="12" cy="9.5" r="2.4" stroke="currentColor" stroke-width="1.7"/></svg>'
   };
   function docIcon(mime, ext){
     if(mime==='application/vnd.google-apps.spreadsheet') return ICONS.sheet;
@@ -792,7 +834,8 @@
     view: 'home', filter: 'all',
     tasks: [], zones: [], etablissements: [], enseignants: [], documents: [], assets: {},
     regionsMaroc: [], regionsMarocUpdatedAt: null,
-    templates: { entete: DEFAULT_ENTETE, criteres: DEFAULT_CRITERES.slice(), profil: Object.assign({}, DEFAULT_PROFIL) },
+    templates: { entete: DEFAULT_ENTETE, criteres: DEFAULT_CRITERES.slice(), profil: Object.assign({}, DEFAULT_PROFIL), docTemplates: {} },
+    tmplEditorType: null,
     config: {}, docs: [], docsQuery: '', docsLoading: false, docsError: null,
     dbReady: false, mcpReady: false, downloadsReady: false, sampleReady: false, assetsReady: false,
     syncing: false, syncError: null,
@@ -831,7 +874,7 @@
       state.config = JSON.parse(localStorage.getItem(LS_KEYS.config)||'{}');
       state.assets = JSON.parse(localStorage.getItem(LS_KEYS.assets)||'{}');
       var t = JSON.parse(localStorage.getItem(LS_KEYS.templates)||'null');
-      if(t){ t.profil = Object.assign({}, DEFAULT_PROFIL, t.profil||{}); state.templates = t; }
+      if(t){ t.profil = Object.assign({}, DEFAULT_PROFIL, t.profil||{}); t.docTemplates = t.docTemplates||{}; state.templates = t; }
       var rm = JSON.parse(localStorage.getItem(LS_KEYS.regionsMaroc)||'null');
       state.regionsMaroc = (rm && rm.list && rm.list.length) ? rm.list : cloneDefaultRegions();
       state.regionsMarocUpdatedAt = (rm && rm.updatedAt) || null;
@@ -1413,7 +1456,7 @@
        (!state.templates.updatedAt || new Date(remote.templates.updatedAt) > new Date(state.templates.updatedAt))){
       var rp = remote.templates;
       state.templates = { entete: rp.entete||DEFAULT_ENTETE, criteres: rp.criteres||DEFAULT_CRITERES.slice(),
-        profil: Object.assign({}, DEFAULT_PROFIL, rp.profil||{}), updatedAt: rp.updatedAt };
+        profil: Object.assign({}, DEFAULT_PROFIL, rp.profil||{}), docTemplates: rp.docTemplates||{}, updatedAt: rp.updatedAt };
       saveLocal('templates');
     }
     render();
@@ -1581,7 +1624,7 @@
     pushModal({type:'enseignant', isNew: !rec});
   }
   function openEtablissementEditor(rec){
-    state.draftRecord = rec ? Object.assign({type:'public', cycle:'primaire'}, rec) : { id: uid(), nom:'', zoneId:null, type:'public', cycle:'primaire', adresse:'', telephone:'', notes:'' };
+    state.draftRecord = rec ? Object.assign({type:'public', cycle:'primaire', latitude:'', longitude:''}, rec) : { id: uid(), nom:'', zoneId:null, type:'public', cycle:'primaire', adresse:'', telephone:'', latitude:'', longitude:'', notes:'' };
     pushModal({type:'etablissement', isNew: !rec});
   }
   function openZoneEditor(rec){
@@ -1676,7 +1719,7 @@
     } else if(type==='rapport'){
       base.texte='';
     } else if(type==='attestation'){
-      base.beneficiaireNom = task.enseignantNom||''; base.fonction='Enseignant(e)'; base.objet = task.titre; base.lieu = task.etablissementNom||'';
+      base.beneficiaireNom = task.enseignantNom||''; base.fonction='Enseignant(e)'; base.objet = task.titre; base.lieu = task.etablissementNom||''; base.texteLibre='';
     } else if(type==='lettre_information'){
       /* Pour une réunion pédagogique / un cours expérimental, le courrier d'information est adressé au
          service pédagogique (et non au/à la directeur(trice) de l'établissement comme pour une visite
@@ -1697,6 +1740,17 @@
     } else if(type==='bordereau'){
       base.destinataire = 'Monsieur le Directeur Provincial'; base.reference=''; base.objet = task.titre;
       base.pieces = [{designation: task.titre, nombre:'1'}]; base.observations='';
+    } else if(type==='plan_action'){
+      base.lieu = task.etablissementNom||''; base.objet = task.titre; base.contexte=''; base.objectifs=''; base.actions=[];
+    }
+    /* Modèle personnalisé (Réglages → Modèles de documents → Modèles personnalisés) : si l'utilisateur
+       a défini un texte de modèle avec balises {{...}} pour ce type de document, il remplace le texte
+       par défaut ci-dessus (une fois les balises résolues) dans le champ de texte principal du type —
+       reste ensuite librement modifiable comme n'importe quel texte, y compris avec l'assistant IA. */
+    var tmpl = (state.templates.docTemplates||{})[type];
+    var tmplField = DOC_TEMPLATE_FIELD[type];
+    if(tmpl && tmpl.corps && tmplField){
+      base[tmplField] = applyMergeTemplate(tmpl.corps, docTemplateMergeValues(type, base, task));
     }
     return base;
   }
@@ -1709,6 +1763,7 @@
   /* ================= import / export ================= */
   var importTarget = null; // 'enseignants' | 'etablissements'
   var profilImageTarget = null; // 'logo' | 'cachet' | 'signature'
+  var docTmplLogoTarget = null; // type de document ciblé par l'upload en cours (éditeur de modèles)
   var taskAttachTargetId = null; // id de la tâche visée par le prochain fichier joint (documents de travail)
   function exportCSV(kind){
     var headers, rows;
@@ -1719,8 +1774,8 @@
         cadre:e.cadre||'', statut: (STATUT_ENS.find(function(s){return s.v===e.statut;})||{}).l || 'Titulaire',
         session_titularisation: e.sessionTitularisation||'', telephone:e.telephone, email:e.email, notes:e.notes}; });
     } else {
-      headers = ['nom','zone','type','cycle','adresse','telephone','notes'];
-      rows = state.etablissements.map(function(e){ return {nom:e.nom, zone:zoneName(e.zoneId), type:ETAB_TYPE_LABEL[e.type]||e.type||'', cycle:ETAB_CYCLE_LABEL[e.cycle]||e.cycle||'', adresse:e.adresse, telephone:e.telephone, notes:e.notes}; });
+      headers = ['nom','zone','type','cycle','adresse','telephone','latitude','longitude','notes'];
+      rows = state.etablissements.map(function(e){ return {nom:e.nom, zone:zoneName(e.zoneId), type:ETAB_TYPE_LABEL[e.type]||e.type||'', cycle:ETAB_CYCLE_LABEL[e.cycle]||e.cycle||'', adresse:e.adresse, telephone:e.telephone, latitude:e.latitude||'', longitude:e.longitude||'', notes:e.notes}; });
     }
     var csv = objectsToCSV(headers, rows);
     saveBlob(kind+'.csv', new Blob([csv], {type:'text/csv'})).then(function(){ toast('Export enregistré.'); });
@@ -1760,7 +1815,7 @@
     if(!name) return null;
     var e = state.etablissements.find(function(x){ return x.nom.toLowerCase()===name.toLowerCase(); });
     if(e) return e.id;
-    var ne = {id:uid(), nom:name, zoneId: zoneName2?findOrCreateZone(zoneName2):null, type:'public', cycle:'primaire', adresse:'', telephone:'', notes:''};
+    var ne = {id:uid(), nom:name, zoneId: zoneName2?findOrCreateZone(zoneName2):null, type:'public', cycle:'primaire', adresse:'', telephone:'', latitude:'', longitude:'', notes:''};
     recordSet('etablissement', ne); return ne.id;
   }
   function importCSVFile(file, kind){
@@ -1782,7 +1837,7 @@
         objs.forEach(function(o){
           if(!o.nom) return;
           var zId = findOrCreateZone(o.zone);
-          recordSet('etablissement', { id: uid(), nom:o.nom, zoneId:zId, type:parseEtabType(o.type), cycle:parseEtabCycle(o.cycle), adresse:o.adresse||'', telephone:o.telephone||'', notes:o.notes||'' });
+          recordSet('etablissement', { id: uid(), nom:o.nom, zoneId:zId, type:parseEtabType(o.type), cycle:parseEtabCycle(o.cycle), adresse:o.adresse||'', telephone:o.telephone||'', latitude:o.latitude||'', longitude:o.longitude||'', notes:o.notes||'' });
           count++;
         });
       }
@@ -1847,8 +1902,9 @@
         tables:[], sections:[{heading:null, text:d.texte||'—'}], signatures:null };
     }
     if(d.type==='attestation'){
+      var texteAttest = d.texteLibre ? d.texteLibre : ('يشهد الموقع(ة) أسفله، مفتش(ة) تربوي(ة)، بأن السيد(ة) '+(d.beneficiaireNom||'')+'، '+(d.fonction||'')+'، قد حضر(ت) '+(d.objet||(task?task.titre:''))+' بتاريخ '+fmtDate(d.date)+(d.lieu?' ب'+d.lieu:'')+'.');
       return { rtl:true, titre:'شهادة حضور', meta:[['المؤسسة',d.lieu],['التاريخ',fmtDate(d.date)],['الموضوع',d.objet]],
-        tables:[], sections:[{heading:null, text:'يشهد الموقع(ة) أسفله، مفتش(ة) تربوي(ة)، بأن السيد(ة) '+(d.beneficiaireNom||'')+'، '+(d.fonction||'')+'، قد حضر(ت) '+(d.objet||(task?task.titre:''))+' بتاريخ '+fmtDate(d.date)+(d.lieu?' ب'+d.lieu:'')+'.'}],
+        tables:[], sections:[{heading:null, text:texteAttest}],
         signatures:['توقيع المفتش(ة)'] };
     }
     if(d.type==='lettre_information'){
@@ -1866,6 +1922,12 @@
       return { rtl:true, titre:'بيان إرسال الوثائق', meta:[['المرسل إليه',d.destinataire],['المرجع',d.reference||'—'],['التاريخ',fmtDate(d.date)],['الموضوع',d.objet]],
         tables:[{headers:['بيان الوثائق','العدد'], rows:(d.pieces||[]).map(function(p){ return [p.designation||'', p.nombre||'']; })}],
         sections: d.observations ? [{heading:'ملاحظات', text:d.observations}] : [], signatures:['توقيع المفتش(ة)'] };
+    }
+    if(d.type==='plan_action'){
+      return { rtl:true, titre:'خطة العمل', meta:[['المؤسسة',d.lieu],['التاريخ',fmtDate(d.date)],['الموضوع',d.objet]],
+        tables: (d.actions||[]).length ? [{heading:'الإجراءات', headers:['الإجراء','المسؤول','الأجل'], rows:d.actions.map(function(a){ return [a.action||'', a.responsable||'', fmtDate(a.echeance)]; })}] : [],
+        sections:[{heading:'السياق', text:d.contexte||'—'},{heading:'الأهداف', text:d.objectifs||'—'}],
+        signatures:['توقيع المفتش(ة)'] };
     }
     return { titre:d.titre||'Document', meta:[['Date',fmtDate(d.date)]], tables:[], sections:[], signatures:null };
   }
@@ -1886,6 +1948,8 @@
       var pid = docPhotoAssetId(d, task);
       if(pid) spec.photoAssetId = pid;
     }
+    var dtmpl = (state.templates.docTemplates||{})[d.type];
+    if(dtmpl && dtmpl.logoAssetId) spec.logoAssetId = dtmpl.logoAssetId;
     return spec;
   }
   function buildBilanSpec(){
@@ -1933,7 +1997,7 @@
     var doc = new jsPDF({unit:'mm', format:'a4'});
     var margin = 16, y = 18, pageW = doc.internal.pageSize.getWidth(), maxW = pageW - margin*2;
     var profil = state.templates.profil || {};
-    var logoUrl = profil.logoAssetId ? assetUrl(profil.logoAssetId) : '';
+    var logoUrl = (spec.logoAssetId ? assetUrl(spec.logoAssetId) : '') || (profil.logoAssetId ? assetUrl(profil.logoAssetId) : '');
     var logoFmt = logoUrl ? pdfImageFormat(logoUrl) : null;
     if(logoUrl && logoFmt){ try{ doc.addImage(logoUrl, logoFmt, margin, 9, 15, 15); }catch(e){} }
     if(spec.photoAssetId){
@@ -2003,7 +2067,7 @@
     var align = rtl ? d.AlignmentType.RIGHT : d.AlignmentType.LEFT;
     var children = [];
     var profil = state.templates.profil || {};
-    var logoUrl = profil.logoAssetId ? assetUrl(profil.logoAssetId) : '';
+    var logoUrl = (spec.logoAssetId ? assetUrl(spec.logoAssetId) : '') || (profil.logoAssetId ? assetUrl(profil.logoAssetId) : '');
     if(logoUrl){
       try{
         children.push(new d.Paragraph({ alignment:d.AlignmentType.CENTER, spacing:{after:120},
@@ -2473,13 +2537,15 @@
     var bxe = $('btnExportEtab'); if(bxe) bxe.onclick = function(){ exportCSV('etablissements'); };
     var bie = $('btnImportEtab'); if(bie) bie.onclick = function(){ importTarget='etablissements'; $('fileImportInput').click(); };
     host.querySelectorAll('[data-editzone]').forEach(function(el){ el.onclick = function(ev){ ev.stopPropagation(); var z=state.zones.find(function(x){return x.id===el.getAttribute('data-editzone');}); if(z) openZoneEditor(z); }; });
+    host.querySelectorAll('[data-mapstop]').forEach(function(el){ el.onclick = function(ev){ ev.stopPropagation(); }; });
     host.querySelectorAll('.rec-row').forEach(function(el){ el.onclick = function(){ var e=state.etablissements.find(function(x){return x.id===el.getAttribute('data-id');}); if(e) openEtablissementEditor(e); }; });
   }
   function etabRowHtml(e){
     var nEns = state.enseignants.filter(function(x){ return x.etablissementId===e.id; }).length;
     var tags = [ETAB_CYCLE_LABEL[e.cycle], ETAB_TYPE_LABEL[e.type]].filter(Boolean).join(' · ');
+    var mapLink = (e.latitude && e.longitude) ? ' · <a href="https://www.google.com/maps?q='+encodeURIComponent(e.latitude+','+e.longitude)+'" target="_blank" rel="noopener" class="etab-maplink" data-mapstop="1" style="color:var(--brand);">'+ICONS.pin+' Carte</a>' : '';
     return '<div class="rec-row" data-id="'+e.id+'"><div class="avatar">'+ICONS.folder+'</div>'+
-      '<div class="rec-info"><div class="t">'+esc(e.nom)+'</div><div class="s">'+(tags?esc(tags)+' · ':'')+nEns+' enseignant(s)'+(e.adresse?' · '+esc(e.adresse):'')+'</div></div></div>';
+      '<div class="rec-info"><div class="t">'+esc(e.nom)+'</div><div class="s">'+(tags?esc(tags)+' · ':'')+nEns+' enseignant(s)'+(e.adresse?' · '+esc(e.adresse):'')+mapLink+'</div></div></div>';
   }
 
   /* ---- Bilan ---- */
@@ -2838,7 +2904,8 @@
         '<div class="field"><label>Critères de la grille d\'observation</label><div id="critList">'+
         state.templates.criteres.map(function(c2,i){ return '<div class="rowline"><input type="text" class="crit-input" data-i="'+i+'" value="'+esc(c2)+'" style="flex:1;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;"><button class="rm" data-rmcrit="'+i+'" type="button">'+ICONS.trash+'</button></div>'; }).join('')+
         '</div><button class="addline" id="btnAddCrit" type="button">'+ICONS.plus+' Ajouter un critère</button></div>'+
-        '<div class="btn-row"><button class="btn ghost" id="btnResetTmpl" type="button">Réinitialiser</button><button class="btn primary" id="btnSaveTmpl" type="button">Enregistrer les modèles</button></div>';
+        '<div class="btn-row"><button class="btn ghost" id="btnResetTmpl" type="button">Réinitialiser</button><button class="btn primary" id="btnSaveTmpl" type="button">Enregistrer les modèles</button></div>'+
+        docTemplatesEditorHtml();
     } else if(tab==='referentiel'){
       html += referentielTabHtml();
     } else if(tab==='ia'){
@@ -2900,6 +2967,36 @@
     return '<div class="field"><label>'+label+'</label>'+img+
       '<div class="btn-row"><button class="btn ghost sm" data-picprofil="'+key+'" type="button">'+ICONS.upload+' '+(assetId?'Remplacer':'Ajouter une image')+'</button>'+
       (assetId ? '<button class="btn ghost sm" data-rmprofil="'+key+'" type="button">Retirer</button>' : '')+'</div></div>';
+  }
+  /* Modèles personnalisés par type de document (voir DOC_TEMPLATE_FIELD / docTemplateMergeValues /
+     applyMergeTemplate plus haut) : un sélecteur de type (state.tmplEditorType, purement transitoire —
+     jamais persisté) affiche le logo et le texte de départ déjà enregistrés pour ce type précis dans
+     state.templates.docTemplates[type], modifiables puis enregistrés indépendamment les uns des autres. */
+  function docTemplatesEditorHtml(){
+    var types = Object.keys(DOC_TYPE_INFO);
+    var sel = (state.tmplEditorType && DOC_TYPE_INFO[state.tmplEditorType]) ? state.tmplEditorType : types[0];
+    var dt = (state.templates.docTemplates||{})[sel] || {};
+    var field = DOC_TEMPLATE_FIELD[sel];
+    var html = '<div class="section-label" style="margin-top:18px;">Modèles personnalisés</div>'+
+      '<p style="font-size:11.5px;color:var(--ink-faint);margin:2px 0 10px;">Pour chaque type de document, définissez un logo et/ou un texte de départ réutilisés automatiquement à chaque nouveau document de ce type. Le texte peut contenir des balises telles que <code>{{etablissement}}</code>, remplacées par les informations de la tâche ; il reste ensuite librement modifiable, y compris avec l\'assistant IA.</p>'+
+      '<div class="chips" style="margin-bottom:12px;flex-wrap:wrap;">'+types.map(function(t){
+        return '<button class="chip" data-tmpltype="'+t+'" aria-pressed="'+(t===sel)+'" type="button">'+esc(DOC_TYPE_INFO[t].label)+'</button>';
+      }).join('')+'</div>';
+    var logoImg = dt.logoAssetId ? '<img src="'+assetUrl(dt.logoAssetId)+'" alt="" style="max-height:50px;max-width:140px;border:1px solid var(--line);border-radius:8px;background:#fff;display:block;margin-bottom:8px;">' : '';
+    html += '<div class="field"><label>Logo pour ce type de document <span style="font-weight:400;color:var(--ink-faint);">(remplace, uniquement pour ce type, le logo du profil inspecteur dans les exports PDF/Word)</span></label>'+logoImg+
+      '<div class="btn-row"><button class="btn ghost sm" id="btnPickDocTmplLogo" type="button">'+ICONS.upload+' '+(dt.logoAssetId?'Remplacer':'Ajouter une image')+'</button>'+
+      (dt.logoAssetId ? '<button class="btn ghost sm" id="btnRmDocTmplLogo" type="button">Retirer</button>' : '')+'</div></div>';
+    if(field){
+      var tagsHint = DOC_TEMPLATE_TAGS.map(function(tg){ return '<code>{{'+tg.tag+'}}</code> '+esc(tg.label); }).join(' · ');
+      html += '<div class="field"><label for="tmplDocCorps">Texte de départ — champ « '+esc(DOC_FIELD_LABEL[field]||field)+' »</label>'+
+        '<textarea id="tmplDocCorps" rows="5" dir="'+(RTL_DOC_TYPES[sel]?'rtl':'ltr')+'">'+esc(dt.corps||'')+'</textarea></div>'+
+        '<p style="font-size:11px;color:var(--ink-faint);margin:-4px 0 10px;">Balises disponibles : '+tagsHint+'</p>';
+    } else {
+      html += '<p style="font-size:11.5px;color:var(--ink-faint);">Ce type de document ne propose pas de texte de départ personnalisable ici — seul le logo peut être remplacé.</p>';
+    }
+    html += '<div class="btn-row">'+((dt.logoAssetId||dt.corps) ? '<button class="btn ghost" id="btnResetDocTmpl" type="button">Réinitialiser ce modèle</button>' : '')+
+      '<button class="btn primary" id="btnSaveDocTmpl" type="button">Enregistrer ce modèle</button></div>';
+    return html;
   }
 
   /* ---- Configuration Google Drive (identifiant client) ---- */
@@ -3052,6 +3149,13 @@
       '<p style="font-size:11px;color:var(--ink-faint);margin:5px 2px 0;">Le primaire ne compte qu\'un seul cycle ; en secondaire, une même zone d\'inspection peut réunir des établissements collégiaux et qualifiants.</p></div>'+
       '<div class="field"><label for="etAdr">Adresse</label><input type="text" id="etAdr" value="'+esc(e.adresse)+'"></div>'+
       '<div class="field"><label for="etTel">Téléphone</label><input type="tel" id="etTel" value="'+esc(e.telephone)+'"></div>'+
+      '<div class="field"><label>Localisation (Google Maps)</label>'+
+      '<div class="field-row"><div class="field"><label for="etLat" style="font-weight:400;font-size:11.5px;color:var(--ink-faint);">Latitude</label><input type="text" inputmode="decimal" id="etLat" value="'+esc(e.latitude)+'" placeholder="Ex. 33.8319"></div>'+
+      '<div class="field"><label for="etLng" style="font-weight:400;font-size:11.5px;color:var(--ink-faint);">Longitude</label><input type="text" inputmode="decimal" id="etLng" value="'+esc(e.longitude)+'" placeholder="Ex. -4.8318"></div></div>'+
+      '<div class="btn-row"><button class="btn ghost sm" id="btnEtabGeoloc" type="button">'+ICONS.pin+' Utiliser ma position actuelle</button>'+
+      ((e.latitude && e.longitude) ? '<a class="btn ghost sm" href="https://www.google.com/maps?q='+encodeURIComponent(e.latitude+','+e.longitude)+'" target="_blank" rel="noopener" id="btnEtabViewMap">'+ICONS.ext+' Voir sur Google Maps</a>' : '')+'</div>'+
+      '<p style="font-size:11px;color:var(--ink-faint);margin:5px 2px 0;">Touchez « Utiliser ma position actuelle » une fois sur place (nécessite d\'autoriser la localisation dans le navigateur), ou saisissez les coordonnées manuellement — copiées par exemple depuis Google Maps (appui long sur le lieu).</p>'+
+      '<div class="banner err" id="etGeoStatus" hidden style="margin-top:6px;"></div></div>'+
       '<div class="field"><label for="etNotes">Notes</label><textarea id="etNotes">'+esc(e.notes)+'</textarea></div>'+
       '<div class="btn-row">'+(state.modalStack[idx].isNew?'':'<button class="btn danger" id="btnDeleteEtab" type="button">Supprimer</button>')+'<button class="btn primary" id="btnSaveEtab" type="button">Enregistrer</button></div>'+
       '</div></div>';
@@ -3127,7 +3231,8 @@
     } else if(m.docType==='attestation'){
       body += '<div class="field-row"><div class="field"><label for="dBenef">Bénéficiaire</label><input type="text" id="dBenef" value="'+esc(d.beneficiaireNom)+'"></div><div class="field"><label for="dFonction">Fonction</label><input type="text" id="dFonction" value="'+esc(d.fonction)+'"></div></div>'+
         '<div class="field-row"><div class="field"><label for="dLieu">Lieu</label><input type="text" id="dLieu" value="'+esc(d.lieu)+'"></div><div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div></div>'+
-        '<div class="field"><label for="dObjet">Objet</label><input type="text" id="dObjet" value="'+esc(d.objet)+'"></div>';
+        '<div class="field"><label for="dObjet">Objet</label><input type="text" id="dObjet" value="'+esc(d.objet)+'"></div>'+
+        '<div class="field"><label for="dTexteLibre">Texte de l\'attestation <span style="font-weight:400;color:var(--ink-faint);">(optionnel — laissez vide pour le texte standard généré automatiquement)</span></label><textarea id="dTexteLibre" rows="4" dir="rtl">'+esc(d.texteLibre)+'</textarea></div>';
     } else if(m.docType==='lettre_information'){
       body += '<div class="field"><label for="dDestinataire">Destinataire</label><input type="text" id="dDestinataire" value="'+esc(d.destinataire)+'"></div>'+
         '<div class="field-row"><div class="field"><label for="dObjet">Objet</label><input type="text" id="dObjet" value="'+esc(d.objet)+'"></div><div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div></div>'+
@@ -3143,6 +3248,20 @@
         (state.sampleReady ? '<div class="btn-row"><button class="btn ai sm" id="btnAiConstats" type="button">'+ICONS.ai+' Rédiger/compléter avec l\'IA</button></div><div class="banner info" id="aiConstatsStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>'+
         '<div class="field"><label for="dRecom">Recommandations</label><textarea id="dRecom" rows="4">'+esc(d.recommandations)+'</textarea>'+
         (state.sampleReady ? '<div class="btn-row"><button class="btn ai sm" id="btnAiRecom" type="button">'+ICONS.ai+' Proposer des recommandations</button><button class="btn ghost sm" id="btnTrRecom" type="button">'+ICONS.ai+' Traduire</button></div><div class="banner info" id="aiRecomStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>';
+    } else if(m.docType==='plan_action'){
+      body += '<div class="field-row"><div class="field"><label for="dLieu">Établissement</label><input type="text" id="dLieu" value="'+esc(d.lieu)+'"></div><div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div></div>'+
+        '<div class="field"><label for="dObjet">Objet</label><input type="text" id="dObjet" value="'+esc(d.objet)+'"></div>'+
+        '<div class="field"><label for="dContexte">Contexte</label><textarea id="dContexte" rows="4">'+esc(d.contexte)+'</textarea>'+
+        (state.sampleReady ? '<div class="btn-row"><button class="btn ai sm" id="btnAiContexte" type="button">'+ICONS.ai+' Rédiger/compléter avec l\'IA</button></div><div class="banner info" id="aiContexteStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>'+
+        '<div class="field"><label for="dObjectifs">Objectifs</label><textarea id="dObjectifs" rows="4">'+esc(d.objectifs)+'</textarea>'+
+        (state.sampleReady ? '<div class="btn-row"><button class="btn ai sm" id="btnAiObjectifs" type="button">'+ICONS.ai+' Rédiger/compléter avec l\'IA</button></div><div class="banner info" id="aiObjectifsStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>'+
+        '<div class="field"><label>Actions</label><div id="actList">'+(d.actions||[]).map(function(a,i){
+          return '<div class="rowline"><input type="text" data-act="action" data-i="'+i+'" value="'+esc(a.action)+'" placeholder="Action" style="flex:2;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;">'+
+            '<input type="text" data-act="responsable" data-i="'+i+'" value="'+esc(a.responsable)+'" placeholder="Responsable" style="flex:1;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;">'+
+            '<input type="date" data-act="echeance" data-i="'+i+'" value="'+esc(a.echeance)+'" style="border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 6px;"><button class="rm" data-rmact="'+i+'" type="button">'+ICONS.trash+'</button></div>';
+        }).join('')+'</div><button class="addline" id="btnAddAct" type="button">'+ICONS.plus+' Ajouter une action</button>'+
+        (state.sampleReady ? '<div class="btn-row" style="margin-top:6px;"><button class="btn ai sm" id="btnAiPlanActions" type="button">'+ICONS.ai+' Proposer un plan d\'action</button></div><div class="banner info" id="aiPlanActionsStatus" hidden style="margin-top:6px;"></div>' : '')+
+        '</div>';
     } else {
       body += '<div class="field-row"><div class="field"><label for="dDestinataire">Destinataire</label><input type="text" id="dDestinataire" value="'+esc(d.destinataire)+'"></div><div class="field"><label for="dRef">Référence</label><input type="text" id="dRef" value="'+esc(d.reference)+'" placeholder="N° .../2026"></div></div>'+
         '<div class="field-row"><div class="field"><label for="dObjet">Objet</label><input type="text" id="dObjet" value="'+esc(d.objet)+'"></div><div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div></div>'+
@@ -3303,6 +3422,46 @@
     }
     function syncCritInputs(){ document.querySelectorAll('.crit-input').forEach(function(inp){ state.templates.criteres[parseInt(inp.getAttribute('data-i'))] = inp.value; }); }
 
+    /* -- modèles personnalisés par type de document -- */
+    document.querySelectorAll('[data-tmpltype]').forEach(function(el){
+      el.onclick = function(){ state.tmplEditorType = el.getAttribute('data-tmpltype'); render(); };
+    });
+    var btnPickDocTmplLogo = $('btnPickDocTmplLogo');
+    if(btnPickDocTmplLogo) btnPickDocTmplLogo.onclick = function(){
+      docTmplLogoTarget = state.tmplEditorType || Object.keys(DOC_TYPE_INFO)[0];
+      $('fileDocTmplLogoInput').click();
+    };
+    var btnRmDocTmplLogo = $('btnRmDocTmplLogo');
+    if(btnRmDocTmplLogo) btnRmDocTmplLogo.onclick = function(){
+      var type = state.tmplEditorType || Object.keys(DOC_TYPE_INFO)[0];
+      var docTmpls = Object.assign({}, state.templates.docTemplates||{});
+      var cur = docTmpls[type];
+      if(cur && cur.logoAssetId) removeAsset(cur.logoAssetId);
+      if(cur) docTmpls[type] = Object.assign({}, cur, {logoAssetId:null});
+      templatesSet({docTemplates:docTmpls}); render();
+    };
+    var btnSaveDocTmpl = $('btnSaveDocTmpl');
+    if(btnSaveDocTmpl) btnSaveDocTmpl.onclick = function(){
+      var type = state.tmplEditorType || Object.keys(DOC_TYPE_INFO)[0];
+      var docTmpls = Object.assign({}, state.templates.docTemplates||{});
+      var cur = docTmpls[type] || {};
+      var corpsEl = $('tmplDocCorps');
+      docTmpls[type] = Object.assign({}, cur, corpsEl ? {corps: corpsEl.value} : {});
+      templatesSet({docTemplates:docTmpls});
+      toast('Modèle enregistré pour « '+(DOC_TYPE_INFO[type]||{}).label+' ».');
+    };
+    var btnResetDocTmpl = $('btnResetDocTmpl');
+    if(btnResetDocTmpl) btnResetDocTmpl.onclick = function(){
+      var type = state.tmplEditorType || Object.keys(DOC_TYPE_INFO)[0];
+      if(!confirm('Réinitialiser le modèle de « '+(DOC_TYPE_INFO[type]||{}).label+' » (logo et texte de départ) ?')) return;
+      var docTmpls = Object.assign({}, state.templates.docTemplates||{});
+      var cur = docTmpls[type];
+      if(cur && cur.logoAssetId) removeAsset(cur.logoAssetId);
+      delete docTmpls[type];
+      templatesSet({docTemplates:docTmpls});
+      toast('Modèle réinitialisé.');
+    };
+
     /* -- référentiel régions / directions provinciales -- */
     var refList = $('refList');
     if(refList){
@@ -3443,13 +3602,35 @@
     /* -- etablissement / zone editors -- */
     function syncEtabFields(){
       var e = state.draftRecord, el;
-      el=$('etNom'); if(el) e.nom=el.value; el=$('etAdr'); if(el) e.adresse=el.value; el=$('etTel'); if(el) e.telephone=el.value; el=$('etNotes'); if(el) e.notes=el.value;
+      el=$('etNom'); if(el) e.nom=el.value; el=$('etAdr'); if(el) e.adresse=el.value; el=$('etTel'); if(el) e.telephone=el.value;
+      el=$('etLat'); if(el) e.latitude=el.value; el=$('etLng'); if(el) e.longitude=el.value; el=$('etNotes'); if(el) e.notes=el.value;
     }
     var segET = $('etTypeSeg'); if(segET) segET.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ syncEtabFields(); state.draftRecord.type=b.getAttribute('data-v'); render(); }; });
     var segEC = $('etCycleSeg'); if(segEC) segEC.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ syncEtabFields(); state.draftRecord.cycle=b.getAttribute('data-v'); render(); }; });
+    var btnEtabGeoloc = $('btnEtabGeoloc');
+    if(btnEtabGeoloc) btnEtabGeoloc.onclick = function(){
+      syncEtabFields();
+      var statusEl = $('etGeoStatus');
+      if(!navigator.geolocation){ if(statusEl){ statusEl.hidden=false; statusEl.textContent="La géolocalisation n'est pas prise en charge par ce navigateur."; } return; }
+      btnEtabGeoloc.disabled = true;
+      if(statusEl) statusEl.hidden = true;
+      navigator.geolocation.getCurrentPosition(function(pos){
+        btnEtabGeoloc.disabled = false;
+        state.draftRecord.latitude = String(pos.coords.latitude);
+        state.draftRecord.longitude = String(pos.coords.longitude);
+        render();
+      }, function(err){
+        btnEtabGeoloc.disabled = false;
+        if(statusEl){
+          statusEl.hidden = false;
+          statusEl.textContent = (err && err.code===1) ? "Localisation refusée : autorisez l'accès à la position dans les réglages de votre navigateur." : "Impossible d'obtenir votre position pour le moment.";
+        }
+      }, { enableHighAccuracy:true, timeout:12000 });
+    };
     var saveEtab = $('btnSaveEtab');
     if(saveEtab) saveEtab.onclick = function(){
-      var e = state.draftRecord; e.nom=$('etNom').value.trim()||'(sans nom)'; e.zoneId=$('etZone').value||null; e.adresse=$('etAdr').value; e.telephone=$('etTel').value; e.notes=$('etNotes').value;
+      var e = state.draftRecord; e.nom=$('etNom').value.trim()||'(sans nom)'; e.zoneId=$('etZone').value||null; e.adresse=$('etAdr').value; e.telephone=$('etTel').value;
+      e.latitude=$('etLat').value.trim(); e.longitude=$('etLng').value.trim(); e.notes=$('etNotes').value;
       recordSet('etablissement', e).then(function(){ closeTopModal(); toast('Établissement enregistré.'); });
     };
     var delEtab = $('btnDeleteEtab'); if(delEtab) delEtab.onclick = function(){ recordDelete('etablissement', state.draftRecord.id).then(function(){ closeTopModal(); toast('Supprimé.'); }); };
@@ -3485,7 +3666,7 @@
       ['dObjet:objet','dLieu:lieu','dDate:date','dPresents:presents','dOJ:ordreJour','dPD:pointsDiscutes','dDec:decisions',
        'dEns:enseignantNom','dClasse:classe','dMat:matiere','dDuree:duree','dPF:pointsForts','dAA:axesAmelioration','dSynth:synthese','dTexte:texte',
        'dBenef:beneficiaireNom','dFonction:fonction','dDestinataire:destinataire','dRef:reference','dCorps:corps',
-       'dConstats:constats','dRecom:recommandations','dObs:observations']
+       'dConstats:constats','dRecom:recommandations','dObs:observations','dContexte:contexte','dObjectifs:objectifs','dTexteLibre:texteLibre']
         .forEach(function(pair){ var parts=pair.split(':'); var el=$(parts[0]); if(el) d[parts[1]]=el.value; });
       document.querySelectorAll('[data-part]').forEach(function(inp){ var i=parseInt(inp.getAttribute('data-i')); if(d.participants[i]) d.participants[i][inp.getAttribute('data-part')]=inp.value; });
       document.querySelectorAll('[data-act]').forEach(function(inp){ var i=parseInt(inp.getAttribute('data-i')); if(d.actions[i]) d.actions[i][inp.getAttribute('data-act')]=inp.value; });
@@ -3513,7 +3694,7 @@
     var aiActions = $('btnAiActions'); if(aiActions) aiActions.onclick = function(){
       syncDocGenericFields();
       var d = state.draftDoc;
-      var prompt = "Tu es un inspecteur pédagogique au Maroc. À partir de ce compte-rendu de réunion, propose un plan d'action de 3 à 5 actions concrètes et réalistes. Réponds UNIQUEMENT avec un tableau JSON valide, sans aucun texte ni balise de code autour, au format exact : [{\"action\":\"...\",\"responsable\":\"...\"}]. Chaque action est une phrase courte et concrète ; responsable est un rôle plausible (ex. « Direction de l'établissement », « Enseignant(e) concerné(e) », « Inspecteur(trice) »).\n\nOrdre du jour : "+(d.ordreJour||'—')+"\nPoints discutés : "+(d.pointsDiscutes||'—')+"\nDécisions : "+(d.decisions||'—');
+      var prompt = "Tu es un inspecteur pédagogique au Maroc. À partir de ce compte-rendu de réunion, propose un plan d'action de 3 à 5 actions concrètes et réalistes. Réponds UNIQUEMENT avec un tableau JSON valide, sans aucun texte ni balise de code autour, au format exact : [{\"action\":\"...\",\"responsable\":\"...\"}]. Les valeurs des champs \"action\" et \"responsable\" doivent être rédigées en arabe standard moderne (ce compte-rendu est un document arabe), même si les instructions et le contexte ci-dessous sont en français. Chaque action est une phrase courte et concrète ; responsable est un rôle plausible (ex. « Direction de l'établissement », « Enseignant(e) concerné(e) », « Inspecteur(trice) », à traduire en arabe).\n\nOrdre du jour : "+(d.ordreJour||'—')+"\nPoints discutés : "+(d.pointsDiscutes||'—')+"\nDécisions : "+(d.decisions||'—');
       runAiActionsPlan(aiActions, $('aiActionsStatus'), prompt);
     };
     var aiSynth = $('btnAiSynth'); if(aiSynth) aiSynth.onclick = function(){
@@ -3558,6 +3739,22 @@
       aiDraft(aiRecom, $('aiRecomStatus'), $('dRecom'), "Tu es un inspecteur pédagogique au Maroc. À partir de ces constats d'inspection, propose 3 à 5 recommandations concrètes et bienveillantes (français, ton professionnel) :\n"+(d.constats||'—'));
     };
     var trRecom = $('btnTrRecom'); if(trRecom) trRecom.onclick = function(){ aiTranslate(trRecom, $('aiRecomStatus'), $('dRecom')); };
+    var aiContexte = $('btnAiContexte'); if(aiContexte) aiContexte.onclick = function(){
+      syncDocGenericFields();
+      var d = state.draftDoc;
+      aiDraft(aiContexte, $('aiContexteStatus'), $('dContexte'), "Tu es un inspecteur pédagogique au Maroc. Rédige le contexte d'un plan d'action (en arabe standard moderne — ce document est rédigé en arabe —, ton administratif, 4-6 lignes), pour l'établissement "+(d.lieu||'—')+", objet : "+(d.objet||'—')+".");
+    };
+    var aiObjectifs = $('btnAiObjectifs'); if(aiObjectifs) aiObjectifs.onclick = function(){
+      syncDocGenericFields();
+      var d = state.draftDoc;
+      aiDraft(aiObjectifs, $('aiObjectifsStatus'), $('dObjectifs'), "Tu es un inspecteur pédagogique au Maroc. À partir de ce contexte, propose les objectifs d'un plan d'action (en arabe standard moderne — ce document est rédigé en arabe —, 3-5 objectifs concrets et mesurables) :\n"+(d.contexte||'—'));
+    };
+    var aiPlanActions = $('btnAiPlanActions'); if(aiPlanActions) aiPlanActions.onclick = function(){
+      syncDocGenericFields();
+      var d = state.draftDoc;
+      var prompt = "Tu es un inspecteur pédagogique au Maroc. À partir de ce contexte et de ces objectifs, propose un plan d'action de 3 à 6 actions concrètes et réalistes. Réponds UNIQUEMENT avec un tableau JSON valide, sans aucun texte ni balise de code autour, au format exact : [{\"action\":\"...\",\"responsable\":\"...\"}]. Les valeurs des champs \"action\" et \"responsable\" doivent être rédigées en arabe standard moderne (ce plan d'action est un document arabe), même si les instructions et le contexte ci-dessous sont en français. Chaque action est une phrase courte et concrète ; responsable est un rôle plausible (ex. « Direction de l'établissement », « Enseignant(e) concerné(e) », « Inspecteur(trice) », à traduire en arabe).\n\nContexte : "+(d.contexte||'—')+"\nObjectifs : "+(d.objectifs||'—');
+      runAiActionsPlan(aiPlanActions, $('aiPlanActionsStatus'), prompt);
+    };
     var printBtn = $('btnPrintDoc'); if(printBtn) printBtn.onclick = function(){ syncDocGenericFields(); doPrint(); };
     var saveDocBtn = $('btnSaveDoc'); if(saveDocBtn) saveDocBtn.onclick = function(){ syncDocGenericFields(); saveDoc(); };
     var delDoc = $('btnDeleteDoc'); if(delDoc) delDoc.onclick = function(){ recordDelete('document', state.draftDoc.id).then(function(){ closeTopModal(); toast('Document supprimé.'); }); };
@@ -3637,6 +3834,17 @@
   $('fileLogoInput').onchange = profilImageOnChange();
   $('fileCachetInput').onchange = profilImageOnChange();
   $('fileSignatureInput').onchange = profilImageOnChange();
+  $('fileDocTmplLogoInput').onchange = function(){
+    var f = this.files[0]; this.value=''; if(!f || !docTmplLogoTarget) return;
+    var type = docTmplLogoTarget; docTmplLogoTarget = null;
+    uploadAsset(f).then(function(res){
+      var docTmpls = Object.assign({}, state.templates.docTemplates||{});
+      var cur = docTmpls[type] || {};
+      if(cur.logoAssetId) removeAsset(cur.logoAssetId);
+      docTmpls[type] = Object.assign({}, cur, {logoAssetId: res.id});
+      templatesSet({docTemplates:docTmpls}); render(); toast('Image ajoutée.');
+    }).catch(function(err){ toast(assetsErrorMessage(err)); });
+  };
   $('fileImportInput').onchange = function(){
     var f = this.files[0]; this.value=''; if(!f || !importTarget) return;
     importCSVFile(f, importTarget); importTarget = null;

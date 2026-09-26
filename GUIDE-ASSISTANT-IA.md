@@ -64,10 +64,21 @@ l'application ?** Non. Chaque personne colle sa propre clé dans son propre
 navigateur ; elle n'est jamais codée dans le fichier de l'application ni
 publiée sur GitHub.
 
-**« Clé API Gemini invalide ou refusée » ?** Vérifiez que vous avez bien
-copié toute la clé (elle commence par `AIza…`, sans espace avant/après), et
-qu'une clé API a bien été créée sur aistudio.google.com avec ce compte
-Google.
+**« Clé API Gemini invalide ou refusée » ?** Deux causes possibles :
+
+1. Vérifiez que vous avez bien copié toute la clé (elle commence par
+   `AIza…`, sans espace avant/après), et qu'une clé API a bien été créée sur
+   aistudio.google.com avec ce compte Google.
+2. **Si votre clé fonctionnait avant et a cessé de fonctionner en 2026** :
+   Google a changé sa politique de sécurité et a retiré les anciennes clés
+   API « standard » (celles créées avant mi-2026), au profit d'un nouveau
+   type de clé plus sécurisé. La solution est simple : retournez sur
+   **aistudio.google.com/apikey**, touchez **« Create API key »** pour créer
+   une **toute nouvelle clé** (les clés créées depuis mi-2026 sont
+   automatiquement du nouveau type), puis remplacez l'ancienne clé dans
+   **Paramètres → Assistant IA** par cette nouvelle clé. Aucune autre
+   manipulation n'est nécessaire — l'application a été mise à jour pour
+   suivre le format actuel recommandé par Google.
 
 **Puis-je changer de clé plus tard ?** Oui, à tout moment, dans
 **Paramètres → Assistant IA** — collez la nouvelle clé et touchez
