@@ -687,10 +687,12 @@
     attestation: {label:'Attestation de présence'}, lettre_information: {label:"Lettre d'information"},
     rapport_inspection: {label:"Rapport d'inspection"}, bordereau: {label:'Bordereau de transmission'}
   };
-  /* La plupart des documents administratifs sont rédigés en arabe (langue de l'administration
-     marocaine) ; les rapports de visite/d'inspection ET les grilles d'observation/évaluation
-     restent en français (grille = document pédagogique, pas administratif). */
-  var RTL_DOC_TYPES = { presence:true, compte_rendu:true, attestation:true, lettre_information:true, bordereau:true };
+  /* Règle de langue (précisée par l'utilisateur) : seuls les rapports — « Rapport de synthèse »
+     (visite conseil) et « Rapport d'inspection » — sont rédigés entièrement en français ; TOUS les
+     autres documents, y compris la grille d'observation, sont rédigés en arabe (langue de
+     l'administration marocaine). Voir buildDocSpecInner() : ces deux seuls types y ont des libellés
+     et un contenu en français ; tous les autres ont déjà des libellés arabes et rtl:true. */
+  var RTL_DOC_TYPES = { presence:true, compte_rendu:true, attestation:true, lettre_information:true, bordereau:true, observation:true };
   /* ================= navigation : sidebar = menu principal, onglets du bas = sous-menu de la section active ================= */
   var SUBMENUS = {
     tasks: [{key:'all', label:'Toutes'}].concat(WORKFLOW.map(function(w){ return {key:w.v, label:w.l}; })).concat([{key:'late', label:'En retard'}]),
@@ -1174,7 +1176,19 @@
       if(btn) btn.disabled = false;
     });
   }
-  function aiDraft(btn, statusEl, targetTextarea, prompt){ runAiPrompt(btn, statusEl, targetTextarea, prompt); }
+  /* Rédige — ou, si le champ contient déjà du texte, complète et enrichit ce texte au lieu de
+     l'écraser : très utile pour les rapports et les grilles d'observation, où l'inspecteur(trice) a
+     souvent déjà jeté quelques notes ou un brouillon avant de vouloir les développer. Le prompt de
+     contexte (contextPrompt) reste celui fourni par chaque bouton (fixe la langue et le sujet) ; en
+     mode « enrichir », on lui ajoute simplement le texte existant et une consigne de complétion qui
+     préserve explicitement la langue déjà utilisée. */
+  function aiDraft(btn, statusEl, targetTextarea, contextPrompt){
+    var existing = targetTextarea ? (targetTextarea.value||'').trim() : '';
+    var prompt = existing
+      ? contextPrompt+"\n\nVoici le texte déjà rédigé (brouillon ou notes de l'inspecteur(trice)), à conserver comme base :\n\""+existing+"\"\n\nComplète et enrichis ce texte : développe les idées de façon plus précise, professionnelle et détaillée, améliore la formulation si besoin, sans changer son sens ni inventer de nouveaux faits non mentionnés. Rédige la version complète et enrichie dans la même langue que ce texte existant et que les instructions ci-dessus. Renvoie uniquement le texte final (pas de commentaire méta, pas d'introduction du type « voici la version enrichie »)."
+      : contextPrompt;
+    runAiPrompt(btn, statusEl, targetTextarea, prompt);
+  }
   /* Traduction FR ↔ arabe : plusieurs types de documents (RTL_DOC_TYPES) impriment déjà leur mise en
      forme (titres, libellés, en-têtes de tableaux) en arabe alors que le contenu est saisi dans les
      mêmes champs français de l'application — ce bouton traduit sur place le texte déjà présent dans
@@ -3100,8 +3114,10 @@
           return '<div class="crit-card"><div class="cn">'+esc(c.nom)+'</div><div class="seg" data-critnote="'+i+'">'+NOTE_SCALE.map(function(n){ return '<button type="button" data-v="'+n+'" aria-pressed="'+(c.note===n)+'">'+n+'</button>'; }).join('')+'</div>'+
             '<textarea data-critcomment="'+i+'" placeholder="Commentaire" style="margin-top:7px;width:100%;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px 9px;min-height:44px;">'+esc(c.commentaire)+'</textarea></div>';
         }).join('')+'</div>'+
-        '<div class="field"><label for="dPF">Points forts</label><textarea id="dPF">'+esc(d.pointsForts)+'</textarea></div>'+
-        '<div class="field"><label for="dAA">Axes d\'amélioration</label><textarea id="dAA">'+esc(d.axesAmelioration)+'</textarea></div>'+
+        '<div class="field"><label for="dPF">Points forts</label><textarea id="dPF">'+esc(d.pointsForts)+'</textarea>'+
+        (state.sampleReady ? '<div class="btn-row"><button class="btn ai sm" id="btnAiPF" type="button">'+ICONS.ai+' Rédiger/compléter avec l\'IA</button></div><div class="banner info" id="aiPFStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>'+
+        '<div class="field"><label for="dAA">Axes d\'amélioration</label><textarea id="dAA">'+esc(d.axesAmelioration)+'</textarea>'+
+        (state.sampleReady ? '<div class="btn-row"><button class="btn ai sm" id="btnAiAA" type="button">'+ICONS.ai+' Rédiger/compléter avec l\'IA</button></div><div class="banner info" id="aiAAStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>'+
         '<div class="field"><label for="dSynth">Synthèse</label><textarea id="dSynth" rows="4">'+esc(d.synthese)+'</textarea>'+
         (state.sampleReady ? '<div class="btn-row"><button class="btn ai sm" id="btnAiSynth" type="button">'+ICONS.ai+' Proposer une synthèse</button><button class="btn ghost sm" id="btnTrSynth" type="button">'+ICONS.ai+' Traduire</button></div><div class="banner info" id="aiSynthStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>';
     } else if(m.docType==='rapport'){
@@ -3123,7 +3139,8 @@
       body += '<div class="field-row"><div class="field"><label for="dEns">Enseignant(e)</label><input type="text" id="dEns" value="'+esc(d.enseignantNom)+'"></div><div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div></div>'+
         '<div class="field-row"><div class="field"><label for="dLieu">Établissement</label><input type="text" id="dLieu" value="'+esc(d.lieu)+'"></div><div class="field"><label for="dClasse">Classe</label><input type="text" id="dClasse" value="'+esc(d.classe)+'"></div><div class="field"><label for="dMat">Matière</label><input type="text" id="dMat" value="'+esc(d.matiere)+'"></div></div>'+
         '<div class="field"><label>Appréciation générale</label><div class="seg" id="dAppSeg">'+NOTE_SCALE.map(function(n){ return '<button type="button" data-v="'+n+'" aria-pressed="'+(d.appreciation===n)+'">'+n+'</button>'; }).join('')+'</div></div>'+
-        '<div class="field"><label for="dConstats">Constats</label><textarea id="dConstats" rows="4">'+esc(d.constats)+'</textarea></div>'+
+        '<div class="field"><label for="dConstats">Constats</label><textarea id="dConstats" rows="4">'+esc(d.constats)+'</textarea>'+
+        (state.sampleReady ? '<div class="btn-row"><button class="btn ai sm" id="btnAiConstats" type="button">'+ICONS.ai+' Rédiger/compléter avec l\'IA</button></div><div class="banner info" id="aiConstatsStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>'+
         '<div class="field"><label for="dRecom">Recommandations</label><textarea id="dRecom" rows="4">'+esc(d.recommandations)+'</textarea>'+
         (state.sampleReady ? '<div class="btn-row"><button class="btn ai sm" id="btnAiRecom" type="button">'+ICONS.ai+' Proposer des recommandations</button><button class="btn ghost sm" id="btnTrRecom" type="button">'+ICONS.ai+' Traduire</button></div><div class="banner info" id="aiRecomStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>';
     } else {
@@ -3490,7 +3507,7 @@
     var aiPD = $('btnAiPD'); if(aiPD) aiPD.onclick = function(){
       var notes = $('dPD').value;
       if(!notes.trim()){ toast('Ajoutez quelques notes/mots-clés dans le champ avant de lancer l\'IA.'); return; }
-      aiDraft(aiPD, $('aiPDStatus'), $('dPD'), "Tu rédiges pour un inspecteur pédagogique au Maroc. À partir de ces notes brèves, rédige un paragraphe formel et clair en français (compte-rendu de réunion, ton administratif sobre), sans inventer de faits non mentionnés :\n\n"+notes);
+      aiDraft(aiPD, $('aiPDStatus'), $('dPD'), "Tu rédiges pour un inspecteur pédagogique au Maroc. À partir de ces notes brèves, rédige un paragraphe formel et clair en arabe standard moderne (compte-rendu de réunion, ton administratif sobre — ce document est rédigé en arabe), sans inventer de faits non mentionnés :\n\n"+notes);
     };
     var trPD = $('btnTrPD'); if(trPD) trPD.onclick = function(){ aiTranslate(trPD, $('aiPDStatus'), $('dPD')); };
     var aiActions = $('btnAiActions'); if(aiActions) aiActions.onclick = function(){
@@ -3503,9 +3520,21 @@
       syncDocGenericFields();
       var d = state.draftDoc;
       var critTxt = (d.criteres||[]).map(function(c){ return '- '+c.nom+': '+(c.note||'non noté')+(c.commentaire?' ('+c.commentaire+')':''); }).join('\n');
-      aiDraft(aiSynth, $('aiSynthStatus'), $('dSynth'), "Tu es un inspecteur pédagogique au Maroc. Rédige une synthèse (5-8 lignes, français, ton professionnel et bienveillant) d'une observation de séance, à partir de cette grille :\n"+critTxt+"\nPoints forts notés : "+(d.pointsForts||'—')+"\nAxes d'amélioration notés : "+(d.axesAmelioration||'—'));
+      aiDraft(aiSynth, $('aiSynthStatus'), $('dSynth'), "Tu es un inspecteur pédagogique au Maroc. Rédige une synthèse (5-8 lignes, en arabe standard moderne — la grille d'observation est rédigée en arabe —, ton professionnel et bienveillant) d'une observation de séance, à partir de cette grille :\n"+critTxt+"\nPoints forts notés : "+(d.pointsForts||'—')+"\nAxes d'amélioration notés : "+(d.axesAmelioration||'—'));
     };
     var trSynth = $('btnTrSynth'); if(trSynth) trSynth.onclick = function(){ aiTranslate(trSynth, $('aiSynthStatus'), $('dSynth')); };
+    var aiPF = $('btnAiPF'); if(aiPF) aiPF.onclick = function(){
+      syncDocGenericFields();
+      var d = state.draftDoc;
+      var critTxt = (d.criteres||[]).map(function(c){ return '- '+c.nom+': '+(c.note||'non noté')+(c.commentaire?' ('+c.commentaire+')':''); }).join('\n');
+      aiDraft(aiPF, $('aiPFStatus'), $('dPF'), "Tu es un inspecteur pédagogique au Maroc. À partir de cette grille d'observation, propose 3 à 5 points forts concrets de la séance observée (en arabe standard moderne — la grille d'observation est rédigée en arabe —, ton bienveillant) :\n"+critTxt);
+    };
+    var aiAA = $('btnAiAA'); if(aiAA) aiAA.onclick = function(){
+      syncDocGenericFields();
+      var d = state.draftDoc;
+      var critTxt = (d.criteres||[]).map(function(c){ return '- '+c.nom+': '+(c.note||'non noté')+(c.commentaire?' ('+c.commentaire+')':''); }).join('\n');
+      aiDraft(aiAA, $('aiAAStatus'), $('dAA'), "Tu es un inspecteur pédagogique au Maroc. À partir de cette grille d'observation, propose 2 à 4 axes d'amélioration concrets et bienveillants pour la séance observée (en arabe standard moderne — la grille d'observation est rédigée en arabe) :\n"+critTxt);
+    };
     var aiRap = $('btnAiRapport'); if(aiRap) aiRap.onclick = function(){
       var m = state.modalStack[state.modalStack.length-1];
       var task = state.tasks.find(function(t){ return t.id===m.taskId; });
@@ -3515,9 +3544,14 @@
     var aiLettre = $('btnAiLettre'); if(aiLettre) aiLettre.onclick = function(){
       syncDocGenericFields();
       var d = state.draftDoc;
-      aiDraft(aiLettre, $('aiLettreStatus'), $('dCorps'), "Tu es un inspecteur pédagogique au Maroc. Rédige le corps d'une lettre d'information administrative (4-8 lignes, français, ton formel), adressée à : "+(d.destinataire||'')+", objet : "+(d.objet||'')+".");
+      aiDraft(aiLettre, $('aiLettreStatus'), $('dCorps'), "Tu es un inspecteur pédagogique au Maroc. Rédige le corps d'une lettre d'information administrative (4-8 lignes, en arabe standard moderne — cette lettre est rédigée en arabe —, ton formel), adressée à : "+(d.destinataire||'')+", objet : "+(d.objet||'')+".");
     };
     var trLettre = $('btnTrLettre'); if(trLettre) trLettre.onclick = function(){ aiTranslate(trLettre, $('aiLettreStatus'), $('dCorps')); };
+    var aiConstats = $('btnAiConstats'); if(aiConstats) aiConstats.onclick = function(){
+      syncDocGenericFields();
+      var d = state.draftDoc;
+      aiDraft(aiConstats, $('aiConstatsStatus'), $('dConstats'), "Tu es un inspecteur pédagogique au Maroc. Rédige les constats d'une inspection de classe (français, ton factuel et professionnel, 5-8 lignes), pour l'enseignant(e) "+(d.enseignantNom||'—')+", classe "+(d.classe||'—')+", matière "+(d.matiere||'—')+", appréciation générale : "+(d.appreciation||'—')+".");
+    };
     var aiRecom = $('btnAiRecom'); if(aiRecom) aiRecom.onclick = function(){
       syncDocGenericFields();
       var d = state.draftDoc;
