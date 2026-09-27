@@ -497,14 +497,14 @@
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M7 17.5a4 4 0 0 1-.6-7.95 5.5 5.5 0 0 1 10.7-2.05A4.2 4.2 0 0 1 17.4 17.5H7Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
         Documents
       </button>
-    </div>
-    <div class="side-divider"></div>
-    <div class="side-section-label">Outils</div>
-    <div class="side-nav">
       <button type="button" id="btnSidePlanAction">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M5 3v18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M5 4.5c2-1.2 4-1.2 6 0s4 1.2 6 0v9c-2 1.2-4 1.2-6 0s-4-1.2-6 0v-9Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
         Plan d'action
       </button>
+    </div>
+    <div class="side-divider"></div>
+    <div class="side-section-label">Outils</div>
+    <div class="side-nav">
       <button type="button" id="btnSideSync">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M20 11a8 8 0 1 0-2.3 5.6M20 11V5m0 6h-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         Synchroniser
@@ -730,35 +730,54 @@
   /* ---- Modèles personnalisés (Réglages → Modèles de documents → Modèles personnalisés) : un modèle
      par type de document associe un logo optionnel (state.templates.docTemplates[type].logoAssetId,
      utilisé à la place du logo global du profil dans les exports PDF/Word de ce type précis — voir
-     buildDocSpec) et un texte de corps avec balises {{tag}} (state.templates.docTemplates[type].corps),
-     résolu par applyMergeTemplate() à la création d'un nouveau document (voir buildDefaultDoc) : le
-     texte remplace alors la valeur par défaut du champ principal du type indiqué dans
-     DOC_TEMPLATE_FIELD ci-dessous, tout en restant librement modifiable ensuite (y compris avec
-     l'assistant IA). Les tableaux (participants, actions, pièces…) restent gérés automatiquement par
-     l'application et ne font pas partie du modèle. */
-  var DOC_TEMPLATE_FIELD = {
-    compte_rendu:'ordreJour', observation:'synthese', rapport:'texte', attestation:'texteLibre',
-    lettre_information:'corps', rapport_inspection:'constats', bordereau:'observations', plan_action:'contexte'
+     buildDocSpec) et, pour CHAQUE champ de texte listé dans DOC_TEMPLATE_FIELDS ci-dessous, un texte de
+     départ avec balises {{tag}} (state.templates.docTemplates[type].fields[champ]) — résolu par
+     applyMergeTemplate() à la création d'un nouveau document (voir buildDefaultDoc). Chaque champ reste
+     ensuite librement modifiable comme n'importe quel texte, y compris avec l'assistant IA. Les tableaux
+     (participants, actions, pièces…) restent gérés automatiquement par l'application et ne font pas
+     partie du modèle. */
+  var DOC_TEMPLATE_FIELDS = {
+    compte_rendu:['ordreJour','pointsDiscutes','decisions'],
+    observation:['pointsForts','axesAmelioration','synthese','appreciationGlobale'],
+    rapport:['texte'],
+    attestation:['texteLibre'],
+    lettre_information:['corps'],
+    rapport_inspection:['constats','recommandations'],
+    bordereau:['observations'],
+    plan_action:['contexte','objectifs']
   };
   var DOC_FIELD_LABEL = {
-    ordreJour:'Ordre du jour', synthese:'Synthèse', texte:'Rapport', texteLibre:"Texte de l'attestation",
-    corps:'Corps de la lettre', constats:'Constats', observations:'Observations', contexte:'Contexte'
+    ordreJour:'Ordre du jour', pointsDiscutes:'Points discutés', decisions:'Décisions',
+    pointsForts:'Points forts', axesAmelioration:"Axes d'amélioration", synthese:'Synthèse',
+    appreciationGlobale:'Appréciation globale (collèges pionniers)',
+    texte:'Rapport', texteLibre:"Texte de l'attestation", corps:'Corps de la lettre',
+    constats:'Constats', recommandations:'Recommandations', observations:'Observations',
+    contexte:'Contexte', objectifs:'Objectifs'
   };
   var DOC_TEMPLATE_TAGS = [
     {tag:'etablissement', label:'Établissement'}, {tag:'enseignant', label:"Enseignant(e)"},
     {tag:'classe', label:'Classe'}, {tag:'matiere', label:'Matière'}, {tag:'date', label:'Date'},
-    {tag:'objet', label:'Objet'}, {tag:'lieu', label:'Lieu'}, {tag:'inspecteur', label:"Inspecteur(trice)"}
+    {tag:'heure', label:'Heure'}, {tag:'objet', label:'Objet'}, {tag:'lieu', label:'Lieu'},
+    {tag:'inspecteur', label:"Inspecteur(trice)"}, {tag:'grade', label:'Grade'},
+    {tag:'academie', label:'Académie régionale'}, {tag:'province', label:'Province / DP'},
+    {tag:'ppr', label:'PPR (enseignant(e))'}, {tag:'cadre', label:"Cadre / échelle (enseignant(e))"}
   ];
   function docTemplateMergeValues(type, d, task){
     var profil = state.templates.profil || {};
+    var ens = null;
+    if(task && task.enseignantId) ens = state.enseignants.find(function(x){ return x.id===task.enseignantId; });
+    if(!ens && d.enseignantNom) ens = state.enseignants.find(function(x){ return x.nom===d.enseignantNom; });
+    if(!ens && d.beneficiaireNom) ens = state.enseignants.find(function(x){ return x.nom===d.beneficiaireNom; });
     return {
       etablissement: (task&&task.etablissementNom) || d.lieu || '',
       enseignant: (task&&task.enseignantNom) || d.enseignantNom || d.beneficiaireNom || '',
-      classe: d.classe || '', matiere: d.matiere || '',
-      date: fmtDate(d.date || (task&&task.echeance)),
+      classe: d.classe || '', matiere: d.matiere || (ens&&ens.matiere) || '',
+      date: fmtDate(d.date || (task&&task.echeance)), heure: (task&&task.heure) || '',
       objet: d.objet || d.titre || (task&&task.titre) || '',
       lieu: d.lieu || (task&&task.etablissementNom) || '',
-      inspecteur: profil.nom || ''
+      inspecteur: profil.nom || '', grade: profil.grade || '',
+      academie: profil.academieRegionale || '', province: profil.province || '',
+      ppr: (ens&&ens.ppr) || '', cadre: (ens&&ens.cadre) || ''
     };
   }
   function applyMergeTemplate(text, values){
@@ -893,6 +912,142 @@
   var DEFAULT_CRITERES = ['Préparation de la séance','Maîtrise des contenus','Démarche pédagogique','Gestion de la classe',
     'Utilisation des supports didactiques','Évaluation et rétroaction','Participation des élèves','Respect du timing'];
   var NOTE_SCALE = ['Insuffisant','Satisfaisant','Bien','Très bien'];
+  /* ---- Grilles d'observation « Collèges Pionniers » (26/27) ---- : en plus de la grille standard
+     (state.templates.criteres, ci-dessus), le ministère fournit pour les collèges pionniers deux
+     grilles spécifiques et invariables — une pour la séance ordinaire, une pour la séance de synthèse
+     — organisées en domaines d'observation, chacun regroupant plusieurs critères notés sur une échelle
+     à 3 niveaux (sans commentaire par critère), avec une seule appréciation d'ensemble en fin de grille.
+     Contenu recopié fidèlement des documents officiels (texte en français ; seule l'échelle de notation
+     est libellée en arabe sur le document source — voir OBS_PIONNIER_SCALE/_AR ci-dessous). */
+  var OBS_VARIANTES = [
+    {v:'standard', l:'Grille standard'},
+    {v:'pionnier_ordinaire', l:'Collège pionnier — séance ordinaire'},
+    {v:'pionnier_synthese', l:'Collège pionnier — séance de synthèse'}
+  ];
+  var OBS_VARIANTE_LABEL = {}; OBS_VARIANTES.forEach(function(o){ OBS_VARIANTE_LABEL[o.v]=o.l; });
+  /* Échelle à 3 niveaux des grilles pionniers : libellés français utilisés à l'écran et dans les
+     documents générés (PDF/Word/Impression) — le PDF (jsPDF, police « helvetica ») ne peut pas
+     afficher l'arabe, d'où ce choix, cohérent avec le fait que la grille d'observation est déjà,
+     par convention, rédigée entièrement en français (voir RTL_DOC_TYPES ci-dessus). Les libellés
+     arabes officiels (OBS_PIONNIER_SCALE_AR) sont affichés à titre indicatif au-dessus de l'échelle. */
+  var OBS_PIONNIER_SCALE = ['Non maîtrisé','En cours de maîtrise','Maîtrisé'];
+  var OBS_PIONNIER_SCALE_AR = ['غير متحكم فيه','في طور التحكم','متحكم فيه'];
+  var OBS_PIONNIER_ORDINAIRE = [
+    {nom:'Préparation de la leçon', criteres:[
+      "L'enseignant prépare une fiche qui résume les objectifs, les étapes de la séance, ainsi que les concepts et/ou stratégies à enseigner.",
+      "Il définit dans la fiche les phases de réalisation de la tâche et les critères de réussite.",
+      "Il exploite différentes ressources didactiques (kit de formation, PPT, livrets des élèves, livret des compétences...)."
+    ]},
+    {nom:"Mise en place d'un environnement sécurisant", criteres:[
+      "Il encourage tous les élèves à participer et à prendre des initiatives en dédramatisant l'erreur.",
+      "Il valorise les réponses correctes et les efforts fournis par des expressions d'encouragement et de félicitation appropriées.",
+      "Il évite de porter un jugement de valeur sur tout apprenant ayant commis une erreur.",
+      "Il respecte les rythmes d'apprentissage individuels et accorde suffisamment de temps pour réfléchir avant de répondre.",
+      "Il consolide les principes de la charte de classe et encourage les interactions positives entre les élèves."
+    ]},
+    {nom:'Ouverture de la séance', criteres:[
+      "Il ouvre la séance par des activités brise-glace avec spontanéité et naturel.",
+      "Il vérifie la réalisation des devoirs à la maison et propose une rétroaction ciblée pour traiter les erreurs récurrentes.",
+      "Il annonce clairement les objectifs de la séance avec assurance, les explique en termes simples et clairs, et présente un exemple de la tâche visée.",
+      "Il active les connaissances antérieures et les relie au nouvel objectif d'apprentissage."
+    ]},
+    {nom:'Modelage', criteres:[
+      "Il capte l'attention des apprenants au début du modelage par un signal habituel, clair et convenu.",
+      "Il clarifie les étapes de réalisation des tâches au tableau de façon concise, sans digression, en présentant des exemples et des contre-exemples.",
+      "Il indique de façon explicite et progressive les indicateurs de réussite dans la réalisation de la tâche (spécifications de réalisation).",
+      "Il emploie la première personne du singulier, se pose des questions, y répond et verbalise son raisonnement.",
+      "Il vérifie la compréhension des apprenants après chaque étape avant de passer à l'étape suivante.",
+      "Il utilise des outils illustratifs pour ancrer la méthodologie : synthèse récapitulative, carte conceptuelle, schéma illustratif.",
+      "Il emploie un langage clair et adapté au niveau des apprenants, sans complexité terminologique."
+    ]},
+    {nom:'Pratique guidée', criteres:[
+      "Il pose des questions variées et progressives pour vérifier immédiatement la compréhension des apprenants après chaque étape.",
+      "Il circule entre les rangées lors de la pratique en binôme pour suivre les réalisations et soutenir les élèves en difficulté.",
+      "Il utilise des techniques variées (ardoises, vote, signaux...) pour vérifier la compréhension collective de ce qui est attendu.",
+      "Il diversifie les profils d'élèves qu'il choisit pour répondre aux questions.",
+      "Il demande aux élèves de justifier leurs réponses et d'expliciter le processus de leur raisonnement.",
+      "Il fournit une rétroaction régulière : explications supplémentaires, correction des erreurs, ou nouveau modelage partiel ou total."
+    ]},
+    {nom:'Pratique autonome', criteres:[
+      "Il explique ce qui est attendu des apprenants et s'assure de leur compréhension de la tâche avant de commencer le travail individuel.",
+      "Il consacre suffisamment de temps au travail individuel autonome sans intervention précoce.",
+      "Il applique le principe de différenciation : activités défi pour les élèves avancés et activités de soutien pour les élèves en difficulté.",
+      "Il corrige les réalisations et fournit une rétroaction constructive à chaque apprenant."
+    ]},
+    {nom:'Clôture de la séance', criteres:[
+      "Il demande aux élèves de rappeler ce qu'ils ont appris durant la séance, puis présente une synthèse récapitulative des apprentissages essentiels.",
+      "Il charge les élèves de réaliser des exercices et activités à la maison pour consolider les apprentissages."
+    ]},
+    {nom:'Participation et interaction en classe', criteres:[
+      "Il veille à d'impliquer les différents profils d'apprenants dans les activités, les questions et les discussions, via des pratiques et activités attrayantes qui favorisent l'émulation.",
+      "Les apprenants réalisent les tâches demandées avec succès et un niveau de performance acceptable.",
+      "L'enseignant diversifie les modalités d'implication des apprenants : individuel, en binôme, en groupes, collectif."
+    ]},
+    {nom:'Documents pédagogiques', criteres:[
+      "Il renseigne le cahier de textes régulièrement et exploite les observations qui y sont consignées.",
+      "Il renseigne régulièrement les grilles de notation et de contrôle continu, et exploite leurs résultats pour ajuster les activités d'enseignement et d'apprentissage.",
+      "Il prend soin du portfolio, y incluant tous les documents reflétant l'évolution de sa pratique et les résultats de ses apprenants.",
+      "Il contrôle les cahiers et les classeurs des apprenants et y consigne des observations et des orientations."
+    ]}
+  ];
+  var OBS_PIONNIER_SYNTHESE = [
+    {nom:'Vérification des exercices à la maison et diagnostic des difficultés', criteres:[
+      "L'enseignant vérifie la réalisation des devoirs à la maison et évalue la performance de chaque apprenant.",
+      "L'enseignant identifie en début de séance les erreurs fréquentes et les catégorise (erreurs conceptuelles / procédurales / d'attention)."
+    ]},
+    {nom:'Explication des tâches et des consignes, et définition des critères de réussite', criteres:[
+      "L'enseignant lit les consignes à voix haute, les explique en termes simples et adaptés aux niveaux des apprenants, et vérifie leur compréhension.",
+      "L'enseignant consigne au tableau les étapes de réalisation requises et les laisse affichées devant les apprenants.",
+      "L'enseignant présente un exemple de la démarche de réalisation de la tâche.",
+      "L'enseignant affiche les critères de réalisation au tableau avant de commencer toute tâche."
+    ]},
+    {nom:"Réalisation d'un nouveau modelage si nécessaire", criteres:[
+      "L'enseignant propose un nouveau modelage ou un mini-modelage lorsqu'il identifie un blocage collectif ou une incompréhension généralisée.",
+      "L'enseignant analyse l'erreur fréquente devant les élèves, en explique la cause et la manière de la corriger.",
+      "L'enseignant recourt à des contre-exemples pour clarifier les erreurs à éviter."
+    ]},
+    {nom:'Travail collaboratif et organisation des groupes', criteres:[
+      "L'enseignant organise les groupes de travail selon des critères réfléchis (groupes homogènes pour le soutien, mixtes pour l'enrichissement).",
+      "L'enseignant attribue à chaque apprenant un rôle précis au sein du groupe (coordinateur, rapporteur, contrôleur...).",
+      "L'enseignant circule entre les groupes pour surveiller la dynamique interne et apporter le soutien nécessaire.",
+      "L'enseignant encourage les élèves à formuler des observations constructives et précises, sans porter de jugements de valeur.",
+      "Il mobilise les pairs compétents en tant que personne ressource pour soutenir leurs camarades en difficulté."
+    ]},
+    {nom:'Verbalisation du raisonnement', criteres:[
+      "L'enseignant demande aux élèves d'expliquer à voix haute les étapes de leur raisonnement et de ne pas se contenter de la réponse.",
+      "L'enseignant pose des questions qui favorisent l'activité métacognitive : « Comment es-tu arrivé à cette solution ? » / « Pourquoi as-tu choisi cette méthode ? »",
+      "L'enseignant considère les erreurs comme des opportunités de nouveaux apprentissages ou de correction d'apprentissages antérieurs."
+    ]},
+    {nom:'Feedback et différenciation des apprentissages', criteres:[
+      "L'enseignant fournit une rétroaction immédiate après chaque réalisation ou tâche, sous des formes variées : individuelle / collective / écrite / orale.",
+      "L'enseignant classe les élèves selon le type de difficultés et propose des activités adaptées pour les traiter.",
+      "L'enseignant propose des défis supplémentaires aux élèves avancés pour mobiliser leurs acquis dans de nouveaux contextes.",
+      "L'enseignant utilise des cartes conceptuelles ou des schémas mentaux pour organiser et consolider les savoirs.",
+      "L'enseignant renforce l'assimilation visuelle par l'utilisation de couleurs, symboles et signes indicateurs.",
+      "L'enseignant observe le niveau de progression de chaque élève et documente les résultats dans le dossier de suivi."
+    ]}
+  ];
+  var OBS_PIONNIER_DOMAINES = { pionnier_ordinaire: OBS_PIONNIER_ORDINAIRE, pionnier_synthese: OBS_PIONNIER_SYNTHESE };
+  /* Construit/réinitialise les champs de d selon la variante choisie, en supprimant les champs propres
+     à l'AUTRE forme (grille standard: criteres[]/pointsForts/axesAmelioration/synthese — grille
+     pionnier: domaines[]/appreciationGlobale) pour éviter qu'une valeur orpheline ne soit ré-affichée ou
+     ré-exportée après un changement de variante. */
+  function applyObsVariante(d, variante){
+    d.variante = variante;
+    if(variante==='pionnier_ordinaire' || variante==='pionnier_synthese'){
+      d.domaines = OBS_PIONNIER_DOMAINES[variante].map(function(dom){
+        return { nom: dom.nom, criteres: dom.criteres.map(function(c){ return {nom:c, note:''}; }) };
+      });
+      if(typeof d.appreciationGlobale !== 'string') d.appreciationGlobale = '';
+      delete d.criteres; delete d.pointsForts; delete d.axesAmelioration; delete d.synthese;
+    } else {
+      if(!d.criteres) d.criteres = state.templates.criteres.map(function(c){ return {nom:c, note:'', commentaire:''}; });
+      if(typeof d.pointsForts !== 'string') d.pointsForts = '';
+      if(typeof d.axesAmelioration !== 'string') d.axesAmelioration = '';
+      if(typeof d.synthese !== 'string') d.synthese = '';
+      delete d.domaines; delete d.appreciationGlobale;
+    }
+  }
   var DEFAULT_ENTETE = "Académie Régionale d'Éducation et de Formation – Fès-Meknès\nDirection Provinciale de Sefrou";
   var DEFAULT_FOLDER_NAME = "Carnet d'Inspection — Données";
   var ETAB_TYPES = [{v:'public', l:'Public'}, {v:'prive', l:'Privé'}];
@@ -1563,23 +1718,56 @@
   function ensureAttachFolder(appFolderId){ return ensureSubfolder(appFolderId, 'Pièces jointes', 'attachFolderId'); }
   function ensureTemplatesFolder(appFolderId){ return ensureSubfolder(appFolderId, 'Modèles', 'templatesFolderId'); }
   /* Modèles de documents sur Google Docs (Réglages → Modèles de documents → Modèles personnalisés) :
-     alternative à la simple zone de texte de l'app pour un texte long ou nécessitant une mise en forme
-     plus riche — le Google Doc créé sert de brouillon éditable dans l'éditeur Google Docs habituel ;
-     son contenu n'est ramené dans docTemplates[type].corps qu'au clic explicite sur « Récupérer le
-     texte » (pas de synchronisation automatique/silencieuse, pour que l'inspecteur(trice) garde le
-     contrôle du moment où le nouveau texte remplace l'ancien). */
+     alternative à la saisie dans l'app pour un texte long ou nécessitant une mise en forme plus riche —
+     UN SEUL Google Doc est créé par type de document, regroupant TOUS ses champs personnalisables
+     (voir DOC_TEMPLATE_FIELDS), chacun repéré par une ligne « === Libellé === » — voir
+     buildTemplateGdocBody/parseTemplateGdocBody ci-dessous. Il sert de brouillon éditable dans
+     l'éditeur Google Docs habituel ; son contenu n'est reparti dans docTemplates[type].fields qu'au
+     clic explicite sur « Récupérer le texte » (pas de synchronisation automatique/silencieuse, pour que
+     l'inspecteur(trice) garde le contrôle du moment où le nouveau texte remplace l'ancien). */
+  function templateGdocFieldMarker(label){ return '=== '+label+' ==='; }
+  function buildTemplateGdocBody(type, fields, fieldsData){
+    var label = (DOC_TYPE_INFO[type]||{}).label || type;
+    var tagsHint = DOC_TEMPLATE_TAGS.map(function(tg){ return '{{'+tg.tag+'}} = '+tg.label; }).join('\n');
+    var intro = 'Modèle : '+label+'\n\nModifiez le texte de chaque section ci-dessous (gardez les lignes '+
+      '« === ... === » telles quelles : elles servent de repères pour ramener le texte dans l\'application). '+
+      'Recopiez les balises ci-dessous telles quelles à l\'endroit voulu dans une section : elles seront '+
+      'automatiquement remplacées par les informations de la tâche à la création d\'un nouveau document.'+
+      '\n\nBalises disponibles :\n'+tagsHint;
+    var sections = fields.map(function(f){
+      return templateGdocFieldMarker(DOC_FIELD_LABEL[f]||f)+'\n'+((fieldsData&&fieldsData[f])||'');
+    }).join('\n\n');
+    return intro+'\n\n'+sections;
+  }
+  /* Découpe le texte relu depuis Google Docs entre chaque marqueur « === Libellé === » : le contenu
+     d'un champ va de son marqueur jusqu'au marqueur suivant (ou la fin du texte) — un champ dont le
+     marqueur a été supprimé par erreur est simplement laissé inchangé (voir pullTemplateFromGdoc). */
+  function parseTemplateGdocBody(fields, text){
+    var out = {};
+    fields.forEach(function(f, i){
+      var marker = templateGdocFieldMarker(DOC_FIELD_LABEL[f]||f);
+      var idx = text.indexOf(marker);
+      if(idx===-1) return;
+      var start = idx + marker.length, end = text.length;
+      fields.forEach(function(f2, j){
+        if(j===i) return;
+        var idx2 = text.indexOf(templateGdocFieldMarker(DOC_FIELD_LABEL[f2]||f2), start);
+        if(idx2!==-1 && idx2 < end) end = idx2;
+      });
+      out[f] = text.slice(start, end).trim();
+    });
+    return out;
+  }
   function openOrCreateTemplateGdoc(type){
     var docTmpls = Object.assign({}, state.templates.docTemplates||{});
     var cur = docTmpls[type] || {};
     if(cur.gdocUrl){ window.open(cur.gdocUrl, '_blank', 'noopener'); return Promise.resolve(cur); }
-    var label = (DOC_TYPE_INFO[type]||{}).label || type;
-    var tagsHint = DOC_TEMPLATE_TAGS.map(function(tg){ return '{{'+tg.tag+'}} = '+tg.label; }).join('\n');
-    var body = cur.corps || ('Modèle : '+label+'\n\nRemplacez ce texte par le contenu de départ souhaité pour ce type de document. '+
-      'Recopiez les balises ci-dessous telles quelles à l\'endroit voulu : elles seront automatiquement remplacées par les informations de la tâche à la création d\'un nouveau document.\n\n'+tagsHint);
+    var fields = DOC_TEMPLATE_FIELDS[type] || [];
+    var body = buildTemplateGdocBody(type, fields, cur.fields||{});
     return ensureAppFolder().then(function(appFolder){
       return ensureTemplatesFolder(appFolder.id).catch(function(){ return null; }).then(function(folder){
         return mcpCall('create_file', {
-          title: 'Modèle - '+label, textContent: body, contentMimeType:'text/plain',
+          title: 'Modèle - '+((DOC_TYPE_INFO[type]||{}).label||type), textContent: body, contentMimeType:'text/plain',
           parentId: (folder && folder.id) || appFolder.id, convertToGoogleDoc:true
         });
       });
@@ -1597,13 +1785,15 @@
     var docTmpls = state.templates.docTemplates||{};
     var cur = docTmpls[type];
     if(!cur || !cur.gdocFileId) return Promise.reject({code:'not_configured'});
+    var fields = DOC_TEMPLATE_FIELDS[type] || [];
     return mcpCall('download_file_content', {fileId: cur.gdocFileId, exportMimeType:'text/plain'}).then(function(res){
       var payload = res.payload || {};
       var text = payload.content ? b64ToUtf8(payload.content) : '';
+      var parsed = parseTemplateGdocBody(fields, text);
       var docTmpls2 = Object.assign({}, state.templates.docTemplates||{});
-      docTmpls2[type] = Object.assign({}, docTmpls2[type], {corps: text.trim()});
+      docTmpls2[type] = Object.assign({}, docTmpls2[type], {fields: Object.assign({}, (docTmpls2[type]||{}).fields, parsed)});
       templatesSet({docTemplates:docTmpls2});
-      return text.trim();
+      return parsed;
     });
   }
   /* Téléversement best-effort d'une pièce jointe (enseignant ou tâche) vers le sous-dossier
@@ -1937,7 +2127,7 @@
     pushModal({type:'enseignant', isNew: !rec});
   }
   function openEtablissementEditor(rec){
-    state.draftRecord = rec ? Object.assign({type:'public', cycle:'primaire', latitude:'', longitude:''}, rec) : { id: uid(), nom:'', zoneId:null, type:'public', cycle:'primaire', adresse:'', telephone:'', latitude:'', longitude:'', notes:'' };
+    state.draftRecord = rec ? Object.assign({type:'public', cycle:'primaire', latitude:'', longitude:'', pionnier:false}, rec) : { id: uid(), nom:'', zoneId:null, type:'public', cycle:'primaire', adresse:'', telephone:'', latitude:'', longitude:'', pionnier:false, notes:'' };
     pushModal({type:'etablissement', isNew: !rec});
   }
   function openZoneEditor(rec){
@@ -2035,8 +2225,11 @@
       base.decisions=''; base.actions=[];
     } else if(type==='observation'){
       base.enseignantNom = task.enseignantNom||''; base.classe=''; base.matiere=''; base.duree='';
-      base.criteres = state.templates.criteres.map(function(c){ return {nom:c, note:'', commentaire:''}; });
-      base.pointsForts=''; base.axesAmelioration=''; base.synthese='';
+      /* Grille suggérée par défaut : celle du collège pionnier (séance ordinaire) si l'établissement
+         de la tâche est coché « Collège pionnier » ; sinon la grille standard. Reste modifiable via le
+         sélecteur de variante dans l'éditeur (docEditModalHtml). */
+      var etObs = task.etablissementId ? state.etablissements.find(function(x){ return x.id===task.etablissementId; }) : null;
+      applyObsVariante(base, (etObs && etObs.pionnier) ? 'pionnier_ordinaire' : 'standard');
     } else if(type==='rapport'){
       base.texte='';
     } else if(type==='attestation'){
@@ -2065,13 +2258,19 @@
       base.lieu = task.etablissementNom||''; base.objet = task.titre; base.contexte=''; base.objectifs=''; base.actions=[];
     }
     /* Modèle personnalisé (Réglages → Modèles de documents → Modèles personnalisés) : si l'utilisateur
-       a défini un texte de modèle avec balises {{...}} pour ce type de document, il remplace le texte
-       par défaut ci-dessus (une fois les balises résolues) dans le champ de texte principal du type —
-       reste ensuite librement modifiable comme n'importe quel texte, y compris avec l'assistant IA. */
+       a défini un texte de modèle avec balises {{...}} pour un ou plusieurs champs de ce type de
+       document, ce texte remplace la valeur par défaut ci-dessus (une fois les balises résolues) dans
+       chacun de ces champs — chacun reste ensuite librement modifiable comme n'importe quel texte, y
+       compris avec l'assistant IA. */
     var tmpl = (state.templates.docTemplates||{})[type];
-    var tmplField = DOC_TEMPLATE_FIELD[type];
-    if(tmpl && tmpl.corps && tmplField){
-      base[tmplField] = applyMergeTemplate(tmpl.corps, docTemplateMergeValues(type, base, task));
+    var tmplFields = DOC_TEMPLATE_FIELDS[type] || [];
+    if(tmpl && tmpl.fields && tmplFields.length){
+      var mergeVals = docTemplateMergeValues(type, base, task);
+      tmplFields.forEach(function(f){
+        /* base.hasOwnProperty(f) : évite de ré-introduire un champ qu'applyObsVariante() a
+           délibérément supprimé (ex. pointsForts/axesAmelioration/synthese sur une grille pionnier). */
+        if(tmpl.fields[f] && base.hasOwnProperty(f)) base[f] = applyMergeTemplate(tmpl.fields[f], mergeVals);
+      });
     }
     return base;
   }
@@ -2136,7 +2335,7 @@
     if(!name) return null;
     var e = state.etablissements.find(function(x){ return x.nom.toLowerCase()===name.toLowerCase(); });
     if(e) return e.id;
-    var ne = {id:uid(), nom:name, zoneId: zoneName2?findOrCreateZone(zoneName2):null, type:'public', cycle:'primaire', adresse:'', telephone:'', latitude:'', longitude:'', notes:''};
+    var ne = {id:uid(), nom:name, zoneId: zoneName2?findOrCreateZone(zoneName2):null, type:'public', cycle:'primaire', adresse:'', telephone:'', latitude:'', longitude:'', pionnier:false, notes:''};
     recordSet('etablissement', ne); return ne.id;
   }
   function importCSVFile(file, kind){
@@ -2213,6 +2412,20 @@
         signatures:['رئيس(ة) الجلسة','كاتب(ة) الجلسة'] };
     }
     if(d.type==='observation'){
+      var obsVariante = d.variante || 'standard';
+      if(obsVariante==='pionnier_ordinaire' || obsVariante==='pionnier_synthese'){
+        var scaleHeaders = ['Critères et indicateurs d\'évaluation'].concat(OBS_PIONNIER_SCALE);
+        var domTables = (d.domaines||[]).map(function(dom){
+          return { heading: dom.nom, headers: scaleHeaders, rows: dom.criteres.map(function(c){
+            return [c.nom].concat(OBS_PIONNIER_SCALE.map(function(lvl){ return c.note===lvl ? 'X' : ''; }));
+          }) };
+        });
+        return { titre:"Grille d'observation — Collège pionnier ("+(OBS_VARIANTE_LABEL[obsVariante]||'')+")",
+          meta:[['Enseignant(e)',d.enseignantNom],['Établissement',task?task.etablissementNom:''],['Classe',d.classe],['Matière',d.matiere],['Date',fmtDate(d.date)],['Durée',d.duree]],
+          tables: domTables,
+          sections:[{heading:"Appréciations d'ensemble et orientations", text:d.appreciationGlobale||'—'}],
+          signatures:["Signature de l'inspecteur(trice)","Signature de l'enseignant(e)"] };
+      }
       return { titre:"Grille d'observation de séance", meta:[['Enseignant(e)',d.enseignantNom],['Établissement',task?task.etablissementNom:''],['Classe',d.classe],['Matière',d.matiere],['Date',fmtDate(d.date)],['Durée',d.duree]],
         tables:[{headers:['Critère','Appréciation','Commentaire'], rows:(d.criteres||[]).map(function(c){ return [c.nom, c.note||'—', c.commentaire||'']; })}],
         sections:[{heading:'Points forts', text:d.pointsForts||'—'},{heading:"Axes d'amélioration", text:d.axesAmelioration||'—'},{heading:'Synthèse', text:d.synthese||'—'}],
@@ -3391,17 +3604,19 @@
       '<div class="btn-row"><button class="btn ghost sm" data-picprofil="'+key+'" type="button">'+ICONS.upload+' '+(assetId?'Remplacer':'Ajouter une image')+'</button>'+
       (assetId ? '<button class="btn ghost sm" data-rmprofil="'+key+'" type="button">Retirer</button>' : '')+'</div></div>';
   }
-  /* Modèles personnalisés par type de document (voir DOC_TEMPLATE_FIELD / docTemplateMergeValues /
+  /* Modèles personnalisés par type de document (voir DOC_TEMPLATE_FIELDS / docTemplateMergeValues /
      applyMergeTemplate plus haut) : un sélecteur de type (state.tmplEditorType, purement transitoire —
-     jamais persisté) affiche le logo et le texte de départ déjà enregistrés pour ce type précis dans
-     state.templates.docTemplates[type], modifiables puis enregistrés indépendamment les uns des autres. */
+     jamais persisté) affiche le logo et le texte de départ de CHAQUE champ personnalisable déjà
+     enregistré pour ce type précis dans state.templates.docTemplates[type].fields, tous modifiables et
+     enregistrés ensemble d'un même clic sur « Enregistrer ce modèle ». */
   function docTemplatesEditorHtml(){
     var types = Object.keys(DOC_TYPE_INFO);
     var sel = (state.tmplEditorType && DOC_TYPE_INFO[state.tmplEditorType]) ? state.tmplEditorType : types[0];
     var dt = (state.templates.docTemplates||{})[sel] || {};
-    var field = DOC_TEMPLATE_FIELD[sel];
+    var dtFields = dt.fields || {};
+    var fields = DOC_TEMPLATE_FIELDS[sel] || [];
     var html = '<div class="section-label" style="margin-top:18px;">Modèles personnalisés</div>'+
-      '<p style="font-size:11.5px;color:var(--ink-faint);margin:2px 0 10px;">Pour chaque type de document, définissez un logo et/ou un texte de départ réutilisés automatiquement à chaque nouveau document de ce type. Le texte peut contenir des balises telles que <code>{{etablissement}}</code>, remplacées par les informations de la tâche ; il reste ensuite librement modifiable, y compris avec l\'assistant IA.</p>'+
+      '<p style="font-size:11.5px;color:var(--ink-faint);margin:2px 0 10px;">Pour chaque type de document que l\'application génère, définissez un logo et/ou un texte de départ pour chacun de ses champs — réutilisés automatiquement à chaque nouveau document de ce type. Un texte peut contenir des balises réservées telles que <code>{{etablissement}}</code> ou <code>{{ppr}}</code>, remplacées par les données de l\'application ; il reste ensuite librement modifiable, y compris avec l\'assistant IA.</p>'+
       '<div class="chips" style="margin-bottom:12px;flex-wrap:wrap;">'+types.map(function(t){
         return '<button class="chip" data-tmpltype="'+t+'" aria-pressed="'+(t===sel)+'" type="button">'+esc(DOC_TYPE_INFO[t].label)+'</button>';
       }).join('')+'</div>';
@@ -3409,23 +3624,26 @@
     html += '<div class="field"><label>Logo pour ce type de document <span style="font-weight:400;color:var(--ink-faint);">(remplace, uniquement pour ce type, le logo du profil inspecteur dans les exports PDF/Word)</span></label>'+logoImg+
       '<div class="btn-row"><button class="btn ghost sm" id="btnPickDocTmplLogo" type="button">'+ICONS.upload+' '+(dt.logoAssetId?'Remplacer':'Ajouter une image')+'</button>'+
       (dt.logoAssetId ? '<button class="btn ghost sm" id="btnRmDocTmplLogo" type="button">Retirer</button>' : '')+'</div></div>';
-    if(field){
+    if(fields.length){
       var tagsHint = DOC_TEMPLATE_TAGS.map(function(tg){ return '<code>{{'+tg.tag+'}}</code> '+esc(tg.label); }).join(' · ');
-      html += '<div class="field"><label for="tmplDocCorps">Texte de départ — champ « '+esc(DOC_FIELD_LABEL[field]||field)+' »</label>'+
-        '<textarea id="tmplDocCorps" rows="5" dir="'+(RTL_DOC_TYPES[sel]?'rtl':'ltr')+'">'+esc(dt.corps||'')+'</textarea></div>'+
-        '<p style="font-size:11px;color:var(--ink-faint);margin:-4px 0 10px;">Balises disponibles : '+tagsHint+'</p>';
+      html += '<p style="font-size:11px;color:var(--ink-faint);margin:6px 0 4px;">Balises disponibles dans chaque champ ci-dessous : '+tagsHint+'</p>';
+      html += '<div id="tmplFieldsList">'+fields.map(function(f){
+        return '<div class="field"><label for="tmplField_'+f+'">Texte de départ — champ « '+esc(DOC_FIELD_LABEL[f]||f)+' »</label>'+
+          '<textarea id="tmplField_'+f+'" class="tmplfield-input" data-field="'+f+'" rows="4" dir="'+(RTL_DOC_TYPES[sel]?'rtl':'ltr')+'">'+esc(dtFields[f]||'')+'</textarea></div>';
+      }).join('')+'</div>';
       if(state.mcpReady){
-        html += '<div class="field"><label>Modifier ce modèle sur Google Docs <span style="font-weight:400;color:var(--ink-faint);">(pratique pour un texte long ou mis en forme)</span></label>'+
+        html += '<div class="field"><label>Modifier ce modèle sur Google Docs <span style="font-weight:400;color:var(--ink-faint);">(un seul document regroupant tous les champs ci-dessus, pratique pour un texte long ou mis en forme)</span></label>'+
           '<div class="btn-row">'+(dt.gdocUrl
             ? '<a class="btn ghost sm" href="'+esc(dt.gdocUrl)+'" target="_blank" rel="noopener">'+ICONS.ext+' Ouvrir sur Google Docs</a><button class="btn ghost sm" id="btnDocTmplGdocPull" type="button">'+ICONS.dl+' Récupérer le texte depuis Google Docs</button>'
             : '<button class="btn ghost sm" id="btnDocTmplGdocOpen" type="button">'+ICONS.ext+' Créer le modèle sur Google Docs</button>')+'</div>'+
-          (dt.gdocUrl ? '<p style="font-size:11px;color:var(--ink-faint);margin-top:4px;">Modifiez le texte sur Google Docs, puis touchez « Récupérer le texte » pour le ramener ici comme texte de départ (les balises {{...}} restent actives).</p>' : '')+
+          (dt.gdocUrl ? '<p style="font-size:11px;color:var(--ink-faint);margin-top:4px;">Modifiez le texte de chaque section sur Google Docs (repérées par « === Libellé === », à conserver telles quelles), puis touchez « Récupérer le texte » pour ramener chaque section dans son champ ci-dessus (les balises {{...}} restent actives).</p>' : '')+
           '<div class="banner err" id="tmplGdocStatus" hidden style="margin-top:6px;"></div></div>';
       }
     } else {
       html += '<p style="font-size:11.5px;color:var(--ink-faint);">Ce type de document ne propose pas de texte de départ personnalisable ici — seul le logo peut être remplacé.</p>';
     }
-    html += '<div class="btn-row">'+((dt.logoAssetId||dt.corps) ? '<button class="btn ghost" id="btnResetDocTmpl" type="button">Réinitialiser ce modèle</button>' : '')+
+    var hasContent = dt.logoAssetId || Object.keys(dtFields).some(function(k){ return dtFields[k]; });
+    html += '<div class="btn-row">'+(hasContent ? '<button class="btn ghost" id="btnResetDocTmpl" type="button">Réinitialiser ce modèle</button>' : '')+
       '<button class="btn primary" id="btnSaveDocTmpl" type="button">Enregistrer ce modèle</button></div>';
     return html;
   }
@@ -3580,6 +3798,8 @@
       '<div class="field"><label>Type</label><div class="seg" id="etTypeSeg">'+ETAB_TYPES.map(function(t){ return '<button type="button" data-v="'+t.v+'" aria-pressed="'+(e.type===t.v)+'">'+t.l+'</button>'; }).join('')+'</div></div>'+
       '<div class="field"><label>Cycle</label><div class="seg" id="etCycleSeg">'+ETAB_CYCLES.map(function(c){ return '<button type="button" data-v="'+c.v+'" aria-pressed="'+(e.cycle===c.v)+'">'+c.l+'</button>'; }).join('')+'</div>'+
       '<p style="font-size:11px;color:var(--ink-faint);margin:5px 2px 0;">Le primaire ne compte qu\'un seul cycle ; en secondaire, une même zone d\'inspection peut réunir des établissements collégiaux et qualifiants.</p></div>'+
+      '<div class="field"><label class="chk-row" style="display:flex;align-items:center;gap:8px;font-weight:600;"><input type="checkbox" id="etPionnier"'+(e.pionnier?' checked':'')+' style="width:17px;height:17px;"> Collège pionnier</label>'+
+      '<p style="font-size:11px;color:var(--ink-faint);margin:5px 2px 0;">Les grilles d\'observation « Collèges Pionniers » (séance ordinaire / séance de synthèse) seront proposées par défaut pour les observations réalisées dans cet établissement.</p></div>'+
       '<div class="field"><label for="etAdr">Adresse</label><input type="text" id="etAdr" value="'+esc(e.adresse)+'"></div>'+
       '<div class="field"><label for="etTel">Téléphone</label><input type="tel" id="etTel" value="'+esc(e.telephone)+'"></div>'+
       '<div class="field"><label>Localisation (Google Maps)</label>'+
@@ -3662,11 +3882,27 @@
         (state.sampleReady ? '<div class="btn-row" style="margin-top:6px;"><button class="btn ai sm" id="btnAiActions" type="button">'+ICONS.ai+' Proposer un plan d\'action</button></div><div class="banner info" id="aiActionsStatus" hidden style="margin-top:6px;"></div>' : '')+
         '</div>';
     } else if(m.docType==='observation'){
-      body += '<div class="field-row"><div class="field"><label for="dEns">Enseignant(e)</label><input type="text" id="dEns" value="'+esc(d.enseignantNom)+'"></div><div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div></div>'+
-        '<div class="field-row"><div class="field"><label for="dClasse">Classe</label><input type="text" id="dClasse" value="'+esc(d.classe)+'"></div><div class="field"><label for="dMat">Matière</label><input type="text" id="dMat" value="'+esc(d.matiere)+'"></div><div class="field"><label for="dDuree">Durée</label><input type="text" id="dDuree" value="'+esc(d.duree)+'" placeholder="50 min"></div></div>'+
-        '<div class="field"><label>Critères d\'observation</label>'+(d.criteres||[]).map(function(c,i){
+      var variante = d.variante || 'standard';
+      body += '<div class="field"><label>Type de grille</label><div class="seg" id="obsVarianteSeg">'+OBS_VARIANTES.map(function(o){ return '<button type="button" data-v="'+o.v+'" aria-pressed="'+(variante===o.v)+'">'+esc(o.l)+'</button>'; }).join('')+'</div>'+
+        '<p style="font-size:11px;color:var(--ink-faint);margin:5px 2px 0;">Les grilles « Collège pionnier » sont fournies par le ministère (année 2026/27) et ne sont pas personnalisables ; seule l\'appréciation d\'ensemble se rédige librement.</p></div>'+
+        '<div class="field-row"><div class="field"><label for="dEns">Enseignant(e)</label><input type="text" id="dEns" value="'+esc(d.enseignantNom)+'"></div><div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div></div>'+
+        '<div class="field-row"><div class="field"><label for="dClasse">Classe</label><input type="text" id="dClasse" value="'+esc(d.classe)+'"></div><div class="field"><label for="dMat">Matière</label><input type="text" id="dMat" value="'+esc(d.matiere)+'"></div><div class="field"><label for="dDuree">Durée</label><input type="text" id="dDuree" value="'+esc(d.duree)+'" placeholder="50 min"></div></div>';
+      if(variante==='pionnier_ordinaire' || variante==='pionnier_synthese'){
+        body += '<p style="font-size:11px;color:var(--ink-faint);margin:2px 2px 10px;">Échelle officielle : '+OBS_PIONNIER_SCALE.map(function(l,i){ return esc(l)+' ('+esc(OBS_PIONNIER_SCALE_AR[i])+')'; }).join(' · ')+'</p>'+
+          (d.domaines||[]).map(function(dom, di){
+            return '<div class="field"><div style="font-weight:700;font-size:13.5px;margin-bottom:6px;">'+esc(dom.nom)+'</div>'+
+              dom.criteres.map(function(c,ci){
+                return '<div class="crit-card"><div class="cn">'+esc(c.nom)+'</div><div class="seg" data-obscritnote="'+di+':'+ci+'">'+OBS_PIONNIER_SCALE.map(function(n){ return '<button type="button" data-v="'+n+'" aria-pressed="'+(c.note===n)+'">'+n+'</button>'; }).join('')+'</div></div>';
+              }).join('')+'</div>';
+          }).join('')+
+          '<div class="field"><label for="dAppGlobale">Appréciations d\'ensemble et orientations</label><textarea id="dAppGlobale" rows="5">'+esc(d.appreciationGlobale)+'</textarea>'+
+          (state.sampleReady ? '<div class="btn-row"><button class="btn ai sm" id="btnAiAppGlobale" type="button">'+ICONS.ai+' Proposer une appréciation d\'ensemble</button><button class="btn ghost sm" id="btnTrAppGlobale" type="button">'+ICONS.ai+' Traduire</button></div><div class="banner info" id="aiAppGlobaleStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>';
+      } else {
+        body += '<div class="field"><label>Critères d\'observation</label>'+(d.criteres||[]).map(function(c,i){
           return '<div class="crit-card"><div class="cn">'+esc(c.nom)+'</div><div class="seg" data-critnote="'+i+'">'+NOTE_SCALE.map(function(n){ return '<button type="button" data-v="'+n+'" aria-pressed="'+(c.note===n)+'">'+n+'</button>'; }).join('')+'</div>'+
-            '<textarea data-critcomment="'+i+'" placeholder="Commentaire" style="margin-top:7px;width:100%;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px 9px;min-height:44px;">'+esc(c.commentaire)+'</textarea></div>';
+            '<textarea data-critcomment="'+i+'" placeholder="Commentaire" style="margin-top:7px;width:100%;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px 9px;min-height:44px;">'+esc(c.commentaire)+'</textarea>'+
+            (state.sampleReady ? '<div class="btn-row" style="margin-top:6px;"><button class="btn ai sm" data-aicritcomment="'+i+'" type="button">'+ICONS.ai+' Rédiger avec l\'IA</button></div><div class="banner info" data-aicritcommentstatus="'+i+'" hidden style="margin-top:6px;"></div>' : '')+
+            '</div>';
         }).join('')+'</div>'+
         '<div class="field"><label for="dPF">Points forts</label><textarea id="dPF">'+esc(d.pointsForts)+'</textarea>'+
         (state.sampleReady ? '<div class="btn-row"><button class="btn ai sm" id="btnAiPF" type="button">'+ICONS.ai+' Rédiger/compléter avec l\'IA</button></div><div class="banner info" id="aiPFStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>'+
@@ -3674,6 +3910,7 @@
         (state.sampleReady ? '<div class="btn-row"><button class="btn ai sm" id="btnAiAA" type="button">'+ICONS.ai+' Rédiger/compléter avec l\'IA</button></div><div class="banner info" id="aiAAStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>'+
         '<div class="field"><label for="dSynth">Synthèse</label><textarea id="dSynth" rows="4">'+esc(d.synthese)+'</textarea>'+
         (state.sampleReady ? '<div class="btn-row"><button class="btn ai sm" id="btnAiSynth" type="button">'+ICONS.ai+' Proposer une synthèse</button><button class="btn ghost sm" id="btnTrSynth" type="button">'+ICONS.ai+' Traduire</button></div><div class="banner info" id="aiSynthStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>';
+      }
     } else if(m.docType==='rapport'){
       body += '<div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div>'+
         '<div class="field"><label for="dTexte">Rapport</label><textarea id="dTexte" rows="8">'+esc(d.texte)+'</textarea>'+
@@ -3941,23 +4178,32 @@
       if(cur) docTmpls[type] = Object.assign({}, cur, {logoAssetId:null});
       templatesSet({docTemplates:docTmpls}); render();
     };
+    /* Lit toutes les zones de texte des champs personnalisables du type affiché (une par champ, voir
+       DOC_TEMPLATE_FIELDS/docTemplatesEditorHtml) et renvoie {champ: texte, ...} — utilisé aussi bien
+       par « Enregistrer » que par « Créer le modèle sur Google Docs » (pour repartir du texte déjà
+       saisi dans l'app plutôt que de recréer un document vide). */
+    function readTmplFieldsFromDom(){
+      var out = {};
+      document.querySelectorAll('.tmplfield-input').forEach(function(ta){ out[ta.getAttribute('data-field')] = ta.value; });
+      return out;
+    }
     var btnSaveDocTmpl = $('btnSaveDocTmpl');
     if(btnSaveDocTmpl) btnSaveDocTmpl.onclick = function(){
       var type = state.tmplEditorType || Object.keys(DOC_TYPE_INFO)[0];
       var docTmpls = Object.assign({}, state.templates.docTemplates||{});
       var cur = docTmpls[type] || {};
-      var corpsEl = $('tmplDocCorps');
-      docTmpls[type] = Object.assign({}, cur, corpsEl ? {corps: corpsEl.value} : {});
+      var newFields = readTmplFieldsFromDom();
+      docTmpls[type] = Object.assign({}, cur, Object.keys(newFields).length ? {fields: Object.assign({}, cur.fields, newFields)} : {});
       templatesSet({docTemplates:docTmpls});
       toast('Modèle enregistré pour « '+(DOC_TYPE_INFO[type]||{}).label+' ».');
     };
     var btnDocTmplGdocOpen = $('btnDocTmplGdocOpen');
     if(btnDocTmplGdocOpen) btnDocTmplGdocOpen.onclick = function(){
       var type = state.tmplEditorType || Object.keys(DOC_TYPE_INFO)[0];
-      var corpsEl = $('tmplDocCorps');
-      if(corpsEl){
+      var newFields = readTmplFieldsFromDom();
+      if(Object.keys(newFields).length){
         var docTmpls0 = Object.assign({}, state.templates.docTemplates||{});
-        docTmpls0[type] = Object.assign({}, docTmpls0[type], {corps: corpsEl.value});
+        docTmpls0[type] = Object.assign({}, docTmpls0[type], {fields: Object.assign({}, (docTmpls0[type]||{}).fields, newFields)});
         templatesSet({docTemplates:docTmpls0});
       }
       btnDocTmplGdocOpen.disabled = true;
@@ -3984,7 +4230,7 @@
     var btnResetDocTmpl = $('btnResetDocTmpl');
     if(btnResetDocTmpl) btnResetDocTmpl.onclick = function(){
       var type = state.tmplEditorType || Object.keys(DOC_TYPE_INFO)[0];
-      if(!confirm('Réinitialiser le modèle de « '+(DOC_TYPE_INFO[type]||{}).label+' » (logo et texte de départ) ?')) return;
+      if(!confirm('Réinitialiser le modèle de « '+(DOC_TYPE_INFO[type]||{}).label+' » (logo et textes de départ) ?')) return;
       var docTmpls = Object.assign({}, state.templates.docTemplates||{});
       var cur = docTmpls[type];
       if(cur && cur.logoAssetId) removeAsset(cur.logoAssetId);
@@ -4206,6 +4452,7 @@
       var e = state.draftRecord, el;
       el=$('etNom'); if(el) e.nom=el.value; el=$('etAdr'); if(el) e.adresse=el.value; el=$('etTel'); if(el) e.telephone=el.value;
       el=$('etLat'); if(el) e.latitude=el.value; el=$('etLng'); if(el) e.longitude=el.value; el=$('etNotes'); if(el) e.notes=el.value;
+      el=$('etPionnier'); if(el) e.pionnier=el.checked;
     }
     var segET = $('etTypeSeg'); if(segET) segET.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ syncEtabFields(); state.draftRecord.type=b.getAttribute('data-v'); render(); }; });
     var segEC = $('etCycleSeg'); if(segEC) segEC.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ syncEtabFields(); state.draftRecord.cycle=b.getAttribute('data-v'); render(); }; });
@@ -4233,6 +4480,7 @@
     if(saveEtab) saveEtab.onclick = function(){
       var e = state.draftRecord; e.nom=$('etNom').value.trim()||'(sans nom)'; e.zoneId=$('etZone').value||null; e.adresse=$('etAdr').value; e.telephone=$('etTel').value;
       e.latitude=$('etLat').value.trim(); e.longitude=$('etLng').value.trim(); e.notes=$('etNotes').value;
+      e.pionnier = $('etPionnier') ? $('etPionnier').checked : !!e.pionnier;
       recordSet('etablissement', e).then(function(){ closeTopModal(); toast('Établissement enregistré.'); });
     };
     var delEtab = $('btnDeleteEtab'); if(delEtab) delEtab.onclick = function(){ recordDelete('etablissement', state.draftRecord.id).then(function(){ closeTopModal(); toast('Supprimé.'); }); };
@@ -4268,7 +4516,8 @@
       ['dObjet:objet','dLieu:lieu','dDate:date','dPresents:presents','dOJ:ordreJour','dPD:pointsDiscutes','dDec:decisions',
        'dEns:enseignantNom','dClasse:classe','dMat:matiere','dDuree:duree','dPF:pointsForts','dAA:axesAmelioration','dSynth:synthese','dTexte:texte',
        'dBenef:beneficiaireNom','dFonction:fonction','dDestinataire:destinataire','dRef:reference','dCorps:corps',
-       'dConstats:constats','dRecom:recommandations','dObs:observations','dContexte:contexte','dObjectifs:objectifs','dTexteLibre:texteLibre']
+       'dConstats:constats','dRecom:recommandations','dObs:observations','dContexte:contexte','dObjectifs:objectifs','dTexteLibre:texteLibre',
+       'dAppGlobale:appreciationGlobale']
         .forEach(function(pair){ var parts=pair.split(':'); var el=$(parts[0]); if(el) d[parts[1]]=el.value; });
       document.querySelectorAll('[data-part]').forEach(function(inp){ var i=parseInt(inp.getAttribute('data-i')); if(d.participants[i]) d.participants[i][inp.getAttribute('data-part')]=inp.value; });
       document.querySelectorAll('[data-act]').forEach(function(inp){ var i=parseInt(inp.getAttribute('data-i')); if(d.actions[i]) d.actions[i][inp.getAttribute('data-act')]=inp.value; });
@@ -4281,6 +4530,13 @@
     document.querySelectorAll('[data-critnote]').forEach(function(seg){
       var i = parseInt(seg.getAttribute('data-critnote'));
       seg.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ syncDocGenericFields(); state.draftDoc.criteres[i].note=b.getAttribute('data-v'); render(); }; });
+    });
+    document.querySelectorAll('[data-obscritnote]').forEach(function(seg){
+      var parts = seg.getAttribute('data-obscritnote').split(':'), di=parseInt(parts[0]), ci=parseInt(parts[1]);
+      seg.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ syncDocGenericFields(); state.draftDoc.domaines[di].criteres[ci].note=b.getAttribute('data-v'); render(); }; });
+    });
+    var obsVarSeg = $('obsVarianteSeg'); if(obsVarSeg) obsVarSeg.querySelectorAll('button').forEach(function(b){
+      b.onclick = function(){ syncDocGenericFields(); applyObsVariante(state.draftDoc, b.getAttribute('data-v')); render(); };
     });
     var addPart = $('btnAddPart'); if(addPart) addPart.onclick = function(){ syncDocGenericFields(); state.draftDoc.participants.push({nom:'',fonction:'Enseignant(e)'}); render(); };
     document.querySelectorAll('[data-rmpart]').forEach(function(el){ el.onclick=function(){ syncDocGenericFields(); state.draftDoc.participants.splice(parseInt(el.getAttribute('data-rmpart')),1); render(); }; });
@@ -4306,6 +4562,25 @@
       aiDraft(aiSynth, $('aiSynthStatus'), $('dSynth'), "Tu es un inspecteur pédagogique au Maroc. Rédige une synthèse (5-8 lignes, en français, ton professionnel et bienveillant) d'une observation de séance, à partir de cette grille :\n"+critTxt+"\nPoints forts notés : "+(d.pointsForts||'—')+"\nAxes d'amélioration notés : "+(d.axesAmelioration||'—'));
     };
     var trSynth = $('btnTrSynth'); if(trSynth) trSynth.onclick = function(){ aiTranslate(trSynth, $('aiSynthStatus'), $('dSynth')); };
+    document.querySelectorAll('[data-aicritcomment]').forEach(function(btn){
+      var i = parseInt(btn.getAttribute('data-aicritcomment'));
+      btn.onclick = function(){
+        syncDocGenericFields();
+        var d = state.draftDoc, c = d.criteres[i];
+        var ta = document.querySelector('[data-critcomment="'+i+'"]');
+        var statusEl = document.querySelector('[data-aicritcommentstatus="'+i+'"]');
+        aiDraft(btn, statusEl, ta, "Tu es un inspecteur pédagogique au Maroc. Rédige un bref commentaire (2-3 lignes, en français, ton professionnel et bienveillant) sur ce critère précis d'une grille d'observation de séance :\nCritère : "+c.nom+"\nAppréciation retenue : "+(c.note||'non noté')+".");
+      };
+    });
+    var aiAppGlobale = $('btnAiAppGlobale'); if(aiAppGlobale) aiAppGlobale.onclick = function(){
+      syncDocGenericFields();
+      var d = state.draftDoc;
+      var domTxt = (d.domaines||[]).map(function(dom){
+        return dom.nom+' :\n'+dom.criteres.map(function(c){ return '  - '+c.nom+': '+(c.note||'non noté'); }).join('\n');
+      }).join('\n');
+      aiDraft(aiAppGlobale, $('aiAppGlobaleStatus'), $('dAppGlobale'), "Tu es un inspecteur pédagogique au Maroc. Rédige une appréciation d'ensemble et des orientations (6-10 lignes, en français, ton professionnel et bienveillant) pour une séance observée dans un collège pionnier, à partir de cette grille par domaines :\n"+domTxt);
+    };
+    var trAppGlobale = $('btnTrAppGlobale'); if(trAppGlobale) trAppGlobale.onclick = function(){ aiTranslate(trAppGlobale, $('aiAppGlobaleStatus'), $('dAppGlobale')); };
     var aiPF = $('btnAiPF'); if(aiPF) aiPF.onclick = function(){
       syncDocGenericFields();
       var d = state.draftDoc;
