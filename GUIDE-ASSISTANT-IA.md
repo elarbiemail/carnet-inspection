@@ -91,6 +91,12 @@ laquelle de ces causes s'applique :
    console Google Cloud plutôt que directement sur aistudio.google.com/apikey
    — recréez-en une depuis aistudio.google.com/apikey, qui active
    automatiquement ce qu'il faut.
+4. **Le message parle de « forte demande » / « high demand »
+   (modèle surchargé)** : c'est le cas le plus courant en pratique. Le
+   modèle Gemini est temporairement saturé côté Google — rien à voir avec
+   votre clé. L'application réessaie déjà automatiquement 2 fois avant
+   d'afficher ce message ; si ça persiste, patientez quelques minutes et
+   retouchez simplement le bouton.
 
 **Puis-je changer de clé plus tard ?** Oui, à tout moment, dans
 **Paramètres → Assistant IA** — collez la nouvelle clé et touchez

@@ -1427,6 +1427,7 @@
       case 'not_configured': return "Ajoutez votre clé API Gemini dans Réglages → Assistant IA pour activer l'assistant de rédaction.";
       case 'invalid_key': return "Clé API Gemini refusée par Google" + (err&&err.message?' : « '+err.message+' »':'') + ". Si vous venez de créer une clé toute neuve sur aistudio.google.com/apikey et qu'elle est refusée quand même, ce n'est probablement plus un problème de clé « ancien format » : vérifiez que vous avez bien copié la clé en entier (sans espace ni retour à la ligne), qu'elle correspond bien au compte Google que vous utilisez, et régénérez-en une nouvelle si le doute persiste.";
       case 'location_restricted': return "Gemini a refusé la demande avec le message « User location is not supported » (localisation non prise en charge). Ceci n'est PAS lié à la clé — en créer une nouvelle ne change rien. Cause la plus fréquente : un VPN, un proxy, ou le réseau de l'établissement/opérateur qui achemine la connexion via un pays où Gemini n'est pas disponible. Désactivez tout VPN/économiseur de données puis réessayez en Wifi ou en 4G/5G directe.";
+      case 'overloaded': return "Le modèle Gemini est momentanément surchargé (forte demande chez Google en ce moment) — l'application a déjà réessayé automatiquement plusieurs fois sans succès. Ce n'est ni un problème de clé ni de localisation : patientez quelques minutes puis retouchez le bouton.";
       case 'rate_limited': return "Trop de demandes à la fois auprès de Gemini : réessayez dans un instant.";
       case 'not_found': return "Modèle IA momentanément indisponible. Réessayez plus tard.";
       case 'blocked': return "La demande a été bloquée par les filtres de sécurité de Gemini. Reformulez votre requête.";
@@ -1436,8 +1437,12 @@
     }
   }
   /* Appel direct à l'API Gemini (generateContent) avec la clé de l'utilisateur — retourne le texte
-     généré (Promise<string>) ou rejette avec {code, message} (voir geminiErrorMessage ci-dessus). */
-  function geminiGenerate(prompt){
+     généré (Promise<string>) ou rejette avec {code, message} (voir geminiErrorMessage ci-dessus). En
+     cas de surcharge temporaire du modèle (503/UNAVAILABLE — message Google typique : « This model is
+     currently experiencing high demand… »), réessaie automatiquement 2 fois avec un court délai avant
+     d'abandonner : c'est l'erreur transitoire la plus fréquente en pratique (bien plus que les vraies
+     erreurs de clé), et Google indique elle-même qu'il s'agit de pics passagers. */
+  function geminiGenerateOnce(prompt){
     var key = geminiApiKey();
     if(!key) return Promise.reject({code:'not_configured'});
     /* Depuis 2026, Google recommande (et, pour les nouvelles clés « auth key » émises par AI Studio,
@@ -1455,15 +1460,17 @@
         if(!res.ok){
           var gErr = data.error || {};
           var gMsg = gErr.message || res.statusText || '';
-          /* Ne pas confondre deux erreurs Google très différentes qui arrivent toutes deux avec un
-             statut HTTP 400/403 : une clé réellement invalide (INVALID_ARGUMENT / API_KEY_INVALID —
-             se corrige en régénérant une clé) et un refus lié à la localisation détectée de la requête
+          /* Ne pas confondre plusieurs erreurs Google très différentes qui peuvent toutes arriver avec
+             un statut HTTP 400/403/503 : une clé réellement invalide (INVALID_ARGUMENT / API_KEY_INVALID
+             — se corrige en régénérant une clé), un refus lié à la localisation détectée de la requête
              (FAILED_PRECONDITION / « User location is not supported » — ne se corrige PAS en changeant
-             de clé, voir geminiErrorMessage). Sans cette distinction, un utilisateur dont la vraie cause
-             est géographique (VPN, proxy, réseau d'établissement) recevait le conseil erroné de créer
-             une nouvelle clé, ce qui ne change rien à son problème. */
+             de clé), et une simple surcharge temporaire du modèle (UNAVAILABLE / « high demand » — se
+             résout d'elle-même en réessayant, voir geminiGenerate ci-dessous). Sans cette distinction,
+             un utilisateur dont la vraie cause n'a rien à voir avec sa clé recevait un conseil erroné qui
+             ne changeait rien à son problème. */
           var code;
-          if(res.status===429) code = 'rate_limited';
+          if(res.status===503 || gErr.status==='UNAVAILABLE' || /overloaded|high demand/i.test(gMsg)) code = 'overloaded';
+          else if(res.status===429) code = 'rate_limited';
           else if(gErr.status==='FAILED_PRECONDITION' || /location is not supported/i.test(gMsg)) code = 'location_restricted';
           else if(res.status===400 || res.status===403) code = 'invalid_key';
           else if(res.status===404) code = 'not_found';
@@ -1480,6 +1487,16 @@
         return text.trim();
       });
     }, function(){ return Promise.reject({code:'network'}); });
+  }
+  function wait(ms){ return new Promise(function(resolve){ setTimeout(resolve, ms); }); }
+  function geminiGenerate(prompt, attempt){
+    attempt = attempt || 1;
+    return geminiGenerateOnce(prompt).catch(function(err){
+      if(err && err.code==='overloaded' && attempt < 3){
+        return wait(attempt * 1500).then(function(){ return geminiGenerate(prompt, attempt + 1); });
+      }
+      return Promise.reject(err);
+    });
   }
   /* Exécute un prompt IA et pose le résultat dans le champ texte visé : mêmes conventions que le
      reste de l'app (ex. runBilanGen) — le champ ciblé (targetTextarea) est une référence DOM directe,
