@@ -1425,7 +1425,8 @@
     var code = err && err.code;
     switch(code){
       case 'not_configured': return "Ajoutez votre clé API Gemini dans Réglages → Assistant IA pour activer l'assistant de rédaction.";
-      case 'invalid_key': return "Clé API Gemini refusée par Google. Depuis 2026, Google a retiré les anciennes clés API « standard » : générez une clé toute nouvelle sur aistudio.google.com/apikey (bouton « Create API key »), puis collez-la dans Réglages → Assistant IA à la place de l'ancienne.";
+      case 'invalid_key': return "Clé API Gemini refusée par Google" + (err&&err.message?' : « '+err.message+' »':'') + ". Si vous venez de créer une clé toute neuve sur aistudio.google.com/apikey et qu'elle est refusée quand même, ce n'est probablement plus un problème de clé « ancien format » : vérifiez que vous avez bien copié la clé en entier (sans espace ni retour à la ligne), qu'elle correspond bien au compte Google que vous utilisez, et régénérez-en une nouvelle si le doute persiste.";
+      case 'location_restricted': return "Gemini a refusé la demande avec le message « User location is not supported » (localisation non prise en charge). Ceci n'est PAS lié à la clé — en créer une nouvelle ne change rien. Cause la plus fréquente : un VPN, un proxy, ou le réseau de l'établissement/opérateur qui achemine la connexion via un pays où Gemini n'est pas disponible. Désactivez tout VPN/économiseur de données puis réessayez en Wifi ou en 4G/5G directe.";
       case 'rate_limited': return "Trop de demandes à la fois auprès de Gemini : réessayez dans un instant.";
       case 'not_found': return "Modèle IA momentanément indisponible. Réessayez plus tard.";
       case 'blocked': return "La demande a été bloquée par les filtres de sécurité de Gemini. Reformulez votre requête.";
@@ -1452,8 +1453,22 @@
     }).then(function(res){
       return res.json().catch(function(){ return {}; }).then(function(data){
         if(!res.ok){
-          var code = res.status===429 ? 'rate_limited' : (res.status===400 || res.status===403) ? 'invalid_key' : res.status===404 ? 'not_found' : 'tool_error';
-          return Promise.reject({code: code, message: (data.error && data.error.message) || res.statusText});
+          var gErr = data.error || {};
+          var gMsg = gErr.message || res.statusText || '';
+          /* Ne pas confondre deux erreurs Google très différentes qui arrivent toutes deux avec un
+             statut HTTP 400/403 : une clé réellement invalide (INVALID_ARGUMENT / API_KEY_INVALID —
+             se corrige en régénérant une clé) et un refus lié à la localisation détectée de la requête
+             (FAILED_PRECONDITION / « User location is not supported » — ne se corrige PAS en changeant
+             de clé, voir geminiErrorMessage). Sans cette distinction, un utilisateur dont la vraie cause
+             est géographique (VPN, proxy, réseau d'établissement) recevait le conseil erroné de créer
+             une nouvelle clé, ce qui ne change rien à son problème. */
+          var code;
+          if(res.status===429) code = 'rate_limited';
+          else if(gErr.status==='FAILED_PRECONDITION' || /location is not supported/i.test(gMsg)) code = 'location_restricted';
+          else if(res.status===400 || res.status===403) code = 'invalid_key';
+          else if(res.status===404) code = 'not_found';
+          else code = 'tool_error';
+          return Promise.reject({code: code, message: gMsg});
         }
         if((!data.candidates || !data.candidates.length) && data.promptFeedback && data.promptFeedback.blockReason){
           return Promise.reject({code:'blocked'});
@@ -3509,15 +3524,16 @@
     var html = '<p style="font-size:11.5px;color:var(--ink-faint);margin-bottom:10px;">Collez votre propre clé API Google Gemini (gratuite, personnelle) pour activer l\'assistant de rédaction IA — synthèses, comptes-rendus, rapports, lettres, recommandations, plan d\'action — ainsi que la traduction français ↔ arabe, directement dans les formulaires concernés. Chaque génération appelle directement les serveurs Google depuis votre navigateur : la clé n\'est jamais envoyée à Claude ni à Anthropic, et reste enregistrée uniquement sur cet appareil (et dans votre propre Drive si vous synchronisez).</p>';
     if(state.geminiKeyError) html += '<div class="banner err" style="margin-bottom:10px;">'+ICONS.warn+'<div>'+esc(state.geminiKeyError)+'</div></div>';
     html += '<div class="field"><label for="geminiKeyInput">Clé API Google Gemini</label>'+
-      '<input type="text" id="geminiKeyInput" value="'+esc(key)+'" placeholder="AIzaSy…" autocomplete="off" autocapitalize="off" spellcheck="false"></div>';
+      '<input type="text" id="geminiKeyInput" value="'+esc(key)+'" placeholder="AIzaSy… ou AQ.…" autocomplete="off" autocapitalize="off" spellcheck="false"></div>';
     html += '<div class="btn-row">'+(key ? '<button class="btn danger" id="btnClearGeminiKey" type="button">Réinitialiser</button>' : '')+
       '<button class="btn primary" id="btnSaveGeminiKey" type="button">Enregistrer</button></div>';
     html += '<details style="margin:14px 0;font-size:12px;color:var(--ink-faint);"><summary style="cursor:pointer;font-weight:600;color:var(--ink);">Comment obtenir une clé gratuite ?</summary>'+
       '<ol style="margin:8px 0 0 18px;padding:0;line-height:1.6;">'+
         '<li>Ouvrez <b>aistudio.google.com/apikey</b> et connectez-vous avec votre compte Google.</li>'+
         '<li>Touchez <b>« Create API key »</b> (créer une clé API), dans un nouveau projet ou un projet existant.</li>'+
-        '<li>Copiez la clé générée (elle commence par <code>AIza…</code>) et collez-la ci-dessus, puis touchez « Enregistrer ».</li>'+
-      '</ol><p style="margin-top:8px;">Le niveau gratuit de Gemini couvre largement un usage personnel courant. Cette clé est propre à votre compte Google : gardez-la confidentielle, ne la partagez pas.</p></details>';
+        '<li>Copiez la clé générée en entier (elle commence par <code>AIza…</code> ou, pour les clés les plus récentes, par <code>AQ.…</code>) et collez-la ci-dessus, puis touchez « Enregistrer ».</li>'+
+      '</ol><p style="margin-top:8px;">Le niveau gratuit de Gemini couvre largement un usage personnel courant. Cette clé est propre à votre compte Google : gardez-la confidentielle, ne la partagez pas.</p>'+
+      '<p style="margin-top:8px;"><b>Message « Clé refusée » malgré une clé toute neuve ?</b> Regardez le message exact affiché après « Générer avec l\'IA » : s\'il mentionne « <i>user location is not supported</i> » (localisation), ce n\'est pas la clé qui pose problème mais un VPN, un proxy ou le réseau de l\'établissement — désactivez-le et réessayez en Wifi/4G directe. Dans les autres cas, vérifiez que la clé est collée en entier, sans espace, et qu\'elle provient bien du compte Google que vous utilisez ici.</p></details>';
     if(key) html += '<p style="font-size:11px;color:var(--ink-faint);">Assistant actif — modèle utilisé : Gemini Flash (le modèle rapide le plus récent disponible sur votre compte).</p>';
     return html;
   }

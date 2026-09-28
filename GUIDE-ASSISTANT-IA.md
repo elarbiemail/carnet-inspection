@@ -64,21 +64,33 @@ l'application ?** Non. Chaque personne colle sa propre clé dans son propre
 navigateur ; elle n'est jamais codée dans le fichier de l'application ni
 publiée sur GitHub.
 
-**« Clé API Gemini invalide ou refusée » ?** Deux causes possibles :
+**« Clé API Gemini invalide ou refusée » ?** Regardez d'abord le message
+exact affiché sous le bouton IA (l'application affiche désormais le message
+d'erreur renvoyé par Google, pas seulement un message générique) — il indique
+laquelle de ces causes s'applique :
 
-1. Vérifiez que vous avez bien copié toute la clé (elle commence par
-   `AIza…`, sans espace avant/après), et qu'une clé API a bien été créée sur
-   aistudio.google.com avec ce compte Google.
-2. **Si votre clé fonctionnait avant et a cessé de fonctionner en 2026** :
-   Google a changé sa politique de sécurité et a retiré les anciennes clés
-   API « standard » (celles créées avant mi-2026), au profit d'un nouveau
-   type de clé plus sécurisé. La solution est simple : retournez sur
-   **aistudio.google.com/apikey**, touchez **« Create API key »** pour créer
-   une **toute nouvelle clé** (les clés créées depuis mi-2026 sont
-   automatiquement du nouveau type), puis remplacez l'ancienne clé dans
-   **Paramètres → Assistant IA** par cette nouvelle clé. Aucune autre
-   manipulation n'est nécessaire — l'application a été mise à jour pour
-   suivre le format actuel recommandé par Google.
+1. **Le message parle de la clé elle-même** (« API key not valid », clé
+   invalide…) : vérifiez que vous avez bien copié toute la clé, sans espace
+   ni retour à la ligne avant/après (elle commence par `AIza…`, ou pour les
+   clés les plus récentes par `AQ.…`), et qu'elle provient bien du compte
+   Google que vous utilisez ici. **Si votre clé fonctionnait avant et a
+   cessé de fonctionner en 2026** : Google a retiré les anciennes clés API
+   « standard » (celles créées avant mi-2026) au profit d'un nouveau type de
+   clé plus sécurisé — retournez sur **aistudio.google.com/apikey**, touchez
+   **« Create API key »** pour créer une toute nouvelle clé, puis remplacez
+   l'ancienne dans **Paramètres → Assistant IA**.
+2. **Le message parle de « user location is not supported »
+   (localisation)** : ce n'est **pas** un problème de clé — en créer une
+   nouvelle ne changera rien, même répété plusieurs fois. Google détecte la
+   provenance réseau de la connexion (pas votre position réelle) : un VPN,
+   un proxy, ou le réseau de l'établissement/de l'opérateur qui achemine le
+   trafic via un autre pays peut déclencher ce refus. Désactivez tout VPN ou
+   économiseur de données, puis réessayez en Wifi ou en 4G/5G directe.
+3. **Le message parle de l'API non activée sur le projet** (« Generative
+   Language API has not been used… ») : la clé a été créée depuis la
+   console Google Cloud plutôt que directement sur aistudio.google.com/apikey
+   — recréez-en une depuis aistudio.google.com/apikey, qui active
+   automatiquement ce qu'il faut.
 
 **Puis-je changer de clé plus tard ?** Oui, à tout moment, dans
 **Paramètres → Assistant IA** — collez la nouvelle clé et touchez
