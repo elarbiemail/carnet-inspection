@@ -1126,7 +1126,13 @@
     bilanPeriod: 'mois', bilanCustomFrom: '', bilanCustomTo: '',
     subEtab: 'zones', subDocs: 'generes', docsGenQuery: '', docsGenFilter: 'all', searchQuery: '',
     pickTarget: null, // {kind:'enseignant'|'etablissement'|'zone', onPick}
-    remarquesPick: null // {checked:{idx:true}, onInsert} — voir openRemarquesPicker
+    remarquesPick: null, // {checked:{idx:true}, onInsert} — voir openRemarquesPicker
+    /* Horodatage des suppressions (« tombstones »), par collection : {id: dateISOdeSuppression}. Sans
+       cela, une suppression locale n'est qu'une absence dans le tableau — la fusion par id (mergeById,
+       voir plus bas) ne peut pas la distinguer d'un enregistrement jamais créé, et la RESSUSCITE dès
+       la synchronisation suivante en la reprenant de la sauvegarde distante (encore ancienne). Voir
+       recordDelete / mergeById / mergeTombstones. */
+    tombstones: {tasks:{}, zones:{}, etablissements:{}, enseignants:{}, documents:{}}
   };
   /* L'app est autonome : stockage 100% local (navigateur), aucune dépendance à Claude.
      mcpNs reste un objet non-nul en permanence — l'accès Drive réel est géré par mcpCall()
@@ -1145,7 +1151,8 @@
   /* ---- stockage local (localStorage) — seul et unique moteur de persistance ---- */
   var LS_KEYS = {tasks:'ci_tasks_fallback', zones:'ci_zones_fallback', etablissements:'ci_etabs_fallback',
     enseignants:'ci_ens_fallback', documents:'ci_docs_fallback', config:'ci_config_fallback', templates:'ci_tmpl_fallback',
-    assets:'ci_assets_fallback', regionsMaroc:'ci_regions_fallback', programmeAnnuel:'ci_programme_fallback'};
+    assets:'ci_assets_fallback', regionsMaroc:'ci_regions_fallback', programmeAnnuel:'ci_programme_fallback',
+    tombstones:'ci_tombstones_fallback'};
   function loadLocalAll(){
     try{
       state.tasks = JSON.parse(localStorage.getItem(LS_KEYS.tasks)||'[]').map(function(t){ t.statut=normStatut(t.statut); t.taskType=normTaskType(t.taskType); return t; });
@@ -1162,13 +1169,16 @@
       state.regionsMarocUpdatedAt = (rm && rm.updatedAt) || null;
       var pa = JSON.parse(localStorage.getItem(LS_KEYS.programmeAnnuel)||'null');
       state.programmeAnnuel = (pa && pa.categories && pa.categories.length) ? pa : defaultProgrammeAnnuel();
+      var tb = JSON.parse(localStorage.getItem(LS_KEYS.tombstones)||'null');
+      if(tb) state.tombstones = Object.assign({tasks:{}, zones:{}, etablissements:{}, enseignants:{}, documents:{}}, tb);
     }catch(e){}
   }
   function saveLocal(coll){
     try{
       var map = {tasks:state.tasks, zones:state.zones, etablissements:state.etablissements, enseignants:state.enseignants,
         documents:state.documents, config:state.config, templates:state.templates, assets:state.assets,
-        regionsMaroc:{list:state.regionsMaroc, updatedAt:state.regionsMarocUpdatedAt}, programmeAnnuel:state.programmeAnnuel};
+        regionsMaroc:{list:state.regionsMaroc, updatedAt:state.regionsMarocUpdatedAt}, programmeAnnuel:state.programmeAnnuel,
+        tombstones:state.tombstones};
       localStorage.setItem(LS_KEYS[coll], JSON.stringify(map[coll]));
     }catch(e){
       console.warn('storage error', e);
@@ -1233,7 +1243,12 @@
     var filtered = arr.filter(function(x){ return x.id!==id; });
     if(kind==='task') state.tasks = filtered; else if(kind==='zone') state.zones=filtered; else if(kind==='etablissement') state.etablissements=filtered;
     else if(kind==='enseignant') state.enseignants=filtered; else if(kind==='document') state.documents=filtered;
-    saveLocal(coll); render();
+    /* Marque la suppression (voir tombstones ci-dessus) : sans ce repère daté, la prochaine
+       synchronisation ne verrait qu'une absence locale et RESSUSCITERAIT l'enregistrement à partir
+       d'une sauvegarde distante encore ancienne (voir mergeById). */
+    state.tombstones[coll] = state.tombstones[coll] || {};
+    state.tombstones[coll][id] = nowIso();
+    saveLocal(coll); saveLocal('tombstones'); render();
     return Promise.resolve();
   }
   /* « Acceptation des établissements » dans le formulaire de zone : applique en bloc la liste cochée
@@ -1748,7 +1763,13 @@
     }));
   }
   function csvToTasks(text){
-    return csvToObjects(text).map(function(o){
+    /* Une ligne sans id NI titre est une ligne vide/parasite (ex. cellule fantôme laissée par Google
+       Sheets) plutôt qu'une vraie tâche — on l'ignore. Sans ce filtre, o.id||uid() lui fabriquait un
+       nouvel id ALÉATOIRE à chaque analyse : impossible à supprimer durablement (même avec un
+       tombstone, puisqu'un nouvel id différent est généré à chaque synchronisation suivante), d'où une
+       « tâche fantôme » (souvent sans titre, donc affichée grisée) qui semblait réapparaître sans
+       cesse malgré sa suppression. */
+    return csvToObjects(text).filter(function(o){ return (o.id||'').trim() || (o.titre||'').trim(); }).map(function(o){
       return {
         id: o.id || uid(), titre: o.titre || '(sans titre)', statut: normStatut(o.statut),
         priorite: ['basse','moyenne','haute'].indexOf(o.priorite)>=0 ? o.priorite : 'moyenne',
@@ -1984,7 +2005,11 @@
       exportedAt: nowIso(), zones: state.zones, etablissements: state.etablissements,
       enseignants: state.enseignants, tasks: state.tasks, documents: state.documents, templates: state.templates,
       regionsMaroc: state.regionsMaroc, regionsMarocUpdatedAt: state.regionsMarocUpdatedAt, assetsIndex: assetsIndex,
-      programmeAnnuel: state.programmeAnnuel
+      programmeAnnuel: state.programmeAnnuel,
+      /* Voir mergeTombstones/mergeById : sans cela, un enregistrement supprimé ici mais encore présent
+         dans une copie plus ancienne sur un autre appareil serait repris comme « nouveau » par cet
+         appareil au lieu de disparaître à son tour. */
+      tombstones: state.tombstones
     };
     return mcpCall('create_file', {
       title: 'sauvegarde-donnees.json', textContent: JSON.stringify(data, null, 2), contentMimeType:'application/json',
@@ -2028,8 +2053,28 @@
      la plus récente. Les tâches, elles, sont déjà fusionnées séparément via la feuille CSV. */
   function mergeRemoteBackupIntoLocal(remote){
     if(!remote) return;
+    /* Les tombstones voyagent avec la sauvegarde JSON (voir pushJsonBackup) : on les fusionne D'ABORD
+       (union par id, date de suppression la plus récente conservée — voir mergeTombstones) pour que
+       les suppressions faites sur un autre appareil soient déjà connues au moment d'appliquer
+       mergeById juste après, sur cet appareil-ci comme sur celui qui a supprimé. */
+    var remoteTomb = remote.tombstones || {};
+    ['tasks','zones','etablissements','enseignants','documents'].forEach(function(coll){
+      state.tombstones[coll] = mergeTombstones(state.tombstones[coll]||{}, remoteTomb[coll]||{});
+    });
+    saveLocal('tombstones');
+    /* Filet de sécurité pour les tâches : la fusion tâches↔CSV a déjà eu lieu plus tôt dans doSync (le
+       tombstone d'un autre appareil, reçu seulement maintenant via la sauvegarde JSON, n'a donc pas pu
+       s'y appliquer). On enlève ici toute tâche déjà connue comme supprimée par ce tombstone tout
+       juste fusionné, pour ne pas attendre encore une synchronisation supplémentaire. */
+    var tt = state.tombstones.tasks;
+    if(Object.keys(tt).length){
+      var keptTasks = state.tasks.filter(function(t){
+        var td = tt[t.id]; return !(td && new Date(td).getTime() >= new Date(t.updatedAt||0).getTime());
+      });
+      if(keptTasks.length !== state.tasks.length){ state.tasks = keptTasks; saveLocal('tasks'); }
+    }
     ['zones','etablissements','enseignants','documents'].forEach(function(coll){
-      if(Array.isArray(remote[coll])){ state[coll] = mergeById(state[coll], remote[coll]); saveLocal(coll); }
+      if(Array.isArray(remote[coll])){ state[coll] = mergeById(state[coll], remote[coll], state.tombstones[coll]); saveLocal(coll); }
     });
     if(Array.isArray(remote.regionsMaroc) && remote.regionsMarocUpdatedAt &&
        (!state.regionsMarocUpdatedAt || new Date(remote.regionsMarocUpdatedAt) > new Date(state.regionsMarocUpdatedAt))){
@@ -2080,7 +2125,7 @@
         var payload = res.payload || {};
         var csv = payload.content ? b64ToUtf8(payload.content) : '';
         var remote = csvToTasks(csv);
-        var merged = mergeById(state.tasks, remote);
+        var merged = mergeById(state.tasks, remote, state.tombstones.tasks);
         return persistMergedLocally(merged).then(function(){ return merged; });
       })
       .then(function(merged){
@@ -2127,8 +2172,17 @@
   }
   /* Fusion générique par id : conserve, pour chaque enregistrement, la version dont updatedAt est
      la plus récente (locale ou distante) — utilisée aussi bien pour les tâches (via la feuille CSV)
-     que pour zones/établissements/enseignants/documents (via la sauvegarde JSON, voir doSync). */
-  function mergeById(local, remote){
+     que pour zones/établissements/enseignants/documents (via la sauvegarde JSON, voir doSync).
+     tomb (optionnel) : {id: dateISOdeSuppression} — voir state.tombstones/mergeTombstones. Une simple
+     absence locale ne suffit pas à représenter une suppression : sans ce repère daté, un enregistrement
+     supprimé ici mais encore présent dans une sauvegarde distante pas tout à fait à jour serait repris
+     tel quel par la boucle ci-dessous (branche « !l ») et RESSUSCITÉ. Le tombstone tranche : si la
+     suppression est plus récente (ou aussi récente) que la version choisie (locale ou distante),
+     l'enregistrement reste supprimé ; si une modification plus récente que la suppression arrive d'un
+     autre appareil, elle l'emporte (cohérent avec la règle « le plus récent gagne » déjà appliquée aux
+     modifications). */
+  function mergeById(local, remote, tomb){
+    tomb = tomb || {};
     var byId = {}; local.forEach(function(t){ byId[t.id] = t; });
     remote.forEach(function(r){
       var l = byId[r.id];
@@ -2136,7 +2190,23 @@
       var lt = new Date(l.updatedAt||0).getTime(), rt = new Date(r.updatedAt||0).getTime();
       if(rt > lt) byId[r.id] = r;
     });
+    Object.keys(byId).forEach(function(id){
+      var td = tomb[id]; if(!td) return;
+      var chosenAt = new Date(byId[id].updatedAt||0).getTime();
+      if(new Date(td).getTime() >= chosenAt) delete byId[id];
+    });
     return Object.keys(byId).map(function(k){ return byId[k]; });
+  }
+  /* Fusion des tombstones eux-mêmes entre deux appareils (union, en gardant la date de suppression
+     la plus récente par id) — c'est ce qui permet à une suppression faite sur un appareil de finir
+     par « rattraper » un autre appareil qui possédait encore une copie de l'enregistrement et ne
+     savait pas qu'il avait été supprimé ailleurs. */
+  function mergeTombstones(local, remote){
+    var out = Object.assign({}, local||{});
+    Object.keys(remote||{}).forEach(function(id){
+      if(!out[id] || new Date(remote[id]).getTime() > new Date(out[id]).getTime()) out[id] = remote[id];
+    });
+    return out;
   }
   function persistMergedLocally(merged){
     state.tasks = merged; saveLocal('tasks'); render();
