@@ -718,7 +718,7 @@
     presence: {label:'Liste de présence'}, compte_rendu: {label:'Compte-rendu de réunion'},
     observation: {label:"Grille d'observation"}, rapport: {label:'Rapport de synthèse'},
     attestation: {label:'Attestation de présence'}, lettre_information: {label:"Lettre d'information"},
-    rapport_inspection: {label:"Rapport d'inspection"}, bordereau: {label:'Bordereau de transmission'},
+    rapport_inspection: {label:"Rapport d'inspection"}, bordereau: {label:"Bordereau d'envoi"},
     plan_action: {label:"Plan d'action"}
   };
   /* Règle de langue (précisée par l'utilisateur) : les rapports — « Rapport de synthèse » (visite
@@ -746,6 +746,25 @@
     bordereau:['observations'],
     plan_action:['contexte','objectifs']
   };
+  /* Catalogue de remarques standard pour la validation des tableaux de service, proposées comme
+     observations rapides lors du rejet d'un tableau de service dans le bordereau d'envoi (voir
+     docEditModalHtml/openRemarquesPicker ci-dessous) — librement modifiables ou complétables ensuite
+     en texte libre. Extrait du « Guide des règles d'élaboration des tableaux des heures » (Conseil
+     régional de coordination de l'inspection pédagogique — AREF Marrakech-Safi, juillet 2021) :
+     règles générales communes à toutes les matières, puis règles propres à la langue française. */
+  var REMARQUES_TABLEAU_SERVICE = [
+    {cat:'Règles générales', texte:"Volume horaire hebdomadaire de l'enseignant(e) incomplet (masse horaire non respectée)"},
+    {cat:'Règles générales', texte:"Cours d'une même matière non répartis de façon équilibrée sur la semaine (concentrés en début ou fin de semaine)"},
+    {cat:'Règles générales', texte:'Séances non suffisamment espacées entre elles au cours de la semaine'},
+    {cat:'Règles générales', texte:"Séances d'une classe à examen programmées après 16h"},
+    {cat:'Règles générales', texte:"Heures d'encadrement (soutien/accompagnement) du professeur(e) principal(e) dépassant 4h par semaine"},
+    {cat:'Règles générales', texte:"Professeur(e) stagiaire chargé(e) d'une classe à examen"},
+    {cat:'Règles générales', texte:"Plus de six heures de cours programmées en une seule journée pour l'enseignant(e) (secondaire qualifiant)"},
+    {cat:'Langue française', texte:"Non-respect de l'ordre de succession des composantes de la matière (Lecture, Langue, Oral, Écrit)"},
+    {cat:'Langue française', texte:'Deux heures consécutives programmées en une seule séance pour une classe dont le volume hebdomadaire ne dépasse pas quatre heures'},
+    {cat:'Langue française', texte:'Séances de la matière non espacées convenablement durant la semaine'},
+    {cat:'Langue française', texte:'Volume horaire hebdomadaire non conforme au barème réglementaire du niveau/de la filière'}
+  ];
   var DOC_FIELD_LABEL = {
     ordreJour:'Ordre du jour', pointsDiscutes:'Points discutés', decisions:'Décisions',
     pointsForts:'Points forts', axesAmelioration:"Axes d'amélioration", synthese:'Synthèse',
@@ -1106,7 +1125,8 @@
     ensQuery: '', ensHoraireMode: false, horaireJour: 'Lundi', horaireHeure: '09:00',
     bilanPeriod: 'mois', bilanCustomFrom: '', bilanCustomTo: '',
     subEtab: 'zones', subDocs: 'generes', docsGenQuery: '', docsGenFilter: 'all', searchQuery: '',
-    pickTarget: null // {kind:'enseignant'|'etablissement'|'zone', onPick}
+    pickTarget: null, // {kind:'enseignant'|'etablissement'|'zone', onPick}
+    remarquesPick: null // {checked:{idx:true}, onInsert} — voir openRemarquesPicker
   };
   /* L'app est autonome : stockage 100% local (navigateur), aucune dépendance à Claude.
      mcpNs reste un objet non-nul en permanence — l'accès Drive réel est géré par mcpCall()
@@ -1187,7 +1207,7 @@
     var otherDocs = state.documents.filter(function(x){ return x.taskId===task.id; });
     if(otherDocs.length) d.pieces = otherDocs.map(function(x){ return {designation:(DOC_TYPE_INFO[x.type]||{}).label||x.titre||'', nombre:'1'}; });
     recordSet('document', d);
-    toast('Bordereau de transmission généré automatiquement pour cette tâche clôturée.');
+    toast(DOC_TYPE_INFO.bordereau.label+' généré automatiquement pour cette tâche clôturée.');
   }
   /* Génère en une fois une attestation de présence par enseignant(e) invité(e) à une réunion
      pédagogique / un cours expérimental (t.invites) — plutôt que de répéter manuellement le formulaire
@@ -1269,7 +1289,6 @@
       return new Promise(function(resolve, reject){
         if(!window.google || !window.google.accounts || !window.google.accounts.oauth2){ reject({code:'server_unavailable'}); return; }
         if(driveAccessToken && Date.now() < driveTokenExpiresAt - 30000){ resolve(driveAccessToken); return; }
-        if(!interactive){ reject({code:'consent_required'}); return; }
         if(!gisTokenClient){
           gisTokenClient = window.google.accounts.oauth2.initTokenClient({
             client_id: cid, scope: GOOGLE_DRIVE_SCOPE,
@@ -1288,14 +1307,39 @@
             }
           });
         }
+        /* interactive=false : tentative SILENCIEUSE (prompt:'') pour la synchronisation automatique
+           au lancement — ne montre jamais de fenêtre Google. Si le compte n'a plus de session active
+           ou si le consentement doit être redonné, l'échec est simplement ignoré par l'appelant
+           (autoSyncOnLaunch) : l'inspecteur(trice) retrouve l'état habituel « Non connecté » et peut
+           toucher « Connecter » comme avant, sans jamais être interrompu par une fenêtre inattendue. */
         gisTokenClient.__resolve = resolve; gisTokenClient.__reject = reject;
-        gisTokenClient.requestAccessToken({prompt: driveAccessToken ? '' : 'consent'});
+        gisTokenClient.requestAccessToken({prompt: (interactive && !driveAccessToken) ? 'consent' : ''});
       });
     });
   }
   function connectGoogleDrive(){
     if(!googleClientId()){ openDriveSetup(); return; }
-    ensureGoogleAuth(true).then(function(){ toast('Google Drive connecté.'); }).catch(function(err){ toast(mcpErrorMessage(err)); render(); });
+    ensureGoogleAuth(true).then(function(){
+      toast('Google Drive connecté.');
+      /* Retrouve tout de suite le dossier/la feuille existants (créés depuis un autre appareil) au
+         lieu d'attendre que l'inspecteur(trice) choisisse manuellement « créer » ou « lier ». */
+      if(!state.config.sheetFileId) autoLinkExistingData(); else render();
+    }).catch(function(err){ toast(mcpErrorMessage(err)); render(); });
+  }
+  /* Synchronisation silencieuse au lancement de l'application : si cet appareil s'est déjà connecté
+     à Google Drive par le passé (sheetFileId déjà en cache localement), on tente un rattachement
+     SILENCIEUX (sans fenêtre Google, voir ensureGoogleAuth(false)) puis, en cas de réussite, une
+     synchronisation normale — celle-ci compare déjà, enregistrement par enregistrement, la date de
+     dernière modification (updatedAt) locale et distante et ne garde que la plus récente (voir
+     mergeById/mergeRemoteBackupIntoLocal) : elle met donc à jour soit le cache local (si le Drive
+     avait une version plus récente, modifiée depuis un autre appareil), soit le Drive (si c'est cet
+     appareil-ci qui a la version la plus récente), exactement comme le fait déjà le bouton ↻ manuel.
+     Si la tentative silencieuse échoue (session Google expirée, consentement à redonner…), on
+     n'affiche RIEN : l'inspecteur(trice) retrouve l'état « Non connecté » habituel et peut se
+     reconnecter manuellement, sans jamais être interrompu par une fenêtre au démarrage. */
+  function autoSyncOnLaunch(){
+    if(!googleClientId() || !state.config.sheetFileId) return;
+    ensureGoogleAuth(false).then(function(){ doSync(); }).catch(function(){});
   }
   function openDriveSetup(){
     state.driveSetupError = null;
@@ -1749,6 +1793,44 @@
   function ensureDocsFolder(appFolderId){ return ensureSubfolder(appFolderId, 'Documents générés', 'docsFolderId'); }
   function ensureAttachFolder(appFolderId){ return ensureSubfolder(appFolderId, 'Pièces jointes', 'attachFolderId'); }
   function ensureTemplatesFolder(appFolderId){ return ensureSubfolder(appFolderId, 'Modèles', 'templatesFolderId'); }
+  var SHEET_TITLE = 'Tâches - Carnet Inspection';
+  /* Retrouve, dans le dossier principal de l'application, la feuille de tâches déjà créée — par
+     exemple depuis un autre appareil — avant d'en créer une nouvelle. Indispensable à la
+     synchronisation multi-appareils : sans cette recherche préalable, chaque appareil créerait sa
+     propre feuille isolée, et deux feuilles distinctes ne se synchronisent jamais entre elles. */
+  function ensureSheetFile(folder){
+    if(!folder || !folder.id) return Promise.reject({code:'not_granted'});
+    return findFileByTitle(folder.id, SHEET_TITLE).then(function(existing){
+      if(existing) return {file:existing, created:false};
+      return mcpCall('create_file', {
+        title: SHEET_TITLE, textContent: objectsToCSV(CSV_HEADERS,[]), contentMimeType:'text/csv', parentId: folder.id
+      }).then(function(res){ return {file:(res.payload||{}), created:true}; });
+    });
+  }
+  /* Après connexion à Google Drive (ou en cas de nouvelle tentative sur un appareil déjà connecté
+     mais pas encore lié), retrouve automatiquement le dossier et la feuille de l'application s'ils
+     existent déjà quelque part dans le Drive du compte — plutôt que de forcer l'inspecteur(trice) à
+     choisir entre « créer » et « lier », ce qui menait à créer par erreur une feuille distincte à
+     chaque nouvel appareil (donc jamais synchronisée avec les autres). Les boutons manuels de
+     Réglages → Synchronisation restent disponibles en secours si cette recherche automatique échoue. */
+  function autoLinkExistingData(){
+    if(state.config.sheetFileId || state.setupBusy) return Promise.resolve();
+    state.setupBusy = true; state.setupError = null; render();
+    return ensureAppFolder().then(function(folder){
+      return ensureSheetFile(folder).then(function(r){
+        return configSet({ sheetFileId:r.file.id, sheetTitle:r.file.title||SHEET_TITLE,
+          sheetParentId: r.file.parentId || folder.id, lastSyncAt:null }).then(function(){
+            state.setupBusy = false; render();
+            toast(r.created ? 'Feuille créée dans le dossier Drive de l\'application.' : 'Feuille existante retrouvée sur votre Drive et liée automatiquement.');
+            doSync();
+          });
+      });
+    }).catch(function(err){
+      state.setupBusy = false; state.setupError = mcpErrorMessage(err); render();
+      var top = state.modalStack[state.modalStack.length-1];
+      if(!top || top.type!=='settings') openSettings();
+    });
+  }
   /* Modèles de documents sur Google Docs (Réglages → Modèles de documents → Modèles personnalisés) :
      alternative à la saisie dans l'app pour un texte long ou nécessitant une mise en forme plus riche —
      UN SEUL Google Doc est créé par type de document, regroupant TOUS ses champs personnalisables
@@ -2063,15 +2145,22 @@
   function openSettings(){ state.modalStack.push({type:'settings', tab:'sync'}); render(); }
   function createSheet(){
     state.setupBusy = true; state.setupError = null; render();
-    var title = 'Tâches - Carnet Inspection';
+    /* Même en cliquant sur « Créer une nouvelle feuille », on vérifie d'abord qu'aucune n'existe
+       déjà dans le dossier (créée depuis un autre appareil) : mieux vaut la retrouver et la lier
+       que de créer un doublon isolé qui ne se synchroniserait jamais avec l'autre. */
     ensureAppFolder().catch(function(){ return null; }).then(function(folder){
-      return mcpCall('create_file', {title: title, textContent: objectsToCSV(CSV_HEADERS,[]), contentMimeType:'text/csv', parentId: folder?folder.id:undefined});
+      return folder ? ensureSheetFile(folder)
+        : mcpCall('create_file', {title:SHEET_TITLE, textContent:objectsToCSV(CSV_HEADERS,[]), contentMimeType:'text/csv'})
+            .then(function(res){ return {file:(res.payload||{}), created:true}; });
     })
-      .then(function(res){
-        var p = res.payload || {};
-        return configSet({ sheetFileId: p.id, sheetTitle: p.title || title, sheetParentId: p.parentId || null, lastSyncAt: null });
+      .then(function(r){
+        return configSet({ sheetFileId: r.file.id, sheetTitle: r.file.title || SHEET_TITLE, sheetParentId: r.file.parentId || null, lastSyncAt: null }).then(function(){ return r; });
       })
-      .then(function(){ state.setupBusy = false; render(); toast('Feuille créée dans le dossier Drive de l\'application.'); doSync(); })
+      .then(function(r){
+        state.setupBusy = false; render();
+        toast(r.created ? 'Feuille créée dans le dossier Drive de l\'application.' : 'Une feuille existait déjà dans ce dossier — elle a été liée au lieu d\'en créer une nouvelle.');
+        doSync();
+      })
       .catch(function(err){ state.setupBusy = false; state.setupError = mcpErrorMessage(err); render(); });
   }
   function linkExistingSheet(file){
@@ -2137,6 +2226,31 @@
   function openPicker(kind, onPick, filterFn){
     state.pickTarget = {kind:kind, onPick:onPick, filterFn:filterFn};
     pushModal({type:'picker', kind:kind});
+  }
+
+  /* Sélecteur à cases à cocher (plusieurs remarques à la fois) pour REMARQUES_TABLEAU_SERVICE — voir
+     docEditModalHtml (bordereau, tableaux de service non validés) : onInsert reçoit le texte des
+     remarques cochées, déjà joint par « ; », à ajouter (pas remplacer) au champ observation ciblé. */
+  function openRemarquesPicker(onInsert){
+    state.remarquesPick = {checked:{}, onInsert:onInsert};
+    pushModal({type:'remarquesPicker'});
+  }
+  function remarquesPickerModalHtml(idx){
+    var checked = (state.remarquesPick&&state.remarquesPick.checked)||{};
+    var cats = []; REMARQUES_TABLEAU_SERVICE.forEach(function(r){ if(cats.indexOf(r.cat)===-1) cats.push(r.cat); });
+    var html = '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
+      '<div class="sheet-head"><h2>Remarques usuelles</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
+      '<p style="font-size:11.5px;color:var(--ink-faint);margin:0 0 8px;">Cochez une ou plusieurs remarques à ajouter à l\'observation — le texte reste ensuite librement modifiable.</p>';
+    cats.forEach(function(cat){
+      html += '<div class="field"><label style="font-size:11px;text-transform:uppercase;letter-spacing:.02em;color:var(--ink-faint);">'+esc(cat)+'</label>'+
+        REMARQUES_TABLEAU_SERVICE.map(function(r,i){ if(r.cat!==cat) return '';
+          return '<label style="display:flex;align-items:flex-start;gap:9px;padding:8px 2px;border-bottom:1px solid var(--line);font-weight:400;font-size:13px;line-height:1.4;">'+
+            '<input type="checkbox" data-remidx="'+i+'"'+(checked[i]?' checked':'')+' style="width:17px;height:17px;margin-top:1px;flex-shrink:0;"><span>'+esc(r.texte)+'</span></label>';
+        }).join('')+'</div>';
+    });
+    html += '<div class="btn-row"><button class="btn primary" id="btnInsertRemarques" type="button">Insérer la sélection</button></div>'+
+      '</div></div>';
+    return html;
   }
 
   /* Accès rapide « Plan d'action » depuis le menu (Outils) : contrairement aux autres types de
@@ -2286,6 +2400,7 @@
     } else if(type==='bordereau'){
       base.destinataire = 'Monsieur le Directeur Provincial'; base.reference=''; base.objet = task.titre;
       base.pieces = [{designation: task.titre, nombre:'1'}]; base.observations='';
+      base.tableauxValides = []; base.tableauxNonValides = [];
     } else if(type==='plan_action'){
       base.lieu = task.etablissementNom||''; base.objet = task.titre; base.contexte=''; base.objectifs=''; base.actions=[];
     }
@@ -2485,8 +2600,19 @@
         signatures:["Signature de l'inspecteur(trice)","Signature de l'enseignant(e)"] };
     }
     if(d.type==='bordereau'){
+      var bordTables = [{headers:['بيان الوثائق','العدد'], rows:(d.pieces||[]).map(function(p){ return [p.designation||'', p.nombre||'']; })}];
+      if((d.tableauxValides||[]).length){
+        bordTables.push({heading:'جداول الحصص المصادق عليها', headers:['المؤسسة','اسم الأستاذ(ة)','الرقم التربوي (PPR)'],
+          rows: d.tableauxValides.slice().sort(function(a,b){ return (a.etablissement||'').localeCompare(b.etablissement||''); })
+            .map(function(r){ return [r.etablissement||'', r.enseignant||'', r.ppr||'']; })});
+      }
+      if((d.tableauxNonValides||[]).length){
+        bordTables.push({heading:'جداول الحصص غير المصادق عليها', headers:['المؤسسة','اسم الأستاذ(ة)','الرقم التربوي (PPR)','الملاحظات'],
+          rows: d.tableauxNonValides.slice().sort(function(a,b){ return (a.etablissement||'').localeCompare(b.etablissement||''); })
+            .map(function(r){ return [r.etablissement||'', r.enseignant||'', r.ppr||'', r.observation||'']; })});
+      }
       return { rtl:true, titre:'بيان إرسال الوثائق', meta:[['المرسل إليه',d.destinataire],['المرجع',d.reference||'—'],['التاريخ',fmtDate(d.date)],['الموضوع',d.objet]],
-        tables:[{headers:['بيان الوثائق','العدد'], rows:(d.pieces||[]).map(function(p){ return [p.designation||'', p.nombre||'']; })}],
+        tables:bordTables,
         sections: d.observations ? [{heading:'ملاحظات', text:d.observations}] : [], signatures:['توقيع المفتش(ة)'] };
     }
     if(d.type==='plan_action'){
@@ -2831,6 +2957,7 @@
     if(!state.mcpReady && !state.syncing){ dot.className='dot'; label.textContent='Google Drive non connecté'; link.hidden = false; link.textContent='Connecter'; }
     else if(state.syncing){ dot.className='dot'; label.textContent='Synchronisation…'; link.hidden = true; }
     else if(state.syncError){ dot.className='dot err'; label.textContent = state.syncError; link.hidden = true; }
+    else if(state.setupBusy){ dot.className='dot'; label.textContent='Recherche de vos données existantes…'; link.hidden = true; }
     else if(!state.config.sheetFileId){ dot.className='dot'; label.textContent='Aucune feuille liée'; link.hidden = false; link.textContent='Configurer'; }
     else if(state.config.lastSyncAt){ dot.className='dot ok'; label.textContent='Synchronisé il y a '+fmtWhen(state.config.lastSyncAt); link.hidden=false; link.textContent = state.config.sheetTitle||'Feuille'; }
     else { dot.className='dot'; label.textContent='Pas encore synchronisé'; link.hidden=false; link.textContent='Synchroniser'; }
@@ -2983,9 +3110,11 @@
     var s = statsFor(tasks);
     var html = '';
     if(!state.config.sheetFileId && state.mcpReady){
-      html += '<div class="setup-card"><h2>Connecter Google Sheets</h2><p>Liez une feuille existante ou créez-en une pour synchroniser vos tâches d\'inspection.</p>'+
-        '<div class="setup-actions"><button class="btn primary" id="btnCreateSheetInline" type="button">Créer une feuille</button>'+
-        '<button class="btn ghost" id="btnLinkSheetInline" type="button">Lier une feuille existante</button></div></div>';
+      html += state.setupBusy
+        ? '<div class="setup-card"><h2>Connecter Google Sheets</h2><p>Recherche d\'une feuille déjà créée sur un autre appareil dans votre Drive…</p></div>'
+        : '<div class="setup-card"><h2>Connecter Google Sheets</h2><p>Aucune feuille retrouvée automatiquement dans votre Drive. Liez une feuille existante ou créez-en une pour synchroniser vos tâches d\'inspection.</p>'+
+          '<div class="setup-actions"><button class="btn primary" id="btnCreateSheetInline" type="button">Créer une feuille</button>'+
+          '<button class="btn ghost" id="btnLinkSheetInline" type="button">Lier une feuille existante</button></div></div>';
     } else if(!state.mcpReady){
       html += '<div class="setup-card"><h2>Synchroniser avec Google Drive</h2><p>Vos tâches sont déjà enregistrées sur cet appareil. Connectez votre compte Google (gratuit, à vous) pour les sauvegarder aussi dans votre Drive et les retrouver sur un autre appareil.</p>'+
         '<div class="setup-actions"><button class="btn primary" id="btnConnectDriveInline" type="button">Connecter Google Drive</button></div></div>';
@@ -3302,6 +3431,7 @@
       if(m.type==='taskdetail') return taskDetailModalHtml(idx, m);
       if(m.type==='settings') return settingsModalHtml(idx, m);
       if(m.type==='picker') return pickerModalHtml(idx, m);
+      if(m.type==='remarquesPicker') return remarquesPickerModalHtml(idx);
       if(m.type==='enseignant') return enseignantModalHtml(idx);
       if(m.type==='etablissement') return etablissementModalHtml(idx);
       if(m.type==='zone') return zoneModalHtml(idx);
@@ -3479,13 +3609,16 @@
           (c.sheetFileId ? '<button class="btn ghost" id="btnUnlink" type="button">Réinitialiser</button>' : '')+'</div>'+
           (c.lastBackupAt ? '<div class="settings-row"><div><div class="l">Sauvegarde complète (JSON)</div><div class="s">Dernière copie : '+fmtWhen(c.lastBackupAt)+'</div></div></div>' : '');
         if(state.setupError) html += '<div class="banner err" style="margin-top:10px;">'+ICONS.warn+'<div>'+esc(state.setupError)+'</div></div>';
-        if(!c.sheetFileId){
-          html += '<div class="setup-actions" style="margin-top:12px;"><button class="btn primary" id="btnCreateSheet" type="button"'+(state.setupBusy?' disabled':'')+'>'+(state.setupBusy?'Création…':'Créer une nouvelle feuille')+'</button>'+
-            '<button class="btn ghost" id="btnShowLink" type="button">Lier une feuille existante</button></div>';
+        if(!c.sheetFileId && state.setupBusy){
+          html += '<p style="font-size:11.5px;color:var(--ink-faint);margin-top:8px;">Recherche automatique d\'une feuille déjà créée sur un autre appareil…</p>';
+        } else if(!c.sheetFileId){
+          html += '<p style="font-size:11.5px;color:var(--ink-faint);margin-top:2px;">Aucune feuille retrouvée automatiquement dans le dossier Drive de l\'application.</p>'+
+            '<div class="setup-actions" style="margin-top:8px;"><button class="btn primary" id="btnCreateSheet" type="button">Créer / retrouver la feuille</button>'+
+            '<button class="btn ghost" id="btnShowLink" type="button">Lier une feuille précise</button></div>';
         } else {
           html += '<p style="font-size:11.5px;color:var(--ink-faint);margin-top:6px;">Une feuille est déjà liée : la synchronisation (icône ↻) l\'utilise directement. Pour en créer ou en lier une autre, touchez d\'abord « Réinitialiser » ci-dessus (la feuille actuelle n\'est pas supprimée de votre Drive, seulement dissociée de l\'application).</p>';
         }
-        if(showLink) html += '<div class="field" style="margin-top:14px;"><label for="sheetSearch">Rechercher une feuille</label>'+
+        if(showLink && !state.setupBusy) html += '<div class="field" style="margin-top:14px;"><label for="sheetSearch">Rechercher une feuille précise (si celle voulue n\'a pas été retrouvée automatiquement)</label>'+
           '<div class="search-row"><input type="text" id="sheetSearch" placeholder="Nom de la feuille…"><button type="button" id="sheetSearchBtn">OK</button></div>'+
           '<div id="sheetResults" class="doc-list" style="margin-top:9px;"></div></div>';
         html += '<p style="font-size:11.5px;color:var(--ink-faint);margin-top:8px;">La synchronisation fusionne vos tâches locales et celles de la feuille (version la plus récente conservée), puis réécrit entièrement la feuille — évitez de modifier les colonnes à la main entre deux synchronisations. Zones, établissements, enseignants, documents, modèles et référentiel régions/DP sont, eux, fusionnés de la même façon (le plus récent l\'emporte) via un fichier JSON dans ce même dossier : vos données restent donc à jour sur tous vos appareils après chaque synchronisation. Les photos (enseignant(e)s, logos, cachet, signature) et les pièces jointes sont, elles aussi, envoyées dans votre Drive et retéléchargées automatiquement sur vos autres appareils dès qu\'elles y sont affichées. L\'application n\'accède qu\'aux fichiers qu\'elle crée elle-même dans votre Drive, jamais au reste de votre compte.</p>';
@@ -3989,7 +4122,31 @@
           return '<div class="rowline"><input type="text" data-piece="designation" data-i="'+i+'" value="'+esc(p.designation)+'" placeholder="Désignation" style="flex:2;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;">'+
             '<input type="text" data-piece="nombre" data-i="'+i+'" value="'+esc(p.nombre)+'" placeholder="Nombre" style="width:70px;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;"><button class="rm" data-rmpiece="'+i+'" type="button">'+ICONS.trash+'</button></div>';
         }).join('')+'</div><button class="addline" id="btnAddPiece" type="button">'+ICONS.plus+' Ajouter une pièce</button></div>'+
-        '<div class="field"><label for="dObs">Observations</label><textarea id="dObs">'+esc(d.observations)+'</textarea></div>';
+        '<div class="field"><label for="dObs">Observations</label><textarea id="dObs">'+esc(d.observations)+'</textarea></div>'+
+        '<div class="field"><label>Tableaux de service validés <span style="font-weight:400;color:var(--ink-faint);">(par établissement)</span></label><div id="tsValList">'+(d.tableauxValides||[]).map(function(r,i){
+          return '<div class="rowline" style="align-items:flex-start;">'+
+            '<div style="flex:1;display:flex;flex-direction:column;gap:6px;min-width:0;">'+
+              '<input type="text" data-tsval="etablissement" data-i="'+i+'" value="'+esc(r.etablissement)+'" placeholder="Établissement" style="border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;">'+
+              '<div style="display:flex;gap:6px;">'+
+                '<input type="text" data-tsval="enseignant" data-i="'+i+'" value="'+esc(r.enseignant)+'" placeholder="Enseignant(e)" style="flex:1;min-width:0;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;">'+
+                '<input type="text" data-tsval="ppr" data-i="'+i+'" value="'+esc(r.ppr)+'" placeholder="PPR" style="width:88px;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 8px;">'+
+              '</div></div>'+
+            '<button class="icon-btn" data-picktsval="'+i+'" type="button" title="Choisir un(e) enseignant(e)" style="width:38px;height:38px;flex-shrink:0;">'+ICONS.users+'</button>'+
+            '<button class="rm" data-rmtsval="'+i+'" type="button">'+ICONS.trash+'</button></div>';
+        }).join('')+'</div><button class="addline" id="btnAddTsVal" type="button">'+ICONS.plus+' Ajouter un tableau validé</button></div>'+
+        '<div class="field"><label>Tableaux de service non validés</label><div id="tsNvList">'+(d.tableauxNonValides||[]).map(function(r,i){
+          return '<div class="rowline" style="align-items:flex-start;">'+
+            '<div style="flex:1;display:flex;flex-direction:column;gap:6px;min-width:0;">'+
+              '<input type="text" data-tsnv="etablissement" data-i="'+i+'" value="'+esc(r.etablissement)+'" placeholder="Établissement" style="border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;">'+
+              '<div style="display:flex;gap:6px;">'+
+                '<input type="text" data-tsnv="enseignant" data-i="'+i+'" value="'+esc(r.enseignant)+'" placeholder="Enseignant(e)" style="flex:1;min-width:0;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;">'+
+                '<input type="text" data-tsnv="ppr" data-i="'+i+'" value="'+esc(r.ppr)+'" placeholder="PPR" style="width:88px;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 8px;">'+
+              '</div>'+
+              '<textarea data-tsnv="observation" data-i="'+i+'" placeholder="Motif du refus / observation" rows="2" style="border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;font:inherit;">'+esc(r.observation)+'</textarea>'+
+              '<button class="addline" data-addremark="'+i+'" type="button" style="margin:0;padding:6px 10px;font-size:12px;">'+ICONS.plus+' Choisir une remarque usuelle</button></div>'+
+            '<button class="icon-btn" data-picktsnv="'+i+'" type="button" title="Choisir un(e) enseignant(e)" style="width:38px;height:38px;flex-shrink:0;">'+ICONS.users+'</button>'+
+            '<button class="rm" data-rmtsnv="'+i+'" type="button">'+ICONS.trash+'</button></div>';
+        }).join('')+'</div><button class="addline" id="btnAddTsNv" type="button">'+ICONS.plus+' Ajouter un tableau non validé</button></div>';
     }
     var rtl = !!RTL_DOC_TYPES[m.docType];
     return '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
@@ -4416,6 +4573,17 @@
     });
     var pickerSearchBtn = $('pickerSearchBtn'); if(pickerSearchBtn) pickerSearchBtn.onclick = function(){ searchDocs($('pickerSearch').value.trim()); };
 
+    /* -- sélecteur de remarques usuelles (tableau de service non validé) -- */
+    document.querySelectorAll('[data-remidx]').forEach(function(cb){
+      cb.onchange = function(){ if(state.remarquesPick) state.remarquesPick.checked[parseInt(cb.getAttribute('data-remidx'))] = cb.checked; };
+    });
+    var btnInsertRemarques = $('btnInsertRemarques'); if(btnInsertRemarques) btnInsertRemarques.onclick = function(){
+      var rp = state.remarquesPick; if(!rp) { closeTopModal(); return; }
+      var texts = REMARQUES_TABLEAU_SERVICE.filter(function(r,i){ return rp.checked[i]; }).map(function(r){ return r.texte; });
+      if(texts.length && rp.onInsert) rp.onInsert(texts.join('; '));
+      closeTopModal();
+    };
+
     /* -- enseignant editor -- */
     function syncHoraireInputs(){
       document.querySelectorAll('[data-hor]').forEach(function(inp){
@@ -4556,10 +4724,35 @@
       document.querySelectorAll('[data-act]').forEach(function(inp){ var i=parseInt(inp.getAttribute('data-i')); if(d.actions[i]) d.actions[i][inp.getAttribute('data-act')]=inp.value; });
       document.querySelectorAll('[data-critcomment]').forEach(function(ta){ var i=parseInt(ta.getAttribute('data-critcomment')); if(d.criteres[i]) d.criteres[i].commentaire=ta.value; });
       document.querySelectorAll('[data-piece]').forEach(function(inp){ var i=parseInt(inp.getAttribute('data-i')); if(d.pieces&&d.pieces[i]) d.pieces[i][inp.getAttribute('data-piece')]=inp.value; });
+      document.querySelectorAll('[data-tsval]').forEach(function(inp){ var i=parseInt(inp.getAttribute('data-i')); if(d.tableauxValides&&d.tableauxValides[i]) d.tableauxValides[i][inp.getAttribute('data-tsval')]=inp.value; });
+      document.querySelectorAll('[data-tsnv]').forEach(function(inp){ var i=parseInt(inp.getAttribute('data-i')); if(d.tableauxNonValides&&d.tableauxNonValides[i]) d.tableauxNonValides[i][inp.getAttribute('data-tsnv')]=inp.value; });
     }
     var segApp = $('dAppSeg'); if(segApp) segApp.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ syncDocGenericFields(); state.draftDoc.appreciation=b.getAttribute('data-v'); render(); }; });
     var addPiece = $('btnAddPiece'); if(addPiece) addPiece.onclick = function(){ syncDocGenericFields(); (state.draftDoc.pieces=state.draftDoc.pieces||[]).push({designation:'',nombre:'1'}); render(); };
     document.querySelectorAll('[data-rmpiece]').forEach(function(el){ el.onclick=function(){ syncDocGenericFields(); state.draftDoc.pieces.splice(parseInt(el.getAttribute('data-rmpiece')),1); render(); }; });
+    /* -- bordereau : tableaux de service (validés / non validés) -- */
+    var addTsVal = $('btnAddTsVal'); if(addTsVal) addTsVal.onclick = function(){ syncDocGenericFields(); (state.draftDoc.tableauxValides=state.draftDoc.tableauxValides||[]).push({etablissement:'',enseignant:'',ppr:''}); render(); };
+    document.querySelectorAll('[data-rmtsval]').forEach(function(el){ el.onclick=function(){ syncDocGenericFields(); state.draftDoc.tableauxValides.splice(parseInt(el.getAttribute('data-rmtsval')),1); render(); }; });
+    document.querySelectorAll('[data-picktsval]').forEach(function(el){
+      var i = parseInt(el.getAttribute('data-picktsval'));
+      el.onclick = function(){ syncDocGenericFields(); openPicker('enseignant', function(r){ state.draftDoc.tableauxValides[i] = {etablissement: etabName(r.etablissementId)||'', enseignant: r.nom||'', ppr: r.ppr||''}; }); };
+    });
+    var addTsNv = $('btnAddTsNv'); if(addTsNv) addTsNv.onclick = function(){ syncDocGenericFields(); (state.draftDoc.tableauxNonValides=state.draftDoc.tableauxNonValides||[]).push({etablissement:'',enseignant:'',ppr:'',observation:''}); render(); };
+    document.querySelectorAll('[data-rmtsnv]').forEach(function(el){ el.onclick=function(){ syncDocGenericFields(); state.draftDoc.tableauxNonValides.splice(parseInt(el.getAttribute('data-rmtsnv')),1); render(); }; });
+    document.querySelectorAll('[data-picktsnv]').forEach(function(el){
+      var i = parseInt(el.getAttribute('data-picktsnv'));
+      el.onclick = function(){ syncDocGenericFields(); openPicker('enseignant', function(r){ var row = state.draftDoc.tableauxNonValides[i]; state.draftDoc.tableauxNonValides[i] = {etablissement: etabName(r.etablissementId)||'', enseignant: r.nom||'', ppr: r.ppr||'', observation: row?row.observation:''}; }); };
+    });
+    document.querySelectorAll('[data-addremark]').forEach(function(el){
+      var i = parseInt(el.getAttribute('data-addremark'));
+      el.onclick = function(){
+        syncDocGenericFields();
+        openRemarquesPicker(function(texte){
+          var row = state.draftDoc.tableauxNonValides[i]; if(!row) return;
+          row.observation = row.observation ? (row.observation+'; '+texte) : texte;
+        });
+      };
+    });
     document.querySelectorAll('[data-critnote]').forEach(function(seg){
       var i = parseInt(seg.getAttribute('data-critnote'));
       seg.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ syncDocGenericFields(); state.draftDoc.criteres[i].note=b.getAttribute('data-v'); render(); }; });
@@ -4813,7 +5006,7 @@
   $('btnSearch').onclick = openGlobalSearch;
   $('btnSync').onclick = doSync;
   $('btnSettings').onclick = openSettings;
-  $('syncLink').onclick = function(){ if(!state.mcpReady) connectGoogleDrive(); else if(!state.config.sheetFileId) openSettings(); else doSync(); };
+  $('syncLink').onclick = function(){ if(!state.mcpReady) connectGoogleDrive(); else if(!state.config.sheetFileId) autoLinkExistingData(); else doSync(); };
   $('fabAdd').onclick = function(){
     if(state.view==='tasks') openTaskEditor(null);
     else if(state.view==='enseignants') openEnseignantEditor(null);
@@ -4825,6 +5018,9 @@
     initCapabilities();
     if(!state.config.googleClientId && !state.config.driveSetupSeen){ pushModal({type:'driveSetup'}); }
     render();
+    /* Toujours après le premier rendu (données locales déjà affichées, hors-ligne d'abord) : tente
+       une synchronisation silencieuse en arrière-plan si cet appareil a déjà été connecté. */
+    autoSyncOnLaunch();
   }
   start();
 })();

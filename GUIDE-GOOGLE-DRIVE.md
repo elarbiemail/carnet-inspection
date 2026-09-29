@@ -94,11 +94,24 @@ se fait directement dans l'application.
    Cliquez sur **« Paramètres avancés »** puis **« Accéder à Carnet Inspection
    (non sécurisé) »**, et enfin **Autoriser**. Vous ne verrez cet écran
    qu'à la première connexion.
-4. C'est terminé : l'application peut désormais créer, dans votre Drive, un
-   dossier principal « Carnet d'Inspection — Données » avec ses sous-dossiers
-   (« Sauvegardes », « Documents générés », « Pièces jointes », « Photos » et
-   « Modèles ») ainsi qu'une feuille de calcul, pour synchroniser vos tâches
-   et vos documents.
+4. C'est terminé : dès la connexion, l'application recherche automatiquement,
+   dans votre Drive, un dossier principal « Carnet d'Inspection — Données »
+   déjà existant (créé depuis un autre appareil) ainsi que sa feuille de
+   calcul de tâches. Si elle les trouve, elle les relie directement — sans
+   rien vous demander — et récupère aussitôt vos tâches déjà enregistrées.
+   Ce n'est **que si rien n'existe encore nulle part** (tout premier appareil)
+   qu'elle crée ce dossier (avec ses sous-dossiers « Sauvegardes »,
+   « Documents générés », « Pièces jointes », « Photos » et « Modèles ») et
+   une nouvelle feuille de calcul.
+
+**Sur un deuxième appareil (ou après avoir réinstallé l'application), vous
+n'avez donc jamais besoin de créer une nouvelle feuille ni d'en chercher une
+manuellement** : connectez-vous simplement avec le même compte Google, et
+l'application retrouve d'elle-même le dossier et la feuille déjà utilisés par
+vos autres appareils. Les boutons « Créer une nouvelle feuille » / « Lier une
+feuille existante » (dans **Paramètres → Synchronisation**) ne servent donc
+qu'en secours, si cette recherche automatique échoue pour une raison
+quelconque, ou si vous voulez délibérément lier une feuille précise.
 
 ## Que synchronise exactement le bouton de synchronisation ?
 
