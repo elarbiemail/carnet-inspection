@@ -704,15 +704,20 @@
   function normTaskType(v){ if(TT_LABEL[v]) return v; if(LEGACY_TASKTYPE[v]) return LEGACY_TASKTYPE[v]; return 'autre'; }
   var TASK_TYPES_GRADED = {inspection:true};
   var TASK_TYPES_NOTIFY = {reunion_pedagogique:true, cours_experimental:true};
+  /* « plan_action » n'est plus proposé ici depuis qu'il a été remplacé par le Programme annuel comme
+     plan d'action (voir le bouton « Plan d'action » du menu principal, qui ouvre désormais directement
+     Réglages → Programme annuel) — DOC_TYPE_INFO/DOC_TEMPLATE_FIELDS/RTL_DOC_TYPES et la génération de
+     document gardent néanmoins ce type pour que d'anciens documents « plan_action » déjà créés restent
+     consultables, imprimables et modifiables normalement. */
   var DOCS_FOR_TYPE = {
-    inspection:['lettre_information','observation','rapport_inspection','plan_action','bordereau'],
-    visite_conseil:['lettre_information','observation','rapport','plan_action','bordereau'],
-    reunion_pedagogique:['lettre_information','presence','compte_rendu','attestation','plan_action','bordereau'],
-    cours_experimental:['lettre_information','presence','compte_rendu','attestation','plan_action','bordereau'],
-    recherche_action:['rapport','plan_action','bordereau'],
-    observation_examen:['observation','rapport','plan_action','bordereau'],
-    conception_examen:['rapport','plan_action','bordereau'],
-    autre:['rapport','plan_action','bordereau']
+    inspection:['lettre_information','observation','rapport_inspection','bordereau'],
+    visite_conseil:['lettre_information','observation','rapport','bordereau'],
+    reunion_pedagogique:['lettre_information','presence','compte_rendu','attestation','bordereau'],
+    cours_experimental:['lettre_information','presence','compte_rendu','attestation','bordereau'],
+    recherche_action:['rapport','bordereau'],
+    observation_examen:['observation','rapport','bordereau'],
+    conception_examen:['rapport','bordereau'],
+    autre:['rapport','bordereau']
   };
   var DOC_TYPE_INFO = {
     presence: {label:'Liste de présence'}, compte_rendu: {label:'Compte-rendu de réunion'},
@@ -1120,7 +1125,7 @@
     config: {}, docs: [], docsQuery: '', docsLoading: false, docsError: null,
     dbReady: false, mcpReady: false, downloadsReady: false, sampleReady: false, assetsReady: false,
     syncing: false, syncError: null,
-    modalStack: [], draftTask: null, draftRecord: null, draftDoc: null, quickPlanAction: null,
+    modalStack: [], draftTask: null, draftRecord: null, draftDoc: null,
     setupBusy: false, setupError: null, driveSetupError: null, geminiKeyError: null,
     ensQuery: '', ensHoraireMode: false, horaireJour: 'Lundi', horaireHeure: '09:00',
     bilanPeriod: 'mois', bilanCustomFrom: '', bilanCustomTo: '',
@@ -1653,22 +1658,6 @@
       return arr.map(function(x){ return { action:String((x&&x.action)||'').trim(), responsable:String((x&&x.responsable)||'').trim(), echeance:'' }; }).filter(function(a){ return a.action; });
     }catch(e){ return []; }
   }
-  /* Génération d'un plan d'action complet (contexte + objectifs + actions) à partir de quelques
-     bribes/notes brèves — voir openQuickPlanAction() : contrairement à parseAiActionsJson ci-dessus
-     (une simple liste), la réponse attendue ici est un objet JSON unique regroupant les trois champs. */
-  function parseAiPlanActionJson(text){
-    var m = text.match(/\{[\s\S]*\}/);
-    if(!m) return null;
-    try{
-      var obj = JSON.parse(m[0]);
-      if(!obj || typeof obj !== 'object') return null;
-      var actions = Array.isArray(obj.actions) ? obj.actions.map(function(x){
-        return { action:String((x&&x.action)||'').trim(), responsable:String((x&&x.responsable)||'').trim(), echeance:'' };
-      }).filter(function(a){ return a.action; }) : [];
-      return { contexte:String(obj.contexte||'').trim(), objectifs:String(obj.objectifs||'').trim(), actions:actions };
-    }catch(e){ return null; }
-  }
-
   /* ================= assets (photos / pièces jointes / logo / cachet / signature) =================
      Stockage 100% local : chaque fichier est encodé en data URL (base64) et conservé dans
      localStorage aux côtés des autres données de l'app — aucun service externe requis. */
@@ -2343,17 +2332,6 @@
     return html;
   }
 
-  /* Accès rapide « Plan d'action » depuis le menu (Outils) : contrairement aux autres types de
-     documents, toujours créés depuis une tâche existante, celui-ci doit pouvoir être lancé
-     indépendamment. On fait donc saisir juste un objet/établissement/quelques notes, puis on crée en
-     coulisse une tâche légère (taskType:'autre', qui propose déjà « plan_action » dans DOCS_FOR_TYPE)
-     pour servir d'ancrage au document — l'inspecteur(trice) n'a pas besoin de savoir qu'une tâche a
-     été créée, mais la retrouve naturellement dans « Tâches » si besoin. */
-  function openQuickPlanAction(){
-    state.quickPlanAction = {lieu:'', objet:'', notes:'', contexte:'', objectifs:'', actions:[]};
-    pushModal({type:'quickPlanAction'});
-  }
-
   function openEnseignantEditor(rec){
     state.draftRecord = rec ? Object.assign({statut:'titulaire', sessionTitularisation:'', cadre:'', ppr:'', genre:''}, JSON.parse(JSON.stringify(rec))) : {
       id: uid(), nom:'', etablissementId:null, matiere:'', cycle:'', telephone:'', email:'', ppr:'', genre:'',
@@ -2732,6 +2710,15 @@
     }
     var dtmpl = (state.templates.docTemplates||{})[d.type];
     if(dtmpl && dtmpl.logoAssetId) spec.logoAssetId = dtmpl.logoAssetId;
+    /* Zones IA (voir docTemplatesEditorHtml/docEditModalHtml) : ajoutées ici de façon générique à toute
+       section déjà construite par buildDocSpecInner, une par zone renseignée pour ce document — jamais
+       dans buildDocSpecInner lui-même, pour ne pas dupliquer cette logique dans chacun de ses types. */
+    if(dtmpl && dtmpl.aiZones && dtmpl.aiZones.length){
+      var zoneVals = d.aiZoneValues || {};
+      var zoneSections = dtmpl.aiZones.filter(function(z){ return (zoneVals[z.id]||'').trim(); })
+        .map(function(z){ return {heading: z.label||null, text: zoneVals[z.id]}; });
+      if(zoneSections.length) spec.sections = (spec.sections||[]).concat(zoneSections);
+    }
     return spec;
   }
   function buildBilanSpec(){
@@ -3457,7 +3444,8 @@
         .filter(Boolean).join(' ').toLowerCase();
       return hay.indexOf(q)>=0;
     });
-    var html = '<div class="search-row"><input type="text" id="docGenSearchInput" placeholder="Rechercher un document…" value="'+esc(state.docsGenQuery)+'"></div>';
+    var html = '<div class="btn-row" style="margin-bottom:8px;"><button class="btn ghost sm" id="btnDocsGoTmpl" type="button">'+ICONS.doc+' Personnaliser les modèles de documents</button></div>';
+    html += '<div class="search-row"><input type="text" id="docGenSearchInput" placeholder="Rechercher un document…" value="'+esc(state.docsGenQuery)+'"></div>';
     html += '<div class="chips" style="flex-wrap:wrap;">'+chipBtn('all','Tous', filterType)+
       Object.keys(DOC_TYPE_INFO).map(function(k){ return chipBtn(k, DOC_TYPE_INFO[k].label, filterType); }).join('')+'</div>';
     if(!all.length){
@@ -3468,6 +3456,7 @@
       html += '<div class="doc-list">'+docs.map(genDocRowHtml).join('')+'</div>';
     }
     host.innerHTML = html;
+    var goTmpl = $('btnDocsGoTmpl'); if(goTmpl) goTmpl.onclick = function(){ pushModal({type:'settings', tab:'templates'}); };
     var si = $('docGenSearchInput'); if(si) si.oninput = function(){ state.docsGenQuery = si.value; render(); setTimeout(function(){ var el=$('docGenSearchInput'); if(el){ el.focus(); el.selectionStart=el.selectionEnd=el.value.length; } },0); };
     host.querySelectorAll('[data-genfilter]').forEach(function(el){ el.onclick = function(){ state.docsGenFilter = el.getAttribute('data-genfilter'); render(); }; });
     host.querySelectorAll('[data-opendoc]').forEach(function(el){
@@ -3528,7 +3517,6 @@
       if(m.type==='docedit') return docEditModalHtml(idx, m);
       if(m.type==='driveSetup') return driveSetupModalHtml(idx, m);
       if(m.type==='search') return searchModalHtml(idx);
-      if(m.type==='quickPlanAction') return quickPlanActionModalHtml(idx);
       return '';
     }).join('');
     wireModalEvents();
@@ -3551,7 +3539,8 @@
       (TASK_TYPES_GRADED[t.taskType] ? '<div class="field"><label>Note globale de l\'inspection</label><div class="seg" id="fNoteSeg">'+NOTE_SCALE.map(function(n){ return '<button type="button" data-v="'+n+'" aria-pressed="'+(t.noteGlobale===n)+'">'+n+'</button>'; }).join('')+'</div></div>' : '')+
       (TASK_TYPES_NOTIFY[t.taskType] ? '<div class="field"><label class="chk-row" style="display:flex;align-items:center;gap:8px;font-weight:500;"><input type="checkbox" id="fNotif"'+(t.notificationEnvoyee?' checked':'')+'> Notification envoyée à l\'administration</label></div>' : '')+
       (TASK_TYPES_NOTIFY[t.taskType] ? taskInvitesFieldHtml(t) : '')+
-      '<div class="field"><label for="fDesc">Notes</label><textarea id="fDesc" placeholder="Détails, observations…">'+esc(t.description)+'</textarea></div>'+
+      '<div class="field"><label for="fDesc">Notes</label><textarea id="fDesc" placeholder="Détails, observations…">'+esc(t.description)+'</textarea>'+
+      (state.sampleReady ? '<div class="btn-row" style="margin-top:6px;"><button class="btn ai sm" id="btnAiTaskDesc" type="button">'+ICONS.ai+' Générer une description avec l\'IA</button></div><div class="banner info" id="aiTaskDescStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>'+
       '<div class="btn-row">'+(state.modalStack[idx].isNew ? '' : '<button class="btn danger" id="btnDeleteTask" type="button">Supprimer</button>')+
       '<button class="btn primary" id="btnSaveTask" type="button">Enregistrer</button></div></div></div>';
   }
@@ -3739,10 +3728,8 @@
         '<div class="btn-row"><button class="btn primary" id="btnSaveProfil" type="button">Enregistrer le profil</button></div>';
     } else if(tab==='templates'){
       html += '<div class="field"><label for="tmplEntete">En-tête des documents (utilisé sur les impressions)</label><textarea id="tmplEntete" rows="2">'+esc(state.templates.entete)+'</textarea></div>'+
-        '<div class="field"><label>Critères de la grille d\'observation</label><div id="critList">'+
-        state.templates.criteres.map(function(c2,i){ return '<div class="rowline"><input type="text" class="crit-input" data-i="'+i+'" value="'+esc(c2)+'" style="flex:1;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;"><button class="rm" data-rmcrit="'+i+'" type="button">'+ICONS.trash+'</button></div>'; }).join('')+
-        '</div><button class="addline" id="btnAddCrit" type="button">'+ICONS.plus+' Ajouter un critère</button></div>'+
-        '<div class="btn-row"><button class="btn ghost" id="btnResetTmpl" type="button">Réinitialiser</button><button class="btn primary" id="btnSaveTmpl" type="button">Enregistrer les modèles</button></div>'+
+        '<div class="btn-row"><button class="btn ghost" id="btnResetTmpl" type="button">Réinitialiser</button><button class="btn primary" id="btnSaveTmpl" type="button">Enregistrer l\'en-tête</button></div>'+
+        '<p style="font-size:11px;color:var(--ink-faint);margin:2px 0 0;">Les critères de la grille d\'observation et les autres éléments personnalisables (textes de départ, zones IA…) se règlent maintenant ci-dessous, par type de document.</p>'+
         docTemplatesEditorHtml();
     } else if(tab==='referentiel'){
       html += referentielTabHtml();
@@ -3761,7 +3748,7 @@
      recommandations…) réapparaissent automatiquement. */
   function iaTabHtml(){
     var key = state.config.geminiApiKey || '';
-    var html = '<p style="font-size:11.5px;color:var(--ink-faint);margin-bottom:10px;">Collez votre propre clé API Google Gemini (gratuite, personnelle) pour activer l\'assistant de rédaction IA — synthèses, comptes-rendus, rapports, lettres, recommandations, plan d\'action — ainsi que la traduction français ↔ arabe, directement dans les formulaires concernés. Chaque génération appelle directement les serveurs Google depuis votre navigateur : la clé n\'est jamais envoyée à Claude ni à Anthropic, et reste enregistrée uniquement sur cet appareil (et dans votre propre Drive si vous synchronisez).</p>';
+    var html = '<p style="font-size:11.5px;color:var(--ink-faint);margin-bottom:10px;">Collez votre propre clé API Google Gemini (gratuite, personnelle) pour activer l\'assistant de rédaction IA — synthèses, comptes-rendus, rapports, lettres, recommandations, descriptions de tâches, zones de texte personnalisées — ainsi que la traduction français ↔ arabe, directement dans les formulaires concernés. Chaque génération appelle directement les serveurs Google depuis votre navigateur : la clé n\'est jamais envoyée à Claude ni à Anthropic, et reste enregistrée uniquement sur cet appareil (et dans votre propre Drive si vous synchronisez).</p>';
     if(state.geminiKeyError) html += '<div class="banner err" style="margin-bottom:10px;">'+ICONS.warn+'<div>'+esc(state.geminiKeyError)+'</div></div>';
     html += '<div class="field"><label for="geminiKeyInput">Clé API Google Gemini</label>'+
       '<input type="text" id="geminiKeyInput" value="'+esc(key)+'" placeholder="AIzaSy… ou AQ.…" autocomplete="off" autocapitalize="off" spellcheck="false"></div>';
@@ -3880,6 +3867,14 @@
     html += '<div class="field"><label>Logo pour ce type de document <span style="font-weight:400;color:var(--ink-faint);">(remplace, uniquement pour ce type, le logo du profil inspecteur dans les exports PDF/Word)</span></label>'+logoImg+
       '<div class="btn-row"><button class="btn ghost sm" id="btnPickDocTmplLogo" type="button">'+ICONS.upload+' '+(dt.logoAssetId?'Remplacer':'Ajouter une image')+'</button>'+
       (dt.logoAssetId ? '<button class="btn ghost sm" id="btnRmDocTmplLogo" type="button">Retirer</button>' : '')+'</div></div>';
+    /* Critères de la grille d'observation : propres au seul type « observation » (voir applyObsVariante),
+       donc affichés ici plutôt que comme réglage global — la personnalisation de CE document inclut
+       désormais sa grille, pas seulement ses textes de départ. */
+    if(sel==='observation'){
+      html += '<div class="field"><label>Critères de la grille d\'observation</label><div id="critList">'+
+        state.templates.criteres.map(function(c2,i){ return '<div class="rowline"><input type="text" class="crit-input" data-i="'+i+'" value="'+esc(c2)+'" style="flex:1;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;"><button class="rm" data-rmcrit="'+i+'" type="button">'+ICONS.trash+'</button></div>'; }).join('')+
+        '</div><button class="addline" id="btnAddCrit" type="button">'+ICONS.plus+' Ajouter un critère</button></div>';
+    }
     if(fields.length){
       var tagsHint = DOC_TEMPLATE_TAGS.map(function(tg){ return '<code>{{'+tg.tag+'}}</code> '+esc(tg.label); }).join(' · ');
       html += '<p style="font-size:11px;color:var(--ink-faint);margin:6px 0 4px;">Balises disponibles dans chaque champ ci-dessous : '+tagsHint+'</p>';
@@ -3898,8 +3893,25 @@
     } else {
       html += '<p style="font-size:11.5px;color:var(--ink-faint);">Ce type de document ne propose pas de texte de départ personnalisable ici — seul le logo peut être remplacé.</p>';
     }
-    var hasContent = dt.logoAssetId || Object.keys(dtFields).some(function(k){ return dtFields[k]; });
-    html += '<div class="btn-row">'+(hasContent ? '<button class="btn ghost" id="btnResetDocTmpl" type="button">Réinitialiser ce modèle</button>' : '')+
+    /* Zones de texte libres généra bles par IA, propres à ce type de document : un libellé (affiché
+       dans le formulaire du document) + une instruction (« nature du texte à produire ») envoyée à
+       Gemini — voir docEditModalHtml (rendu générique en fin de formulaire, quel que soit le type) et
+       buildDocSpec (ajout automatique d'une section par zone renseignée à l'impression/export). Stockées
+       dans state.templates.docTemplates[type].aiZones ; la valeur saisie pour un document donné vit,
+       elle, dans d.aiZoneValues[zoneId] (voir buildDefaultDoc n'a rien à faire : lu avec repli sur ''). */
+    var aiZones = dt.aiZones || [];
+    html += '<div class="section-label" style="margin-top:18px;">Zones de texte à générer avec IA</div>'+
+      '<p style="font-size:11.5px;color:var(--ink-faint);margin:2px 0 10px;">Ajoutez ici des zones de texte propres à ce type de document : un libellé (affiché dans le formulaire) et la nature du texte que l\'IA doit produire. Un bouton « Générer avec l\'IA » apparaîtra automatiquement à cet endroit dans chaque document de ce type.</p>'+
+      '<div id="aiZonesList">'+aiZones.map(function(z,i){
+        return '<div class="setup-card" style="margin-bottom:10px;">'+
+          '<div class="field" style="margin-bottom:8px;"><label>Libellé (affiché dans le document)</label><input type="text" class="aizone-label-input" data-i="'+i+'" value="'+esc(z.label)+'" placeholder="Ex. Recommandations pédagogiques"></div>'+
+          '<div class="field" style="margin-bottom:0;"><label>Nature du texte à produire (instruction pour l\'IA)</label><textarea class="aizone-instr-input" data-i="'+i+'" rows="2" placeholder="Ex. Rédige 3 recommandations concrètes et bienveillantes pour l\'enseignant(e), à partir des constats déjà saisis dans le document.">'+esc(z.instruction)+'</textarea></div>'+
+          '<div class="btn-row" style="margin-top:8px;"><button class="btn danger sm" data-rmaizone="'+i+'" type="button">Supprimer cette zone</button></div>'+
+          '</div>';
+      }).join('')+'</div>'+
+      '<button class="addline" id="btnAddAiZone" type="button">'+ICONS.plus+' Ajouter une zone IA</button>';
+    var hasContent = dt.logoAssetId || aiZones.length || Object.keys(dtFields).some(function(k){ return dtFields[k]; });
+    html += '<div class="btn-row" style="margin-top:16px;">'+(hasContent ? '<button class="btn ghost" id="btnResetDocTmpl" type="button">Réinitialiser ce modèle</button>' : '')+
       '<button class="btn primary" id="btnSaveDocTmpl" type="button">Enregistrer ce modèle</button></div>';
     return html;
   }
@@ -4095,23 +4107,6 @@
       '</div></div>';
   }
 
-  /* ---- Plan d'action rapide (accès depuis le menu, indépendant d'une tâche) ---- */
-  function quickPlanActionModalHtml(idx){
-    var q = state.quickPlanAction || {lieu:'', objet:'', notes:'', contexte:'', objectifs:'', actions:[]};
-    var hasAiResult = !!(q.contexte || q.objectifs || (q.actions&&q.actions.length));
-    return '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
-      '<div class="sheet-head"><h2>Nouveau plan d\'action</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
-      '<p style="font-size:12px;color:var(--ink-faint);line-height:1.5;">Créez un plan d\'action indépendamment d\'une tâche existante. Notez juste quelques bribes (mots-clés, phrases courtes) sur la situation : l\'assistant IA peut en tirer un contexte, des objectifs et des actions concrètes, à relire et compléter ensuite.</p>'+
-      '<div class="field"><label for="qpaEtab">Établissement <span style="font-weight:400;color:var(--ink-faint);">(optionnel)</span></label><input type="text" id="qpaEtab" value="'+esc(q.lieu)+'" list="qpaEtabOptions"></div>'+
-      '<datalist id="qpaEtabOptions">'+state.etablissements.map(function(e){ return '<option value="'+esc(e.nom)+'">'; }).join('')+'</datalist>'+
-      '<div class="field"><label for="qpaObjet">Objet du plan</label><input type="text" id="qpaObjet" value="'+esc(q.objet)+'" placeholder="Ex. Amélioration de l\'assiduité des élèves"></div>'+
-      '<div class="field"><label for="qpaNotes">Notes / bribes</label><textarea id="qpaNotes" rows="4" placeholder="Quelques mots-clés ou phrases courtes : problèmes constatés, pistes envisagées…">'+esc(q.notes)+'</textarea>'+
-      (state.sampleReady ? '<div class="btn-row"><button class="btn ai sm" id="btnQpaGenerate" type="button">'+ICONS.ai+' Générer le plan avec l\'IA</button></div><div class="banner info" id="qpaStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>'+
-      (hasAiResult ? '<div class="banner info" style="margin-top:2px;margin-bottom:10px;">'+ICONS.check+'<div>Contexte, objectifs'+(q.actions&&q.actions.length?' et '+q.actions.length+' action(s)':'')+' générés — vous pourrez les relire et les modifier juste après la création.</div></div>' : '')+
-      '<div class="btn-row" style="margin-top:6px;"><button class="btn primary" id="btnQpaCreate" type="button">Créer le plan d\'action</button></div>'+
-      '</div></div>';
-  }
-
   /* ---- Document editor ---- */
   function docEditModalHtml(idx, m){
     var d = state.draftDoc, task = state.tasks.find(function(t){ return t.id===m.taskId; });
@@ -4238,7 +4233,22 @@
             '<button class="rm" data-rmtsnv="'+i+'" type="button">'+ICONS.trash+'</button></div>';
         }).join('')+'</div><button class="addline" id="btnAddTsNv" type="button">'+ICONS.plus+' Ajouter un tableau non validé</button></div>';
     }
+    /* Zones de texte libres définies pour CE type dans Réglages → Modèles de documents (voir
+       docTemplatesEditorHtml) : rendues ici de façon générique, quel que soit le type, après les champs
+       propres au type. La valeur de chaque zone pour CE document précis vit dans d.aiZoneValues[zone.id]
+       (créé à la volée, jamais dans buildDefaultDoc, pour qu'une zone ajoutée au modèle APRÈS la création
+       du document apparaisse quand même — avec un texte vide — dès la prochaine ouverture). */
     var rtl = !!RTL_DOC_TYPES[m.docType];
+    var aiZonesTmpl = ((state.templates.docTemplates||{})[m.docType]||{}).aiZones || [];
+    if(aiZonesTmpl.length){
+      d.aiZoneValues = d.aiZoneValues || {};
+      body += aiZonesTmpl.map(function(z){
+        return '<div class="field"><label for="aizoneval_'+z.id+'">'+esc(z.label||'Zone IA')+'</label>'+
+          '<textarea id="aizoneval_'+z.id+'" class="aizoneval-input" data-aizone="'+z.id+'" rows="4" dir="'+(rtl?'rtl':'ltr')+'">'+esc(d.aiZoneValues[z.id]||'')+'</textarea>'+
+          (state.sampleReady ? '<div class="btn-row" style="margin-top:6px;"><button class="btn ai sm" data-aizonegen="'+z.id+'" type="button">'+ICONS.ai+' Générer avec l\'IA</button></div><div class="banner info" data-aizonestatus="'+z.id+'" hidden style="margin-top:6px;"></div>' : '')+
+          '</div>';
+      }).join('');
+    }
     return '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
       '<div class="sheet-head"><h2>'+DOC_TYPE_INFO[m.docType].label+'</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
       body+'<div class="btn-row">'+(m.isNew?'':'<button class="btn danger" id="btnDeleteDoc" type="button">Supprimer</button>')+
@@ -4297,6 +4307,20 @@
     var segNote = $('fNoteSeg'); if(segNote) segNote.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ syncTaskFields(); state.draftTask.noteGlobale=b.getAttribute('data-v'); render(); }; });
     var bpe = $('btnPickEtab'); if(bpe) bpe.onclick = function(){ syncTaskFields(); openPicker('etablissement', function(r){ state.draftTask.etablissementId=r.id; state.draftTask.etablissementNom=r.nom; }); };
     var bpn = $('btnPickEns'); if(bpn) bpn.onclick = function(){ syncTaskFields(); openPicker('enseignant', function(r){ state.draftTask.enseignantId=r.id; state.draftTask.enseignantNom=r.nom; }); };
+    /* Description générée par IA à partir du seul titre (+ le peu de contexte déjà renseigné :
+       type de tâche, établissement, enseignant, échéance) — utile pour ne pas laisser les notes
+       vides sur une tâche vite créée. Mode « enrichir » standard de aiDraft si des notes existent déjà. */
+    var aiTaskDesc = $('btnAiTaskDesc'); if(aiTaskDesc) aiTaskDesc.onclick = function(){
+      syncTaskFields();
+      var t = state.draftTask;
+      if(!(t.titre||'').trim()){ toast('Ajoutez un titre avant de lancer l\'IA.'); return; }
+      var ctx = ["Titre : "+t.titre, "Type de tâche : "+(TT_LABEL[t.taskType]||t.taskType||'—')];
+      if(t.etablissementNom||etabName(t.etablissementId)) ctx.push("Établissement : "+(t.etablissementNom||etabName(t.etablissementId)));
+      if(t.enseignantNom||ensName(t.enseignantId)) ctx.push("Enseignant(e) : "+(t.enseignantNom||ensName(t.enseignantId)));
+      if(t.echeance) ctx.push("Échéance : "+fmtDate(t.echeance));
+      var prompt = "Tu es un inspecteur pédagogique au Maroc. À partir de ces informations sur une tâche à réaliser, rédige une description brève et concrète (2-4 lignes, en français, ton professionnel), précisant ce qui est prévu et pourquoi, sans inventer de détails non mentionnés :\n"+ctx.join('\n');
+      aiDraft(aiTaskDesc, $('aiTaskDescStatus'), $('fDesc'), prompt);
+    };
     var saveBtn = $('btnSaveTask');
     if(saveBtn) saveBtn.onclick = function(){
       syncTaskFields();
@@ -4339,57 +4363,6 @@
       recordSet('task', nt);
     }; });
 
-    /* -- plan d'action rapide (menu) -- */
-    function syncQpaFields(){
-      var q = state.quickPlanAction, el;
-      if(!q) return;
-      el=$('qpaEtab'); if(el) q.lieu=el.value; el=$('qpaObjet'); if(el) q.objet=el.value; el=$('qpaNotes'); if(el) q.notes=el.value;
-    }
-    var qpaGenerate = $('btnQpaGenerate');
-    if(qpaGenerate) qpaGenerate.onclick = function(){
-      syncQpaFields();
-      var q = state.quickPlanAction;
-      if(!(q.notes||'').trim()){ toast('Ajoutez quelques notes avant de lancer l\'IA.'); return; }
-      qpaGenerate.disabled = true;
-      var statusEl = $('qpaStatus'); if(statusEl){ statusEl.hidden=false; statusEl.className='banner info'; statusEl.textContent='Génération en cours avec Gemini…'; }
-      var prompt = "Tu es un inspecteur pédagogique au Maroc. À partir de ces notes brèves (bribes, mots-clés) sur une situation à traiter, rédige un plan d'action structuré. Réponds UNIQUEMENT avec un objet JSON valide, sans aucun texte ni balise de code autour, au format exact : {\"contexte\":\"...\",\"objectifs\":\"...\",\"actions\":[{\"action\":\"...\",\"responsable\":\"...\"}]}. Le contexte est un paragraphe de 3 à 5 lignes ; les objectifs regroupent 2 à 4 objectifs concrets et mesurables dans un seul texte (une ligne par objectif) ; actions contient 3 à 6 actions concrètes avec, pour chacune, un responsable plausible (ex. « Direction de l'établissement », « Enseignant(e) concerné(e) », « Inspecteur(trice) »). Tous les textes (contexte, objectifs, action, responsable) doivent être rédigés en arabe standard moderne (ce document est un document arabe), même si les notes ci-dessous sont en français.\n\nObjet du plan : "+(q.objet||'—')+"\nÉtablissement : "+(q.lieu||'—')+"\nNotes : "+q.notes;
-      geminiGenerate(prompt).then(function(text){
-        var obj = parseAiPlanActionJson(text);
-        if(!obj || (!obj.contexte && !obj.objectifs && !obj.actions.length)) return Promise.reject({code:'empty_completion'});
-        state.quickPlanAction = Object.assign({}, state.quickPlanAction, obj);
-        qpaGenerate.disabled = false;
-        if(statusEl) statusEl.hidden = true;
-        toast('Plan généré — vous pourrez le relire et le compléter juste après.');
-        render();
-      }).catch(function(err){
-        qpaGenerate.disabled = false;
-        if(statusEl){ statusEl.hidden=false; statusEl.className='banner err'; statusEl.textContent = geminiErrorMessage(err); }
-      });
-    };
-    var btnQpaCreate = $('btnQpaCreate');
-    if(btnQpaCreate) btnQpaCreate.onclick = function(){
-      syncQpaFields();
-      var q = state.quickPlanAction;
-      var lieu = (q.lieu||'').trim();
-      var task = {
-        id: uid(), titre: (q.objet||'').trim() || "Plan d'action", statut:'a_planifier', priorite:'moyenne', taskType:'autre',
-        enseignantId:null, enseignantNom:'', etablissementId:null, etablissementNom: lieu,
-        heure:'', echeance:'', description:'', docTitre:'', docUrl:'', noteGlobale:'', notificationEnvoyee:false,
-        invites:[], attachments:[]
-      };
-      var matchedEtab = lieu ? state.etablissements.find(function(e){ return e.nom.toLowerCase()===lieu.toLowerCase(); }) : null;
-      if(matchedEtab){ task.etablissementId = matchedEtab.id; task.etablissementNom = matchedEtab.nom; }
-      recordSet('task', task).then(function(){
-        var d = buildDefaultDoc(task, 'plan_action');
-        d.contexte = q.contexte || q.notes || d.contexte;
-        if(q.objectifs) d.objectifs = q.objectifs;
-        if(q.actions && q.actions.length) d.actions = q.actions;
-        state.draftDoc = d;
-        closeTopModal();
-        pushModal({type:'docedit', docType:'plan_action', taskId:task.id, isNew:true});
-      });
-    };
-
     /* -- settings -- */
     document.querySelectorAll('[data-stab]').forEach(function(el){ el.onclick=function(){ var m=state.modalStack[state.modalStack.length-1]; m.tab=el.getAttribute('data-stab'); render(); }; });
     var btnConnectDrive = $('btnConnectDrive'); if(btnConnectDrive) btnConnectDrive.onclick = connectGoogleDrive;
@@ -4431,14 +4404,15 @@
         $('sheetResults').querySelectorAll('[data-linksheet]').forEach(function(el){ el.onclick = function(){ var f=files.find(function(x){return x.id===el.getAttribute('data-linksheet');}); if(f){ linkExistingSheet(f); closeTopModal(); } }; });
       }).catch(function(err){ $('sheetResults').innerHTML = '<div class="banner err">'+ICONS.warn+'<div>'+esc(mcpErrorMessage(err))+'</div></div>'; });
     };
-    var critList = $('critList');
-    if(critList){
-      document.querySelectorAll('[data-rmcrit]').forEach(function(el){ el.onclick=function(){ state.templates.criteres.splice(parseInt(el.getAttribute('data-rmcrit')),1); render(); }; });
-      var addCrit = $('btnAddCrit'); if(addCrit) addCrit.onclick = function(){ syncCritInputs(); state.templates.criteres.push('Nouveau critère'); render(); };
-      var saveTmpl = $('btnSaveTmpl'); if(saveTmpl) saveTmpl.onclick = function(){ syncCritInputs(); templatesSet({entete:$('tmplEntete').value, criteres: state.templates.criteres}); toast('Modèles enregistrés.'); };
-      var resetTmpl = $('btnResetTmpl'); if(resetTmpl) resetTmpl.onclick = function(){ templatesSet({entete:DEFAULT_ENTETE, criteres:DEFAULT_CRITERES.slice()}); toast('Modèles réinitialisés.'); };
-    }
+    var saveTmpl = $('btnSaveTmpl'); if(saveTmpl) saveTmpl.onclick = function(){ templatesSet({entete:$('tmplEntete').value}); toast('En-tête enregistré.'); };
+    var resetTmpl = $('btnResetTmpl'); if(resetTmpl) resetTmpl.onclick = function(){ templatesSet({entete:DEFAULT_ENTETE}); toast('En-tête réinitialisé.'); };
+    /* Critères de la grille d'observation : personnalisation propre au type « observation », affichée
+       et enregistrée avec le reste de son modèle ci-dessous (voir docTemplatesEditorHtml) — state.templates.criteres
+       reste néanmoins un tableau global unique en stockage (seul ce type le consomme aujourd'hui, voir
+       applyObsVariante), donc aucune migration de données n'est nécessaire, seul l'endroit où on l'édite change. */
     function syncCritInputs(){ document.querySelectorAll('.crit-input').forEach(function(inp){ state.templates.criteres[parseInt(inp.getAttribute('data-i'))] = inp.value; }); }
+    document.querySelectorAll('[data-rmcrit]').forEach(function(el){ el.onclick=function(){ syncCritInputs(); state.templates.criteres.splice(parseInt(el.getAttribute('data-rmcrit')),1); render(); }; });
+    var addCrit = $('btnAddCrit'); if(addCrit) addCrit.onclick = function(){ syncCritInputs(); state.templates.criteres.push('Nouveau critère'); render(); };
 
     /* -- modèles personnalisés par type de document -- */
     document.querySelectorAll('[data-tmpltype]').forEach(function(el){
@@ -4467,16 +4441,55 @@
       document.querySelectorAll('.tmplfield-input').forEach(function(ta){ out[ta.getAttribute('data-field')] = ta.value; });
       return out;
     }
+    /* Zones IA du type affiché : les libellés/instructions saisis n'existent que dans le DOM tant que
+       « Enregistrer ce modèle » n'a pas été touché (même principe que pieces/tableaux ailleurs dans
+       l'app) — on les relit ici par position pour reconstituer le tableau, en conservant l'id existant
+       de chaque zone (stable, utilisé pour retrouver d.aiZoneValues[id] sur un document précis). */
+    function readAiZonesFromDom(existing){
+      existing = existing || [];
+      var labels = document.querySelectorAll('.aizone-label-input');
+      var instrs = document.querySelectorAll('.aizone-instr-input');
+      var out = [];
+      labels.forEach(function(inp, i){
+        var prev = existing[i] || {};
+        out.push({ id: prev.id || uid(), label: inp.value, instruction: instrs[i] ? instrs[i].value : (prev.instruction||'') });
+      });
+      return out;
+    }
     var btnSaveDocTmpl = $('btnSaveDocTmpl');
     if(btnSaveDocTmpl) btnSaveDocTmpl.onclick = function(){
       var type = state.tmplEditorType || Object.keys(DOC_TYPE_INFO)[0];
       var docTmpls = Object.assign({}, state.templates.docTemplates||{});
       var cur = docTmpls[type] || {};
       var newFields = readTmplFieldsFromDom();
-      docTmpls[type] = Object.assign({}, cur, Object.keys(newFields).length ? {fields: Object.assign({}, cur.fields, newFields)} : {});
-      templatesSet({docTemplates:docTmpls});
+      var newAiZones = readAiZonesFromDom(cur.aiZones);
+      docTmpls[type] = Object.assign({}, cur,
+        Object.keys(newFields).length ? {fields: Object.assign({}, cur.fields, newFields)} : {},
+        {aiZones: newAiZones});
+      var patch = {docTemplates:docTmpls};
+      if(type==='observation'){ syncCritInputs(); patch.criteres = state.templates.criteres; }
+      templatesSet(patch);
       toast('Modèle enregistré pour « '+(DOC_TYPE_INFO[type]||{}).label+' ».');
     };
+    var addAiZone = $('btnAddAiZone'); if(addAiZone) addAiZone.onclick = function(){
+      var type = state.tmplEditorType || Object.keys(DOC_TYPE_INFO)[0];
+      var docTmpls = Object.assign({}, state.templates.docTemplates||{});
+      var cur = docTmpls[type] || {};
+      var zones = readAiZonesFromDom(cur.aiZones).concat([{id:uid(), label:'', instruction:''}]);
+      docTmpls[type] = Object.assign({}, cur, {aiZones: zones});
+      templatesSet({docTemplates:docTmpls}); render();
+    };
+    document.querySelectorAll('[data-rmaizone]').forEach(function(el){
+      el.onclick = function(){
+        var type = state.tmplEditorType || Object.keys(DOC_TYPE_INFO)[0];
+        var docTmpls = Object.assign({}, state.templates.docTemplates||{});
+        var cur = docTmpls[type] || {};
+        var zones = readAiZonesFromDom(cur.aiZones);
+        zones.splice(parseInt(el.getAttribute('data-rmaizone')),1);
+        docTmpls[type] = Object.assign({}, cur, {aiZones: zones});
+        templatesSet({docTemplates:docTmpls}); render();
+      };
+    });
     var btnDocTmplGdocOpen = $('btnDocTmplGdocOpen');
     if(btnDocTmplGdocOpen) btnDocTmplGdocOpen.onclick = function(){
       var type = state.tmplEditorType || Object.keys(DOC_TYPE_INFO)[0];
@@ -4510,12 +4523,15 @@
     var btnResetDocTmpl = $('btnResetDocTmpl');
     if(btnResetDocTmpl) btnResetDocTmpl.onclick = function(){
       var type = state.tmplEditorType || Object.keys(DOC_TYPE_INFO)[0];
-      if(!confirm('Réinitialiser le modèle de « '+(DOC_TYPE_INFO[type]||{}).label+' » (logo et textes de départ) ?')) return;
+      var extra = type==='observation' ? ' (logo, textes de départ, critères et zones IA)' : ' (logo, textes de départ et zones IA)';
+      if(!confirm('Réinitialiser le modèle de « '+(DOC_TYPE_INFO[type]||{}).label+' »'+extra+' ?')) return;
       var docTmpls = Object.assign({}, state.templates.docTemplates||{});
       var cur = docTmpls[type];
       if(cur && cur.logoAssetId) removeAsset(cur.logoAssetId);
       delete docTmpls[type];
-      templatesSet({docTemplates:docTmpls});
+      var patch = {docTemplates:docTmpls};
+      if(type==='observation') patch.criteres = DEFAULT_CRITERES.slice();
+      templatesSet(patch);
       toast('Modèle réinitialisé.');
     };
 
@@ -4816,6 +4832,7 @@
       document.querySelectorAll('[data-piece]').forEach(function(inp){ var i=parseInt(inp.getAttribute('data-i')); if(d.pieces&&d.pieces[i]) d.pieces[i][inp.getAttribute('data-piece')]=inp.value; });
       document.querySelectorAll('[data-tsval]').forEach(function(inp){ var i=parseInt(inp.getAttribute('data-i')); if(d.tableauxValides&&d.tableauxValides[i]) d.tableauxValides[i][inp.getAttribute('data-tsval')]=inp.value; });
       document.querySelectorAll('[data-tsnv]').forEach(function(inp){ var i=parseInt(inp.getAttribute('data-i')); if(d.tableauxNonValides&&d.tableauxNonValides[i]) d.tableauxNonValides[i][inp.getAttribute('data-tsnv')]=inp.value; });
+      document.querySelectorAll('[data-aizone]').forEach(function(ta){ d.aiZoneValues = d.aiZoneValues || {}; d.aiZoneValues[ta.getAttribute('data-aizone')] = ta.value; });
     }
     var segApp = $('dAppSeg'); if(segApp) segApp.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ syncDocGenericFields(); state.draftDoc.appreciation=b.getAttribute('data-v'); render(); }; });
     var addPiece = $('btnAddPiece'); if(addPiece) addPiece.onclick = function(){ syncDocGenericFields(); (state.draftDoc.pieces=state.draftDoc.pieces||[]).push({designation:'',nombre:'1'}); render(); };
@@ -4886,6 +4903,35 @@
         var ta = document.querySelector('[data-critcomment="'+i+'"]');
         var statusEl = document.querySelector('[data-aicritcommentstatus="'+i+'"]');
         aiDraft(btn, statusEl, ta, "Tu es un inspecteur pédagogique au Maroc. Rédige un bref commentaire (2-3 lignes, en français, ton professionnel et bienveillant) sur ce critère précis d'une grille d'observation de séance :\nCritère : "+c.nom+"\nAppréciation retenue : "+(c.note||'non noté')+".");
+      };
+    });
+    /* Zones IA génériques (voir docTemplatesEditorHtml/docEditModalHtml) : l'instruction saisie par
+       l'inspecteur(trice) pour CE type de document (« nature du texte à produire ») est combinée avec le
+       contexte déjà connu du document (établissement, enseignant, objet, date…) via docTemplateMergeValues
+       — la même fonction déjà utilisée pour résoudre les balises {{tag}} des textes de départ. */
+    document.querySelectorAll('[data-aizonegen]').forEach(function(btn){
+      var zoneId = btn.getAttribute('data-aizonegen');
+      btn.onclick = function(){
+        syncDocGenericFields();
+        var d = state.draftDoc;
+        var mm = state.modalStack[state.modalStack.length-1];
+        var task = state.tasks.find(function(t){ return t.id===mm.taskId; });
+        var zoneTmpl = ((state.templates.docTemplates||{})[d.type]||{}).aiZones || [];
+        var zone = zoneTmpl.find(function(z){ return z.id===zoneId; });
+        if(!zone || !(zone.instruction||'').trim()){ toast('Indiquez la nature du texte à produire pour cette zone dans Réglages → Modèles de documents.'); return; }
+        var vals = docTemplateMergeValues(d.type, d, task);
+        var ctxLines = [];
+        if(vals.etablissement) ctxLines.push('Établissement : '+vals.etablissement);
+        if(vals.enseignant) ctxLines.push('Enseignant(e) : '+vals.enseignant);
+        if(vals.classe) ctxLines.push('Classe : '+vals.classe);
+        if(vals.matiere) ctxLines.push('Matière : '+vals.matiere);
+        if(vals.objet) ctxLines.push('Objet : '+vals.objet);
+        if(vals.date) ctxLines.push('Date : '+vals.date);
+        var langHint = RTL_DOC_TYPES[d.type] ? ' Rédige ta réponse en arabe standard moderne (ce document est rédigé en arabe).' : ' Rédige ta réponse en français.';
+        var prompt = "Tu es un inspecteur pédagogique au Maroc."+langHint+' '+zone.instruction+(ctxLines.length ? "\n\nContexte du document :\n"+ctxLines.join('\n') : '');
+        var ta = document.querySelector('[data-aizone="'+zoneId+'"]');
+        var statusEl = document.querySelector('[data-aizonestatus="'+zoneId+'"]');
+        aiDraft(btn, statusEl, ta, prompt);
       };
     });
     var aiAppGlobale = $('btnAiAppGlobale'); if(aiAppGlobale) aiAppGlobale.onclick = function(){
@@ -5092,7 +5138,11 @@
   $('btnSideSync').onclick = function(){ closeSidebar(); doSync(); };
   $('btnSideSettings').onclick = function(){ closeSidebar(); openSettings(); };
   $('btnSideTemplates').onclick = function(){ closeSidebar(); pushModal({type:'settings', tab:'templates'}); };
-  $('btnSidePlanAction').onclick = function(){ closeSidebar(); openQuickPlanAction(); };
+  /* Le Programme annuel EST le plan d'action tel que conçu par l'inspecteur(trice) (grille officielle
+     par catégorie/activité/mois, Réglages → Programme annuel) : ce bouton, très visible dans le menu
+     principal, y mène directement plutôt que vers un document ponctuel distinct (voir la suppression
+     de openQuickPlanAction()/quickPlanActionModalHtml() ci-dessus, remplacées par cet accès direct). */
+  $('btnSidePlanAction').onclick = function(){ closeSidebar(); pushModal({type:'settings', tab:'programme'}); };
   $('btnSearch').onclick = openGlobalSearch;
   $('btnSync').onclick = doSync;
   $('btnSettings').onclick = openSettings;
