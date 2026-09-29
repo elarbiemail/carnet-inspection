@@ -1381,7 +1381,19 @@
       return res;
     });
   }
-  function driveQueryTranslate(q){ return String(q||'').replace(/\btitle\b/g, 'name'); }
+  /* IMPORTANT : l'API Drive renvoie par défaut aussi les fichiers mis à la corbeille par cette appli
+     elle-même (voir pushJsonBackup/doSync, qui créent un nouveau fichier « sauvegarde-donnees.json »
+     / une nouvelle feuille de tâches à chaque synchronisation et mettent l'ancien à la corbeille au
+     lieu de le modifier sur place) — sans exclure explicitement trashed=false, une recherche par titre
+     peut retomber sur une ancienne copie corbeillée (donc périmée, antérieure à une suppression) au
+     lieu de la copie actuelle, ce qui donnait l'impression qu'une suppression locale « ne prenait pas »
+     sur Drive alors qu'elle y avait bien été poussée : la sauvegarde relue ensuite n'était simplement
+     pas la bonne. */
+  function driveQueryTranslate(q){
+    var out = String(q||'').replace(/\btitle\b/g, 'name');
+    if(!/\btrashed\s*=/.test(out)) out += " and trashed = false";
+    return out;
+  }
   function driveFileToPayload(f){ return {id:f.id, title:f.name, mimeType:f.mimeType, modifiedTime:f.modifiedTime, fileExtension:f.fileExtension||'', parentId:(f.parents&&f.parents[0])||null}; }
   var DRIVE_FILES_API = 'https://www.googleapis.com/drive/v3/files';
   var DRIVE_UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3/files';
@@ -1393,9 +1405,17 @@
       params.set('pageSize', String(input.pageSize||10));
       params.set('fields', 'files(id,name,mimeType,modifiedTime,fileExtension,parents)');
       params.set('spaces', 'drive');
-      if(tool==='list_recent_files') params.set('orderBy', 'modifiedTime desc');
+      params.set('orderBy', 'modifiedTime desc');
       return driveFetch(DRIVE_FILES_API+'?'+params.toString()).then(function(res){ return res.json(); }).then(function(data){
-        return {payload:{files:(data.files||[]).map(driveFileToPayload)}};
+        /* Défense en profondeur, en plus du tri déjà demandé au serveur (orderBy) et de l'exclusion des
+           fichiers corbeillés (voir driveQueryTranslate) : si jamais plusieurs fichiers valides
+           partagent le même titre (ex. une mise à la corbeille qui aurait échoué silencieusement — voir
+           le .catch() sur trash_file dans pushJsonBackup/doSync), on prend systématiquement le plus
+           récemment modifié plutôt que le premier renvoyé par l'API, dont l'ordre n'est garanti que si
+           orderBy est respecté. */
+        var files = (data.files||[]).map(driveFileToPayload);
+        files.sort(function(a,b){ return new Date(b.modifiedTime||0) - new Date(a.modifiedTime||0); });
+        return {payload:{files:files}};
       });
     }
     if(tool==='create_file'){
