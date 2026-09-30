@@ -537,6 +537,8 @@
 <input type="file" id="fileCachetInput" accept="image/png,image/jpeg" hidden>
 <input type="file" id="fileSignatureInput" accept="image/png,image/jpeg" hidden>
 <input type="file" id="fileDocTmplLogoInput" accept="image/png,image/jpeg" hidden>
+<input type="file" id="fileEnsFicheInput" accept="image/png,image/jpeg,image/webp,application/pdf" hidden>
+<input type="file" id="fileProgAttachInput" accept="image/png,image/jpeg,image/webp,application/pdf,.doc,.docx,.odt" hidden>
 
 <script>
 (function(){
@@ -547,6 +549,26 @@
   var esc = function(s){ return (s==null?'':String(s)).replace(/[&<>"']/g, function(c){
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
   }); };
+
+  /* ================= écran public « fiche à distance » =================
+     Si l'URL contient #fiche=1 (lien généré par openFicheLinkModal(), voir plus bas), on affiche
+     UNIQUEMENT ce mini-formulaire public autonome (aucune donnée locale de l'app, aucune connexion
+     Drive/Gemini requise) au lieu de démarrer l'application normalement : un(e) enseignant(e) qui
+     reçoit ce lien peut ainsi compléter sa fiche personnelle sur son propre téléphone puis renvoyer ses
+     informations à l'inspecteur(trice) (WhatsApp/email) en un tap, sans jamais installer l'app ni se
+     connecter à quoi que ce soit. Le fragment (#...) n'étant jamais envoyé au réseau ni pris en compte
+     par le cache du service worker (qui ne voit que l'URL sans fragment, voir sw.js), ce lien continue
+     de fonctionner même une fois l'app mise en cache hors-ligne. Ce bloc doit rester APRÈS $/esc
+     (utilisés par renderPublicFichePage) mais avant tout le reste : en cas de correspondance, on quitte
+     l'IIFE avec `return` avant que le reste de l'application (état, rendu, synchronisation…) ne démarre. */
+  (function(){
+    var h = String(location.hash||'');
+    if(h.indexOf('fiche=1')===-1) return;
+    var qp; try{ qp = new URLSearchParams(h.replace(/^#/,'')); }catch(e){ qp = null; }
+    if(qp) renderPublicFichePage(qp);
+  })();
+  if(String(location.hash||'').indexOf('fiche=1')!==-1) return;
+
   var uid = function(){ return (self.crypto && crypto.randomUUID) ? crypto.randomUUID() : 'id-'+Date.now()+'-'+Math.random().toString(16).slice(2); };
   var nowIso = function(){ return new Date().toISOString(); };
   var todayStr = function(){ var d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
@@ -878,6 +900,7 @@
   function defaultProgrammeAnnuel(){
     return {
       anneeScolaire: '2026/2027',
+      attachments: [],
       categories: [
         paCategory('أولا : التأطير التربوي', [
           paGroup('Visites', [
@@ -1174,6 +1197,7 @@
       state.regionsMarocUpdatedAt = (rm && rm.updatedAt) || null;
       var pa = JSON.parse(localStorage.getItem(LS_KEYS.programmeAnnuel)||'null');
       state.programmeAnnuel = (pa && pa.categories && pa.categories.length) ? pa : defaultProgrammeAnnuel();
+      state.programmeAnnuel.attachments = state.programmeAnnuel.attachments || [];
       var tb = JSON.parse(localStorage.getItem(LS_KEYS.tombstones)||'null');
       if(tb) state.tombstones = Object.assign({tasks:{}, zones:{}, etablissements:{}, enseignants:{}, documents:{}}, tb);
     }catch(e){}
@@ -1526,7 +1550,7 @@
      currently experiencing high demand… »), réessaie automatiquement 2 fois avec un court délai avant
      d'abandonner : c'est l'erreur transitoire la plus fréquente en pratique (bien plus que les vraies
      erreurs de clé), et Google indique elle-même qu'il s'agit de pics passagers. */
-  function geminiGenerateOnce(prompt){
+  function geminiGenerateOnce(prompt, imagePart){
     var key = geminiApiKey();
     if(!key) return Promise.reject({code:'not_configured'});
     /* Depuis 2026, Google recommande (et, pour les nouvelles clés « auth key » émises par AI Studio,
@@ -1535,10 +1559,12 @@
        Voir geminiErrorMessage() ci-dessus pour le message affiché si la clé de l'utilisateur est de
        l'ancien type et doit être régénérée sur aistudio.google.com/apikey. */
     var url = 'https://generativelanguage.googleapis.com/v1beta/models/'+GEMINI_MODEL+':generateContent';
+    var parts = [{ text: prompt }];
+    if(imagePart) parts.push(imagePart);
     return fetch(url, {
       method: 'POST',
       headers: {'Content-Type': 'application/json', 'x-goog-api-key': key},
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+      body: JSON.stringify({ contents: [{ parts: parts }] })
     }).then(function(res){
       return res.json().catch(function(){ return {}; }).then(function(data){
         if(!res.ok){
@@ -1573,11 +1599,11 @@
     }, function(){ return Promise.reject({code:'network'}); });
   }
   function wait(ms){ return new Promise(function(resolve){ setTimeout(resolve, ms); }); }
-  function geminiGenerate(prompt, attempt){
+  function geminiGenerate(prompt, attempt, imagePart){
     attempt = attempt || 1;
-    return geminiGenerateOnce(prompt).catch(function(err){
+    return geminiGenerateOnce(prompt, imagePart).catch(function(err){
       if(err && err.code==='overloaded' && attempt < 3){
-        return wait(attempt * 1500).then(function(){ return geminiGenerate(prompt, attempt + 1); });
+        return wait(attempt * 1500).then(function(){ return geminiGenerate(prompt, attempt + 1, imagePart); });
       }
       return Promise.reject(err);
     });
@@ -1657,6 +1683,235 @@
       if(!Array.isArray(arr)) return [];
       return arr.map(function(x){ return { action:String((x&&x.action)||'').trim(), responsable:String((x&&x.responsable)||'').trim(), echeance:'' }; }).filter(function(a){ return a.action; });
     }catch(e){ return []; }
+  }
+
+  /* ================= fiche enseignant(e) : import par IA (photo/PDF) et lien à distance =================
+     Deux façons d'ajouter/compléter un(e) enseignant(e) sans tout ressaisir à la main, toutes deux
+     convergeant vers le même petit objet `vals` (mêmes clés que ficheFieldLabels()) puis vers
+     applyFicheValuesToDraft(), qui ouvre le formulaire enseignant pré-rempli pour vérification avant
+     enregistrement (jamais d'enregistrement automatique) :
+       1) OCR + extraction par Gemini (multimodal) à partir d'une photo prise sur place ou d'un PDF/image
+          téléversé (voir startEnsFicheImport ci-dessous et son wiring, section « file inputs »).
+       2) Lien à distance : openFicheLinkModal() construit un lien (fragment #fiche=1&...) vers
+          renderPublicFichePage(), un mini-formulaire public autonome (aucune donnée de l'app, aucune
+          connexion) que l'enseignant(e) remplit sur son propre téléphone puis renvoie par WhatsApp/email
+          — l'inspecteur(trice) colle ensuite ce message reçu via « Coller une réponse »
+          (openFicheImportTextModal), analysé par parseFicheMessageText() (extraction déterministe par
+          étiquette, sans IA : le format du message est entièrement sous notre contrôle). */
+  function ficheFieldLabels(){
+    return [
+      {k:'nom', l:'Nom'}, {k:'etab', l:'Établissement'}, {k:'matiere', l:'Matière'}, {k:'cycle', l:'Cycle'},
+      {k:'ppr', l:'PPR'}, {k:'telephone', l:'Téléphone'}, {k:'email', l:'Email'}, {k:'cadre', l:'Cadre/échelle'},
+      {k:'genre', l:'Genre'}, {k:'statut', l:'Statut'}, {k:'notes', l:'Notes'}
+    ];
+  }
+  function buildFicheMessageText(vals){
+    return 'FICHE ENSEIGNANT(E)\n' + ficheFieldLabels().map(function(f){ return f.l+': '+((vals&&vals[f.k])||''); }).join('\n');
+  }
+  function parseFicheMessageText(text){
+    var out = {}; var src = String(text||'');
+    ficheFieldLabels().forEach(function(f){
+      var re = new RegExp('^\\s*'+f.l.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\s*:\\s*(.*)$', 'im');
+      var m = src.match(re);
+      out[f.k] = m ? m[1].trim() : '';
+    });
+    return out;
+  }
+  function normalizeGenre(text){
+    var t = String(text||'').toLowerCase();
+    if(/femme|féminin|^f$/.test(t)) return 'F';
+    if(/homme|masculin|^h$/.test(t)) return 'H';
+    return '';
+  }
+  function normalizeStatut(text){
+    var t = String(text||'').toLowerCase();
+    if(/stagiaire/.test(t)) return 'stagiaire';
+    return 'titulaire';
+  }
+  function matchEtablissementByName(name){
+    var n = String(name||'').trim().toLowerCase();
+    if(!n) return null;
+    var found = state.etablissements.find(function(et){
+      var en = String(et.nom||'').trim().toLowerCase();
+      return en && (en===n || en.indexOf(n)>=0 || n.indexOf(en)>=0);
+    });
+    return found ? found.id : null;
+  }
+  /* Construit (ou complète, si `existing` est fourni) une fiche enseignant(e) à partir des valeurs
+     extraites (OCR ou message collé), puis ouvre le formulaire habituel pour relecture — jamais
+     d'enregistrement automatique, l'inspecteur(trice) garde toujours la main avant de sauvegarder. */
+  function applyFicheValuesToDraft(vals, existing){
+    var etabId = matchEtablissementByName(vals.etab);
+    var base = existing
+      ? Object.assign({statut:'titulaire', sessionTitularisation:'', cadre:'', ppr:'', genre:''}, JSON.parse(JSON.stringify(existing)))
+      : { id: uid(), nom:'', etablissementId:null, matiere:'', cycle:'', telephone:'', email:'', ppr:'', genre:'',
+          statut:'titulaire', sessionTitularisation:'', cadre:'', photoAssetId:null, horaire:[], attachments:[], notes:'' };
+    if(vals.nom) base.nom = vals.nom;
+    if(etabId) base.etablissementId = etabId;
+    else if(vals.etab) base.notes = (base.notes ? base.notes+'\n' : '') + 'Établissement indiqué (à vérifier) : '+vals.etab;
+    if(vals.matiere) base.matiere = vals.matiere;
+    if(vals.cycle) base.cycle = vals.cycle;
+    if(vals.ppr) base.ppr = vals.ppr;
+    if(vals.telephone) base.telephone = vals.telephone;
+    if(vals.email) base.email = vals.email;
+    if(vals.cadre) base.cadre = vals.cadre;
+    var g = normalizeGenre(vals.genre); if(g) base.genre = g;
+    if(vals.statut) base.statut = normalizeStatut(vals.statut);
+    if(vals.notes) base.notes = (base.notes ? base.notes+'\n' : '') + vals.notes;
+    state.draftRecord = base;
+    pushModal({type:'enseignant', isNew: !existing});
+  }
+  function readFileAsDataUrl(file){
+    return new Promise(function(resolve, reject){
+      var reader = new FileReader();
+      reader.onload = function(){ resolve(String(reader.result)); };
+      reader.onerror = function(){ reject(new Error('read-failed')); };
+      reader.readAsDataURL(file);
+    });
+  }
+  function parseAiFicheJson(text){
+    var m = String(text||'').match(/\{[\s\S]*\}/);
+    if(!m) return null;
+    try{
+      var o = JSON.parse(m[0]);
+      return { nom:String(o.nom||'').trim(), etab:String(o.etab||'').trim(), matiere:String(o.matiere||'').trim(),
+        cycle:String(o.cycle||'').trim(), ppr:String(o.ppr||'').trim(), telephone:String(o.telephone||'').trim(),
+        email:String(o.email||'').trim(), cadre:String(o.cadre||'').trim(), genre:String(o.genre||'').trim(),
+        statut:String(o.statut||'').trim(), notes:String(o.notes||'').trim() };
+    }catch(e){ return null; }
+  }
+  function startEnsFicheImport(){
+    if(!geminiApiKey()){ toast(geminiErrorMessage({code:'not_configured'})); return; }
+    $('fileEnsFicheInput').click();
+  }
+  /* Copie presse-papiers avec repli si l'API Clipboard est indisponible (contexte non sécurisé, vieux
+     navigateur…) : une zone de texte temporaire sélectionnée puis execCommand('copy'). */
+  function copyTextToClipboard(text){
+    if(navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(text);
+    return new Promise(function(resolve, reject){
+      try{
+        var ta = document.createElement('textarea');
+        ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.focus(); ta.select();
+        var ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        ok ? resolve() : reject(new Error('copy-failed'));
+      }catch(e){ reject(e); }
+    });
+  }
+  /* Lien à distance : construit une URL vers le mini-formulaire public (#fiche=1&...), avec les
+     coordonnées de l'inspecteur(trice) (pour que l'enseignant(e) puisse renvoyer sa réponse en un tap)
+     et, si `teacher` est fourni (bouton « Lien pour sa fiche » depuis une fiche déjà ouverte), les
+     champs déjà connus pré-remplis. */
+  function openFicheLinkModal(teacher){
+    var profil = state.templates.profil || {};
+    var qp = new URLSearchParams();
+    qp.set('fiche', '1');
+    if(profil.nom) qp.set('insp', profil.nom);
+    if(profil.telephone) qp.set('tel', profil.telephone);
+    if(profil.email) qp.set('email', profil.email);
+    if(teacher){
+      if(teacher.nom) qp.set('nom', teacher.nom);
+      var etn = etabName(teacher.etablissementId); if(etn) qp.set('etab', etn);
+      if(teacher.matiere) qp.set('matiere', teacher.matiere);
+      if(teacher.cycle) qp.set('cycle', teacher.cycle);
+    }
+    var url = location.origin + location.pathname + '#' + qp.toString();
+    var waLink = (teacher && teacher.telephone)
+      ? waHref(teacher.telephone, 'Bonjour '+(teacher.nom||'')+', merci de compléter votre fiche personnelle via ce lien : '+url)
+      : '';
+    pushModal({type:'ficheLink', url:url, teacherNom:(teacher&&teacher.nom)||'', waLink:waLink});
+  }
+  function ficheLinkModalHtml(idx, m){
+    return '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
+      '<div class="sheet-head"><h2>Lien à distance</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
+      '<p style="font-size:12px;color:var(--ink-faint);margin:0 0 10px;">Envoyez ce lien à '+(m.teacherNom?('<b>'+esc(m.teacherNom)+'</b>'):"un(e) enseignant(e)")+' : il/elle pourra compléter sa fiche personnelle directement depuis son téléphone, sans compte ni installation, puis vous renvoyer ses informations (WhatsApp, email…). Utilisez ensuite « Coller une réponse » pour les ajouter en un tap.</p>'+
+      '<div class="field"><label>Lien</label><input type="text" id="fiLinkVal" readonly value="'+esc(m.url)+'" style="width:100%;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:10px 11px;font-size:11.5px;"></div>'+
+      '<div class="btn-row" style="flex-wrap:wrap;">'+
+        '<button class="btn ghost sm" id="fiCopy" type="button">Copier le lien</button>'+
+        '<button class="btn ghost sm" id="fiShare" type="button" hidden>Partager</button>'+
+        (m.waLink ? '<a class="btn primary sm" id="fiWa" href="'+esc(m.waLink)+'" target="_blank" rel="noopener">'+ICONS.chat+' Envoyer par WhatsApp</a>' : '')+
+      '</div>'+
+      '</div></div>';
+  }
+  function openFicheImportTextModal(){ pushModal({type:'ficheImportText'}); }
+  function ficheImportTextModalHtml(idx){
+    return '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
+      '<div class="sheet-head"><h2>Coller une réponse reçue</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
+      '<p style="font-size:12px;color:var(--ink-faint);margin:0 0 10px;">Collez ici le message (WhatsApp, email…) reçu d\'un(e) enseignant(e) après avoir rempli sa fiche via le lien à distance.</p>'+
+      '<div class="field"><textarea id="fiPasteText" rows="9" placeholder="Collez ici le texte reçu…"></textarea></div>'+
+      '<div class="banner err" id="fiParseErr" hidden></div>'+
+      '<div class="btn-row"><button class="btn primary" id="btnFiParse" type="button">Analyser</button></div>'+
+      '</div></div>';
+  }
+  /* Mini-formulaire public (voir le bloc #fiche=1 tout en haut du fichier) : remplace tout le <body> —
+     seuls $/esc/waHref/waGreeting (déjà définis ou, pour les déclarations de fonction, hoistés) sont
+     utilisés ; aucune dépendance à `state` ni au reste de l'application. */
+  function renderPublicFichePage(qp){
+    document.title = 'Fiche enseignant(e)';
+    var insp = qp.get('insp')||'', tel = qp.get('tel')||'', email = qp.get('email')||'';
+    var pre = { nom: qp.get('nom')||'', etab: qp.get('etab')||'', matiere: qp.get('matiere')||'', cycle: qp.get('cycle')||'' };
+    function fieldHtml(key, label, type, value, placeholder){
+      return '<div class="field"><label for="pf_'+key+'">'+label+'</label><input type="'+type+'" id="pf_'+key+'" value="'+esc(value||'')+'"'+(placeholder?' placeholder="'+esc(placeholder)+'"':'')+'></div>';
+    }
+    var html = '<div style="max-width:480px;margin:0 auto;padding:22px 16px 56px;">'+
+      '<h1 style="font-size:19px;margin:0 0 6px;">Fiche de renseignements</h1>'+
+      '<p style="font-size:12.5px;color:var(--ink-faint,#767a86);margin:0 0 18px;">'+
+      (insp ? 'Ce lien vous a été envoyé par <b>'+esc(insp)+'</b> pour compléter votre fiche personnelle. ' : '')+
+      "Remplissez les champs ci-dessous puis touchez le bouton pour préparer l'envoi de vos informations — aucune connexion ni installation n'est nécessaire."+
+      '</p>'+
+      fieldHtml('nom','Nom complet *','text',pre.nom)+
+      fieldHtml('etab','Établissement *','text',pre.etab)+
+      '<div class="field-row">'+fieldHtml('matiere','Matière','text',pre.matiere)+fieldHtml('cycle','Cycle','text',pre.cycle,'TC / 1BAC / 2BAC')+'</div>'+
+      fieldHtml('ppr','PPR','text','')+
+      '<div class="field-row">'+fieldHtml('telephone','Téléphone','tel','')+fieldHtml('email','Email','email','')+'</div>'+
+      fieldHtml('cadre','Cadre / échelle','text','')+
+      '<div class="field"><label>Genre</label><div class="seg" id="pfGenreSeg"><button type="button" data-v="" aria-pressed="true">Non précisé</button><button type="button" data-v="F">Femme</button><button type="button" data-v="H">Homme</button></div></div>'+
+      '<div class="field"><label>Statut</label><div class="seg" id="pfStatutSeg"><button type="button" data-v="titulaire" aria-pressed="true">Titulaire</button><button type="button" data-v="stagiaire">Stagiaire</button></div></div>'+
+      '<div class="field"><label for="pf_notes">Autre information utile (facultatif)</label><textarea id="pf_notes" rows="3"></textarea></div>'+
+      '<div class="banner err" id="pfErr" hidden style="margin-bottom:10px;"></div>'+
+      '<div class="btn-row"><button class="btn primary" id="pfSubmit" type="button">Préparer l\'envoi</button></div>'+
+      '<div id="pfSendArea" hidden style="margin-top:16px;">'+
+        '<p style="font-size:12px;color:var(--ink-faint,#767a86);margin:0 0 10px;">Vos informations sont prêtes — choisissez comment les envoyer :</p>'+
+        '<div class="btn-row" style="flex-direction:column;gap:8px;align-items:stretch;">'+
+          (tel ? '<a class="btn primary" id="pfWa" target="_blank" rel="noopener">Envoyer par WhatsApp</a>' : '')+
+          (email ? '<a class="btn ghost" id="pfMail">Envoyer par email</a>' : '')+
+          '<button class="btn ghost" id="pfShare" type="button" hidden>Partager</button>'+
+          '<button class="btn ghost" id="pfCopy" type="button">Copier le texte</button>'+
+        '</div>'+
+      '</div>'+
+      '</div>';
+    document.body.innerHTML = html;
+    var genre = '', statut = 'titulaire';
+    var gseg = $('pfGenreSeg');
+    if(gseg) gseg.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ genre=b.getAttribute('data-v'); gseg.querySelectorAll('button').forEach(function(x){ x.setAttribute('aria-pressed', String(x===b)); }); }; });
+    var sseg = $('pfStatutSeg');
+    if(sseg) sseg.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ statut=b.getAttribute('data-v'); sseg.querySelectorAll('button').forEach(function(x){ x.setAttribute('aria-pressed', String(x===b)); }); }; });
+    function fv(id){ var el=$(id); return el ? el.value.trim() : ''; }
+    $('pfSubmit').onclick = function(){
+      var vals = {
+        nom: fv('pf_nom'), etab: fv('pf_etab'), matiere: fv('pf_matiere'), cycle: fv('pf_cycle'), ppr: fv('pf_ppr'),
+        telephone: fv('pf_telephone'), email: fv('pf_email'), cadre: fv('pf_cadre'),
+        genre: genre==='F' ? 'Femme' : (genre==='H' ? 'Homme' : ''), statut: statut==='stagiaire' ? 'Stagiaire' : 'Titulaire',
+        notes: fv('pf_notes')
+      };
+      var errEl = $('pfErr');
+      if(!vals.nom || !vals.etab){ errEl.hidden=false; errEl.textContent = 'Merci de renseigner au moins votre nom complet et votre établissement.'; return; }
+      errEl.hidden = true;
+      var text = buildFicheMessageText(vals);
+      var waLink = $('pfWa'); if(waLink) waLink.href = waHref(tel, text) || ('https://wa.me/?text='+encodeURIComponent(text));
+      var mailLink = $('pfMail'); if(mailLink) mailLink.href = 'mailto:'+encodeURIComponent(email)+'?subject='+encodeURIComponent('Fiche enseignant(e) - '+vals.nom)+'&body='+encodeURIComponent(text);
+      var shareBtn = $('pfShare');
+      if(shareBtn && navigator.share){
+        shareBtn.hidden = false;
+        shareBtn.onclick = function(){ navigator.share({title:'Fiche enseignant(e)', text:text}).catch(function(){}); };
+      }
+      $('pfCopy').onclick = function(){
+        copyTextToClipboard(text).then(function(){ alert('Texte copié — collez-le dans WhatsApp, SMS ou un email.'); })
+          .catch(function(){ alert("Impossible de copier automatiquement : sélectionnez et copiez le texte vous-même."); });
+      };
+      $('pfSendArea').hidden = false;
+    };
   }
   /* ================= assets (photos / pièces jointes / logo / cachet / signature) =================
      Stockage 100% local : chaque fichier est encodé en data URL (base64) et conservé dans
@@ -2112,7 +2367,9 @@
        à la dernière modification la plus récente — jamais fusionné champ par champ. */
     if(remote.programmeAnnuel && remote.programmeAnnuel.updatedAt &&
        (!state.programmeAnnuel || !state.programmeAnnuel.updatedAt || new Date(remote.programmeAnnuel.updatedAt) > new Date(state.programmeAnnuel.updatedAt))){
-      state.programmeAnnuel = remote.programmeAnnuel; saveLocal('programmeAnnuel');
+      state.programmeAnnuel = remote.programmeAnnuel;
+      state.programmeAnnuel.attachments = state.programmeAnnuel.attachments || [];
+      saveLocal('programmeAnnuel');
     }
     render();
   }
@@ -3249,6 +3506,15 @@
       html += '<div class="search-row"><input type="text" id="ensSearchInput" placeholder="Rechercher un(e) enseignant(e)…" value="'+esc(state.ensQuery)+'"></div>';
     }
     html += '<div class="setup-actions"><button class="btn ghost sm" id="btnExportEns" type="button">Exporter CSV</button><button class="btn ghost sm" id="btnImportEns" type="button">Importer CSV</button></div>';
+    /* Import d'une fiche personnelle par IA (photo/PDF, OCR + extraction Gemini), lien à distance à
+       envoyer à un(e) enseignant(e) pour qu'il/elle consigne lui-même/elle-même ses informations, et
+       import de la réponse reçue (WhatsApp/email) — voir applyFicheValuesToDraft/openFicheLinkModal/
+       openFicheImportTextModal. Le bouton d'import IA n'apparaît que si une clé Gemini est configurée
+       (même convention que les autres boutons IA de l'application, via state.sampleReady). */
+    html += '<div class="setup-actions">'+
+      (state.sampleReady ? '<button class="btn ghost sm" id="btnImportEnsFiche" type="button">'+ICONS.cam+' Importer une fiche (IA)</button>' : '')+
+      '<button class="btn ghost sm" id="btnFicheLink" type="button">'+ICONS.ext+' Lien à distance</button>'+
+      '<button class="btn ghost sm" id="btnFicheImportText" type="button">Coller une réponse</button></div>';
     if(state.ensHoraireMode){
       html += '<div class="setup-card"><h2>Qui est en classe à quel moment ?</h2>'+
         '<div class="field"><label>Jour</label><div class="seg" id="horJourSeg">'+JOURS.map(function(j){ return '<button type="button" data-v="'+j+'" aria-pressed="'+(state.horaireJour===j)+'">'+j.slice(0,3)+'</button>'; }).join('')+'</div></div>'+
@@ -3272,6 +3538,9 @@
     var hh = $('horHeure'); if(hh) hh.onchange = function(){ state.horaireHeure = hh.value; render(); };
     var be = $('btnExportEns'); if(be) be.onclick = function(){ exportCSV('enseignants'); };
     var bi = $('btnImportEns'); if(bi) bi.onclick = function(){ importTarget='enseignants'; $('fileImportInput').click(); };
+    var bif = $('btnImportEnsFiche'); if(bif) bif.onclick = startEnsFicheImport;
+    var bfl = $('btnFicheLink'); if(bfl) bfl.onclick = function(){ openFicheLinkModal(null); };
+    var bfit = $('btnFicheImportText'); if(bfit) bfit.onclick = openFicheImportTextModal;
     host.querySelectorAll('[data-actstop]').forEach(function(el){ el.onclick = function(ev){ ev.stopPropagation(); }; });
     host.querySelectorAll('.rec-row').forEach(function(el){
       el.onclick = function(){ var e = state.enseignants.find(function(x){ return x.id===el.getAttribute('data-id'); }); if(e) openEnseignantEditor(e); };
@@ -3517,6 +3786,9 @@
       if(m.type==='docedit') return docEditModalHtml(idx, m);
       if(m.type==='driveSetup') return driveSetupModalHtml(idx, m);
       if(m.type==='search') return searchModalHtml(idx);
+      if(m.type==='programme') return programmeAnnuelModalHtml(idx);
+      if(m.type==='ficheLink') return ficheLinkModalHtml(idx, m);
+      if(m.type==='ficheImportText') return ficheImportTextModalHtml(idx);
       return '';
     }).join('');
     wireModalEvents();
@@ -3671,7 +3943,6 @@
       '<button class="chip" data-stab="profil" aria-pressed="'+(tab==='profil')+'">Profil inspecteur</button>'+
       '<button class="chip" data-stab="templates" aria-pressed="'+(tab==='templates')+'">Modèles de documents</button>'+
       '<button class="chip" data-stab="referentiel" aria-pressed="'+(tab==='referentiel')+'">Régions / DP</button>'+
-      '<button class="chip" data-stab="programme" aria-pressed="'+(tab==='programme')+'">Programme annuel</button>'+
       '<button class="chip" data-stab="ia" aria-pressed="'+(tab==='ia')+'">Assistant IA</button></div>';
 
     if(tab==='sync'){
@@ -3733,8 +4004,6 @@
         docTemplatesEditorHtml();
     } else if(tab==='referentiel'){
       html += referentielTabHtml();
-    } else if(tab==='programme'){
-      html += programmeAnnuelTabHtml();
     } else if(tab==='ia'){
       html += iaTabHtml();
     }
@@ -3837,9 +4106,30 @@
     html += '<div class="setup-actions" style="margin-top:14px;"><button class="btn ghost sm" id="btnPrintProgramme" type="button">'+ICONS.print+' Imprimer</button>'+
       '<button class="btn ghost sm" id="btnDocxProgramme" type="button">Word</button></div>'+
       '<div class="banner info" id="progGenStatus" hidden style="margin-top:8px;"></div>';
+    /* Pièces jointes du programme annuel (fiches de suivi, comptes-rendus de visite conseil, etc.) :
+       même mécanisme d'asset que les pièces jointes enseignant/tâche, mais persistées immédiatement
+       (programmeAnnuelSet) puisque le programme annuel est un enregistrement singleton toujours déjà
+       « existant », contrairement à une tâche ou un(e) enseignant(e) en cours de création. */
+    html += '<div class="field" style="margin-top:14px;"><label>Pièces jointes (fiches, comptes-rendus de visite conseil, etc.)</label><div id="progAttachList">'+(pa.attachments||[]).map(function(a,i){
+      return '<div class="attach-row"><span class="t">'+esc(a.titre)+(a.driveUrl?' <a href="'+esc(a.driveUrl)+'" target="_blank" rel="noopener" style="font-size:10.5px;color:var(--ink-faint);">(sur Drive)</a>':'')+'</span>'+
+        '<a href="'+assetUrl(a.assetId)+'" target="_blank" rel="noopener" class="icon-btn" style="width:30px;height:30px;">'+ICONS.ext+'</a>'+
+        '<button class="icon-btn" data-rmprogattach="'+i+'" style="width:30px;height:30px;color:var(--danger);">'+ICONS.trash+'</button></div>';
+    }).join('')+'</div>'+
+      '<button class="addline" id="btnAddProgAttach" type="button">'+ICONS.upload+' Joindre un document/photo</button></div>';
     html += '<div class="btn-row" style="margin-top:14px;"><button class="btn ghost" id="btnResetProgramme" type="button">Réinitialiser</button>'+
       '<button class="btn primary" id="btnSaveProgramme" type="button">Enregistrer</button></div>';
     return html;
+  }
+  /* Écran dédié « Programme annuel », ouvert directement depuis le menu principal (bouton
+     #btnSidePlanAction) plutôt que comme onglet des Réglages — voir la suppression de l'onglet
+     correspondant dans settingsModalHtml. Réutilise tel quel programmeAnnuelTabHtml() : les mêmes
+     identifiants d'éléments (#paCatList, #btnSaveProgramme…) sont câblés sans condition dans
+     wireModalEvents (garde `if(paCatList)`), donc leur fonctionnement est identique ici. */
+  function programmeAnnuelModalHtml(idx){
+    return '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
+      '<div class="sheet-head"><h2>Programme annuel — Plan d\'action</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
+      programmeAnnuelTabHtml()+
+      '</div></div>';
   }
   function profilImageFieldHtml(key, label, assetId){
     var img = assetId ? '<img src="'+assetUrl(assetId)+'" alt="" style="max-height:60px;max-width:160px;border:1px solid var(--line);border-radius:8px;background:#fff;display:block;margin-bottom:8px;">' : '';
@@ -3982,7 +4272,8 @@
       '<div class="field-row"><div class="field"><label for="eTel">Téléphone</label><input type="tel" id="eTel" value="'+esc(e.telephone)+'"></div>'+
       '<div class="field"><label for="eEmail">Email</label><input type="email" id="eEmail" value="'+esc(e.email)+'"></div></div>'+
       '<div class="btn-row"><a class="btn ghost sm" id="btnEnsCall" href="'+telHref(e.telephone)+'">'+ICONS.phone+' Appeler</a>'+
-      '<a class="btn ghost sm" id="btnEnsWa" href="'+waHref(e.telephone, waGreeting(e.nom))+'" target="_blank" rel="noopener">'+ICONS.chat+' WhatsApp</a></div>'+
+      '<a class="btn ghost sm" id="btnEnsWa" href="'+waHref(e.telephone, waGreeting(e.nom))+'" target="_blank" rel="noopener">'+ICONS.chat+' WhatsApp</a>'+
+      (state.modalStack[idx].isNew ? '' : '<button class="btn ghost sm" id="btnEnsFicheLink" type="button">'+ICONS.ext+' Lien pour sa fiche</button>')+'</div>'+
       '<div class="field"><label for="eCadre">Cadre / échelle</label><input type="text" id="eCadre" value="'+esc(e.cadre)+'" placeholder="Ex. PES, échelle 11"></div>'+
       '<div class="field"><label>Genre</label><div class="seg" id="eGenreSeg"><button type="button" data-v="" aria-pressed="'+(!e.genre)+'">Non précisé</button>'+
       GENRE_ENS.map(function(g){ return '<button type="button" data-v="'+g.v+'" aria-pressed="'+(e.genre===g.v)+'">'+g.l+'</button>'; }).join('')+'</div></div>'+
@@ -4609,6 +4900,12 @@
         if(!confirm('Réinitialiser le programme annuel à votre version de départ (2026/2027) ? Vos modifications seront perdues.')) return;
         programmeAnnuelSet(defaultProgrammeAnnuel());
       };
+      var addProgAttach = $('btnAddProgAttach'); if(addProgAttach) addProgAttach.onclick = function(){ $('fileProgAttachInput').click(); };
+      document.querySelectorAll('[data-rmprogattach]').forEach(function(el){ el.onclick=function(){
+        syncPaInputs();
+        state.programmeAnnuel.attachments.splice(parseInt(el.getAttribute('data-rmprogattach')),1);
+        programmeAnnuelSet(state.programmeAnnuel);
+      }; });
       var printPa = $('btnPrintProgramme'); if(printPa) printPa.onclick = function(){ syncPaInputs(); printFromSpec(buildProgrammeAnnuelSpec()); };
       var docxPa = $('btnDocxProgramme'); if(docxPa) docxPa.onclick = function(){
         syncPaInputs();
@@ -4724,6 +5021,7 @@
     };
     var btnEnsCall = $('btnEnsCall'); if(btnEnsCall) btnEnsCall.onclick = function(ev){ if(!telHref(($('eTel')||{}).value)){ ev.preventDefault(); toast('Ajoutez un numéro de téléphone.'); } };
     var btnEnsWa = $('btnEnsWa'); if(btnEnsWa) btnEnsWa.onclick = function(ev){ if(!waHref(($('eTel')||{}).value)){ ev.preventDefault(); toast('Ajoutez un numéro de téléphone.'); } };
+    var btnEnsFicheLink = $('btnEnsFicheLink'); if(btnEnsFicheLink) btnEnsFicheLink.onclick = function(){ syncEnsFields(); openFicheLinkModal(state.draftRecord); };
     var btnPickEtab2 = $('btnPickEtab2'); if(btnPickEtab2) btnPickEtab2.onclick = function(){ syncEnsFields(); openPicker('etablissement', function(r){ state.draftRecord.etablissementId=r.id; }); };
     var btnPickPhoto = $('btnPickPhoto'); if(btnPickPhoto) btnPickPhoto.onclick = function(){ syncEnsFields(); $('filePhotoInput').click(); };
     var btnRmPhoto = $('btnRmPhoto'); if(btnRmPhoto) btnRmPhoto.onclick = function(){ syncEnsFields(); state.draftRecord.photoAssetId=null; render(); };
@@ -4753,6 +5051,35 @@
       recordSet('enseignant', e).then(function(){ closeTopModal(); toast('Enseignant(e) enregistré(e).'); });
     };
     var delEns = $('btnDeleteEns'); if(delEns) delEns.onclick = function(){ recordDelete('enseignant', state.draftRecord.id).then(function(){ closeTopModal(); toast('Supprimé.'); }); };
+
+    /* -- lien à distance (fiche enseignant) -- */
+    var fiLinkVal = $('fiLinkVal');
+    if(fiLinkVal){
+      var fiCopy = $('fiCopy'); if(fiCopy) fiCopy.onclick = function(){
+        copyTextToClipboard(fiLinkVal.value).then(function(){ toast('Lien copié.'); })
+          .catch(function(){ toast('Impossible de copier automatiquement — sélectionnez et copiez le lien manuellement.'); });
+      };
+      var fiShare = $('fiShare');
+      if(fiShare && navigator.share){
+        fiShare.hidden = false;
+        fiShare.onclick = function(){ navigator.share({title:'Fiche enseignant(e)', text:'Merci de compléter votre fiche personnelle :', url: fiLinkVal.value}).catch(function(){}); };
+      }
+    }
+    /* -- import d'une réponse reçue (texte collé, WhatsApp/email) -- */
+    var btnFiParse = $('btnFiParse');
+    if(btnFiParse){
+      btnFiParse.onclick = function(){
+        var txt = ($('fiPasteText').value||'').trim();
+        var errEl = $('fiParseErr');
+        if(!txt){ errEl.hidden=false; errEl.textContent = "Collez d'abord le texte reçu."; return; }
+        var vals = parseFicheMessageText(txt);
+        if(!vals.nom){ errEl.hidden=false; errEl.textContent = "Nom introuvable dans ce texte — vérifiez qu'il s'agit bien du message généré par le lien à distance."; return; }
+        var existing = state.enseignants.find(function(x){ return (x.nom||'').trim().toLowerCase()===vals.nom.trim().toLowerCase(); });
+        if(existing && !confirm('Un(e) enseignant(e) nommé(e) « '+existing.nom+' » existe déjà. Mettre à jour sa fiche avec ces informations ?')) existing = null;
+        closeTopModal();
+        applyFicheValuesToDraft(vals, existing);
+      };
+    }
 
     /* -- etablissement / zone editors -- */
     function syncEtabFields(){
@@ -5036,6 +5363,40 @@
     uploadAsset(f).then(function(res){ state.draftRecord.photoAssetId = res.id; render(); toast('Photo ajoutée.'); })
       .catch(function(err){ toast(assetsErrorMessage(err)); });
   };
+  /* Import IA d'une fiche enseignant(e) (photo prise sur place ou PDF/image téléversé) : lecture locale
+     en data URL (jamais persistée en tant qu'asset — seule l'extraction nous intéresse ici), envoi à
+     Gemini en multimodal (texte + image/PDF), extraction JSON tolérante, puis ouverture du formulaire
+     enseignant pré-rempli pour relecture (voir applyFicheValuesToDraft ci-dessus). */
+  $('fileEnsFicheInput').onchange = function(){
+    var f = this.files[0]; this.value=''; if(!f) return;
+    if(!geminiApiKey()){ toast(geminiErrorMessage({code:'not_configured'})); return; }
+    toast('Analyse de la fiche en cours avec Gemini…');
+    readFileAsDataUrl(f).then(function(dataUrl){
+      var b64 = String(dataUrl).split(',')[1] || '';
+      var prompt = "Tu vas lire la photo ou le PDF d'une fiche de renseignements d'un(e) enseignant(e) marocain(e) (manuscrite ou imprimée). Extrais les informations et réponds UNIQUEMENT par un objet JSON valide (sans texte autour, sans balises markdown), avec exactement ces clés : nom, etab (nom de l'établissement), matiere, cycle (ex. TC/1BAC/2BAC), ppr, telephone, email, cadre (cadre ou échelle), genre (Homme ou Femme), statut (Titulaire ou Stagiaire), notes (toute autre information utile trouvée sur le document). Mets une chaîne vide (\"\") pour toute information absente du document — n'invente rien.";
+      return geminiGenerate(prompt, 1, {inlineData:{mimeType: f.type||'image/jpeg', data: b64}});
+    }).then(function(text){
+      var vals = parseAiFicheJson(text);
+      if(!vals || !vals.nom){ toast("Impossible d'identifier un nom sur cette fiche — vérifiez la photo/le PDF ou remplissez le formulaire manuellement."); return; }
+      applyFicheValuesToDraft(vals, null);
+      toast('Fiche analysée — vérifiez les informations avant d\'enregistrer.');
+    }).catch(function(err){ toast(geminiErrorMessage(err)); });
+  };
+  $('fileProgAttachInput').onchange = function(){
+    var f = this.files[0]; this.value=''; if(!f) return;
+    uploadAsset(f).then(function(res){
+      var entry = {assetId:res.id, titre:f.name, type:res.contentType, driveFileId:null, driveUrl:null};
+      state.programmeAnnuel.attachments = state.programmeAnnuel.attachments || [];
+      state.programmeAnnuel.attachments.push(entry);
+      programmeAnnuelSet(state.programmeAnnuel);
+      toast('Fichier joint.');
+      uploadAttachmentToDrive(f).then(function(drive){
+        if(!drive) return;
+        entry.driveFileId = drive.driveFileId; entry.driveUrl = drive.driveUrl;
+        programmeAnnuelSet(state.programmeAnnuel);
+      });
+    }).catch(function(err){ toast(assetsErrorMessage(err)); });
+  };
   $('fileAttachInput').onchange = function(){
     var f = this.files[0]; this.value=''; if(!f) return;
     var recId = state.draftRecord && state.draftRecord.id;
@@ -5139,10 +5500,12 @@
   $('btnSideSettings').onclick = function(){ closeSidebar(); openSettings(); };
   $('btnSideTemplates').onclick = function(){ closeSidebar(); pushModal({type:'settings', tab:'templates'}); };
   /* Le Programme annuel EST le plan d'action tel que conçu par l'inspecteur(trice) (grille officielle
-     par catégorie/activité/mois, Réglages → Programme annuel) : ce bouton, très visible dans le menu
-     principal, y mène directement plutôt que vers un document ponctuel distinct (voir la suppression
-     de openQuickPlanAction()/quickPlanActionModalHtml() ci-dessus, remplacées par cet accès direct). */
-  $('btnSidePlanAction').onclick = function(){ closeSidebar(); pushModal({type:'settings', tab:'programme'}); };
+     par catégorie/activité/mois) : ce bouton, très visible dans le menu principal, ouvre directement
+     son propre écran (type 'programme', voir renderModals/programmeAnnuelModalHtml) plutôt qu'un
+     document ponctuel distinct ou un onglet noyé dans Paramètres — voir la suppression de
+     openQuickPlanAction()/quickPlanActionModalHtml() ainsi que de l'onglet « Programme annuel » des
+     Réglages (désormais un écran à part entière, accessible uniquement depuis ce bouton). */
+  $('btnSidePlanAction').onclick = function(){ closeSidebar(); pushModal({type:'programme'}); };
   $('btnSearch').onclick = openGlobalSearch;
   $('btnSync').onclick = doSync;
   $('btnSettings').onclick = openSettings;
