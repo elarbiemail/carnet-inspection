@@ -372,6 +372,20 @@
   }
   :root[data-theme="dark"] .toast, :root:not([data-theme="light"]) .toast{ background:var(--surface); color:var(--ink); border:1px solid var(--line); }
 
+  /* Bandeau « nouvelle version disponible » (voir le dispositif de mise à jour en bas du fichier) :
+     contrairement au toast, il reste affiché tant que l'utilisateur(trice) n'a pas actualisé, pour ne
+     jamais perdre discrètement une mise à jour (modification, ajout ou suppression). */
+  .update-bar{
+    position:fixed; left:12px; right:12px; bottom:calc(76px + env(safe-area-inset-bottom,0px));
+    z-index:90; background:var(--accent); color:var(--accent-ink); border-radius:14px; padding:12px 14px;
+    display:flex; align-items:center; gap:10px; box-shadow:var(--shadow); font-size:12.5px; font-weight:600;
+  }
+  .update-bar span{ flex:1; line-height:1.35; }
+  .update-bar button{
+    flex-shrink:0; background:var(--accent-ink); color:var(--accent); border:none; border-radius:9px;
+    padding:8px 12px; font-size:12px; font-weight:700; cursor:pointer;
+  }
+
   /* --- rows editors (horaire / participants / criteres / actions) --- */
   .rowline{ display:flex; gap:7px; align-items:flex-start; margin-bottom:7px; }
   .rowline > *{ min-width:0; }
@@ -389,7 +403,7 @@
   /* --- print --- */
   #printRoot{ display:none; }
   @media print{
-    #app, #overlayRoot, #toastRoot{ display:none !important; }
+    #app, #overlayRoot, #toastRoot, #updateBar{ display:none !important; }
     #printRoot{ display:block !important; }
     body{ background:#fff; color:#111; font-size:12px; }
     .p-page{ padding:0; }
@@ -504,15 +518,10 @@
     </div>
     <div class="side-divider"></div>
     <div class="side-section-label">Outils</div>
+    <!-- Synchroniser et Paramètres restent accessibles en permanence via les icônes de la barre du
+         haut (#btnSync / #btnSettings) : les dupliquer ici créait deux accès pour la même action,
+         supprimé pour ne garder qu'un seul chemin vers chaque écran. -->
     <div class="side-nav">
-      <button type="button" id="btnSideSync">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M20 11a8 8 0 1 0-2.3 5.6M20 11V5m0 6h-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        Synchroniser
-      </button>
-      <button type="button" id="btnSideSettings">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" stroke="currentColor" stroke-width="1.8"/><path d="M4 12h2m12 0h2M12 4v2m0 12v2M6.3 6.3l1.4 1.4m8.6 8.6 1.4 1.4M6.3 17.7l1.4-1.4m8.6-8.6 1.4-1.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-        Paramètres &amp; connexion
-      </button>
       <button type="button" id="btnSideTemplates">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M7 3h7l5 5v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
         Modèles de documents
@@ -528,6 +537,10 @@
 
 <div id="overlayRoot"></div>
 <div id="toastRoot"></div>
+<div class="update-bar" id="updateBar" hidden>
+  <span>Une nouvelle version de l'application est disponible.</span>
+  <button type="button" id="btnUpdateNow">Actualiser</button>
+</div>
 <div id="printRoot"></div>
 <input type="file" id="fileImportInput" accept=".csv,text/csv" hidden>
 <input type="file" id="filePhotoInput" accept="image/png,image/jpeg,image/webp" hidden>
@@ -1143,6 +1156,7 @@
     tasks: [], zones: [], etablissements: [], enseignants: [], documents: [], assets: {},
     regionsMaroc: [], regionsMarocUpdatedAt: null,
     programmeAnnuel: null,
+    ficheForm: null, ficheResponsesQueue: null,
     templates: { entete: DEFAULT_ENTETE, criteres: DEFAULT_CRITERES.slice(), profil: Object.assign({}, DEFAULT_PROFIL), docTemplates: {} },
     tmplEditorType: null,
     config: {}, docs: [], docsQuery: '', docsLoading: false, docsError: null,
@@ -1180,7 +1194,7 @@
   var LS_KEYS = {tasks:'ci_tasks_fallback', zones:'ci_zones_fallback', etablissements:'ci_etabs_fallback',
     enseignants:'ci_ens_fallback', documents:'ci_docs_fallback', config:'ci_config_fallback', templates:'ci_tmpl_fallback',
     assets:'ci_assets_fallback', regionsMaroc:'ci_regions_fallback', programmeAnnuel:'ci_programme_fallback',
-    tombstones:'ci_tombstones_fallback'};
+    ficheForm:'ci_ficheform_fallback', tombstones:'ci_tombstones_fallback'};
   function loadLocalAll(){
     try{
       state.tasks = JSON.parse(localStorage.getItem(LS_KEYS.tasks)||'[]').map(function(t){ t.statut=normStatut(t.statut); t.taskType=normTaskType(t.taskType); return t; });
@@ -1198,6 +1212,8 @@
       var pa = JSON.parse(localStorage.getItem(LS_KEYS.programmeAnnuel)||'null');
       state.programmeAnnuel = (pa && pa.categories && pa.categories.length) ? pa : defaultProgrammeAnnuel();
       state.programmeAnnuel.attachments = state.programmeAnnuel.attachments || [];
+      var ff = JSON.parse(localStorage.getItem(LS_KEYS.ficheForm)||'null');
+      state.ficheForm = Object.assign(defaultFicheForm(), ff||{});
       var tb = JSON.parse(localStorage.getItem(LS_KEYS.tombstones)||'null');
       if(tb) state.tombstones = Object.assign({tasks:{}, zones:{}, etablissements:{}, enseignants:{}, documents:{}}, tb);
     }catch(e){}
@@ -1207,7 +1223,7 @@
       var map = {tasks:state.tasks, zones:state.zones, etablissements:state.etablissements, enseignants:state.enseignants,
         documents:state.documents, config:state.config, templates:state.templates, assets:state.assets,
         regionsMaroc:{list:state.regionsMaroc, updatedAt:state.regionsMarocUpdatedAt}, programmeAnnuel:state.programmeAnnuel,
-        tombstones:state.tombstones};
+        ficheForm:state.ficheForm, tombstones:state.tombstones};
       localStorage.setItem(LS_KEYS[coll], JSON.stringify(map[coll]));
     }catch(e){
       console.warn('storage error', e);
@@ -1686,17 +1702,21 @@
   }
 
   /* ================= fiche enseignant(e) : import par IA (photo/PDF) et lien à distance =================
-     Deux façons d'ajouter/compléter un(e) enseignant(e) sans tout ressaisir à la main, toutes deux
+     Trois façons d'ajouter/compléter un(e) enseignant(e) sans tout ressaisir à la main, toutes
      convergeant vers le même petit objet `vals` (mêmes clés que ficheFieldLabels()) puis vers
      applyFicheValuesToDraft(), qui ouvre le formulaire enseignant pré-rempli pour vérification avant
-     enregistrement (jamais d'enregistrement automatique) :
+     enregistrement (jamais d'enregistrement automatique) — regroupées dans un seul hub « Fiches à
+     distance » (voir ficheHubModalHtml/openFicheHubModal, section plus bas) :
        1) OCR + extraction par Gemini (multimodal) à partir d'une photo prise sur place ou d'un PDF/image
           téléversé (voir startEnsFicheImport ci-dessous et son wiring, section « file inputs »).
-       2) Lien à distance : openFicheLinkModal() construit un lien (fragment #fiche=1&...) vers
-          renderPublicFichePage(), un mini-formulaire public autonome (aucune donnée de l'app, aucune
-          connexion) que l'enseignant(e) remplit sur son propre téléphone puis renvoie par WhatsApp/email
-          — l'inspecteur(trice) colle ensuite ce message reçu via « Coller une réponse »
-          (openFicheImportTextModal), analysé par parseFicheMessageText() (extraction déterministe par
+       2) Google Form + feuille de réponses liée (voir defaultFicheForm/ficheFormSet/
+          parseFormResponsesCSV/importFicheResponses plus bas) : les réponses arrivent automatiquement,
+          comme avec un Google Form classique, sans rien à recopier.
+       3) Lien simple de repli (sans Google Form) : openFicheLinkModal() construit un lien (fragment
+          #fiche=1&...) vers renderPublicFichePage(), un mini-formulaire public autonome (aucune donnée
+          de l'app, aucune connexion) que l'enseignant(e) remplit sur son propre téléphone puis renvoie
+          par WhatsApp/email — l'inspecteur(trice) colle ensuite ce message reçu via « Fiches à distance
+          → Coller une réponse », analysé par parseFicheMessageText() (extraction déterministe par
           étiquette, sans IA : le format du message est entièrement sous notre contrôle). */
   function ficheFieldLabels(){
     return [
@@ -1799,33 +1819,46 @@
       }catch(e){ reject(e); }
     });
   }
-  /* Lien à distance : construit une URL vers le mini-formulaire public (#fiche=1&...), avec les
-     coordonnées de l'inspecteur(trice) (pour que l'enseignant(e) puisse renvoyer sa réponse en un tap)
-     et, si `teacher` est fourni (bouton « Lien pour sa fiche » depuis une fiche déjà ouverte), les
-     champs déjà connus pré-remplis. */
+  /* Lien à distance : quand un Google Form est configuré (state.ficheForm.formUrl, voir le hub
+     « Fiches à distance » ci-dessous), le lien envoyé est directement celui du formulaire — les
+     réponses arrivent alors automatiquement dans la feuille liée, sans rien à recopier. Sinon, on
+     retombe sur le mini-formulaire public intégré (#fiche=1&...), avec les coordonnées de
+     l'inspecteur(trice) pour que l'enseignant(e) puisse renvoyer sa réponse en un tap, et, si
+     `teacher` est fourni (bouton « Lien pour sa fiche » depuis une fiche déjà ouverte), les champs
+     déjà connus pré-remplis (le Google Form, lui, n'est pas pré-rempli : cela suppose de configurer
+     des identifiants de champ propres à chaque formulaire, trop fragile pour être automatisé ici). */
   function openFicheLinkModal(teacher){
     var profil = state.templates.profil || {};
-    var qp = new URLSearchParams();
-    qp.set('fiche', '1');
-    if(profil.nom) qp.set('insp', profil.nom);
-    if(profil.telephone) qp.set('tel', profil.telephone);
-    if(profil.email) qp.set('email', profil.email);
-    if(teacher){
-      if(teacher.nom) qp.set('nom', teacher.nom);
-      var etn = etabName(teacher.etablissementId); if(etn) qp.set('etab', etn);
-      if(teacher.matiere) qp.set('matiere', teacher.matiere);
-      if(teacher.cycle) qp.set('cycle', teacher.cycle);
+    var usingForm = !!(state.ficheForm && state.ficheForm.formUrl);
+    var url;
+    if(usingForm){
+      url = state.ficheForm.formUrl;
+    } else {
+      var qp = new URLSearchParams();
+      qp.set('fiche', '1');
+      if(profil.nom) qp.set('insp', profil.nom);
+      if(profil.telephone) qp.set('tel', profil.telephone);
+      if(profil.email) qp.set('email', profil.email);
+      if(teacher){
+        if(teacher.nom) qp.set('nom', teacher.nom);
+        var etn = etabName(teacher.etablissementId); if(etn) qp.set('etab', etn);
+        if(teacher.matiere) qp.set('matiere', teacher.matiere);
+        if(teacher.cycle) qp.set('cycle', teacher.cycle);
+      }
+      url = location.origin + location.pathname + '#' + qp.toString();
     }
-    var url = location.origin + location.pathname + '#' + qp.toString();
     var waLink = (teacher && teacher.telephone)
       ? waHref(teacher.telephone, 'Bonjour '+(teacher.nom||'')+', merci de compléter votre fiche personnelle via ce lien : '+url)
       : '';
-    pushModal({type:'ficheLink', url:url, teacherNom:(teacher&&teacher.nom)||'', waLink:waLink});
+    pushModal({type:'ficheLink', url:url, teacherNom:(teacher&&teacher.nom)||'', waLink:waLink, usingForm:usingForm});
   }
   function ficheLinkModalHtml(idx, m){
+    var note = m.usingForm
+      ? "il/elle pourra remplir votre Google Form directement depuis son téléphone ; sa réponse arrivera automatiquement dans la feuille de réponses liée — utilisez ensuite « Fiches à distance → Importer les nouvelles réponses »."
+      : "il/elle pourra compléter sa fiche personnelle directement depuis son téléphone, sans compte ni installation, puis vous renvoyer ses informations (WhatsApp, email…). Utilisez ensuite « Fiches à distance → Coller une réponse » pour les ajouter en un tap.";
     return '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
       '<div class="sheet-head"><h2>Lien à distance</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
-      '<p style="font-size:12px;color:var(--ink-faint);margin:0 0 10px;">Envoyez ce lien à '+(m.teacherNom?('<b>'+esc(m.teacherNom)+'</b>'):"un(e) enseignant(e)")+' : il/elle pourra compléter sa fiche personnelle directement depuis son téléphone, sans compte ni installation, puis vous renvoyer ses informations (WhatsApp, email…). Utilisez ensuite « Coller une réponse » pour les ajouter en un tap.</p>'+
+      '<p style="font-size:12px;color:var(--ink-faint);margin:0 0 10px;">Envoyez ce lien à '+(m.teacherNom?('<b>'+esc(m.teacherNom)+'</b>'):"un(e) enseignant(e)")+' : '+note+'</p>'+
       '<div class="field"><label>Lien</label><input type="text" id="fiLinkVal" readonly value="'+esc(m.url)+'" style="width:100%;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:10px 11px;font-size:11.5px;"></div>'+
       '<div class="btn-row" style="flex-wrap:wrap;">'+
         '<button class="btn ghost sm" id="fiCopy" type="button">Copier le lien</button>'+
@@ -1834,15 +1867,109 @@
       '</div>'+
       '</div></div>';
   }
-  function openFicheImportTextModal(){ pushModal({type:'ficheImportText'}); }
-  function ficheImportTextModalHtml(idx){
-    return '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
-      '<div class="sheet-head"><h2>Coller une réponse reçue</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
-      '<p style="font-size:12px;color:var(--ink-faint);margin:0 0 10px;">Collez ici le message (WhatsApp, email…) reçu d\'un(e) enseignant(e) après avoir rempli sa fiche via le lien à distance.</p>'+
-      '<div class="field"><textarea id="fiPasteText" rows="9" placeholder="Collez ici le texte reçu…"></textarea></div>'+
+  /* Lit la feuille de réponses liée au Google Form (export CSV, même mécanisme que la feuille des
+     tâches — voir doSync) et associe chaque colonne à une clé de ficheFieldLabels() par le LIBELLÉ de
+     sa question (pas par position : robuste à un formulaire dont les questions ont été réordonnées),
+     en ignorant toute colonne inconnue. La première colonne (l'horodatage ajouté automatiquement par
+     Google Forms, quel que soit son intitulé exact — « Horodateur » en français) sert de clé de
+     déduplication (state.ficheForm.seenTimestamps), pour ne jamais réimporter deux fois la même ligne. */
+  function parseFormResponsesCSV(csv){
+    var rows = parseCSV(csv);
+    if(!rows.length) return [];
+    var headers = rows[0].map(function(h){ return String(h||'').trim(); });
+    var labelToKey = {}; ficheFieldLabels().forEach(function(f){ labelToKey[f.l.toLowerCase()] = f.k; });
+    var colMap = {};
+    headers.forEach(function(h, i){ var k = labelToKey[h.toLowerCase()]; if(k) colMap[k] = i; });
+    return rows.slice(1).filter(function(r){ return r.some(function(c){ return String(c||'').trim(); }); }).map(function(r){
+      var vals = {};
+      ficheFieldLabels().forEach(function(f){ vals[f.k] = colMap.hasOwnProperty(f.k) ? String(r[colMap[f.k]]||'').trim() : ''; });
+      vals._timestamp = String(r[0]||'').trim();
+      return vals;
+    });
+  }
+  function importFicheResponses(){
+    var ff = state.ficheForm;
+    if(!ff || !ff.sheetFileId){ toast('Liez d\'abord votre feuille de réponses.'); return; }
+    toast('Recherche de nouvelles réponses…');
+    mcpCall('download_file_content', {fileId: ff.sheetFileId, exportMimeType:'text/csv'}).then(function(res){
+      var payload = res.payload || {};
+      var csv = payload.content ? b64ToUtf8(payload.content) : '';
+      var rows = parseFormResponsesCSV(csv);
+      var seen = ff.seenTimestamps || [];
+      var fresh = rows.filter(function(r){ return r._timestamp && seen.indexOf(r._timestamp)===-1; });
+      if(!fresh.length){ toast('Aucune nouvelle réponse.'); return; }
+      ficheFormSet({ seenTimestamps: seen.concat(fresh.map(function(r){ return r._timestamp; })) });
+      state.ficheResponsesQueue = fresh;
+      pushModal({type:'ficheResponsesQueue'});
+    }).catch(function(err){ toast(mcpErrorMessage(err)); });
+  }
+  function ficheResponsesQueueModalHtml(idx){
+    var q = state.ficheResponsesQueue || [];
+    var html = '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
+      '<div class="sheet-head"><h2>Nouvelles réponses ('+q.length+')</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
+      '<p style="font-size:11.5px;color:var(--ink-faint);margin:0 0 10px;">Touchez une réponse pour l\'ajouter (ou mettre à jour la fiche existante si un(e) enseignant(e) du même nom existe déjà) — vous pourrez vérifier les informations avant d\'enregistrer.</p>';
+    html += !q.length ? '<div class="empty">Toutes les réponses ont été traitées.</div>' :
+      '<div class="rec-list">'+q.map(function(r,i){
+        return '<div class="rec-row" data-ficheresp="'+i+'"><div class="avatar">'+initials(r.nom)+'</div>'+
+          '<div class="rec-info"><div class="t">'+esc(r.nom||'(sans nom)')+'</div><div class="s">'+esc([r.etab, r.matiere].filter(Boolean).join(' · '))+'</div></div></div>';
+      }).join('')+'</div>';
+    html += '</div></div>';
+    return html;
+  }
+  /* Hub unique « Fiches à distance » (Enseignants → un seul bouton, au lieu des trois boutons distincts
+     de la version précédente — voir la suppression des accès en double) : regroupe l'import IA d'une
+     fiche (photo/PDF), la configuration/le partage du lien (Google Form ou lien simple de repli), le
+     rattachement de la feuille de réponses et l'import des réponses reçues (automatique via le Google
+     Form, ou manuel par copier-coller). */
+  function openFicheHubModal(){ pushModal({type:'ficheHub'}); }
+  function ficheHubModalHtml(idx){
+    var ff = state.ficheForm || defaultFicheForm();
+    var hasKey = !!geminiApiKey();
+    var html = '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
+      '<div class="sheet-head"><h2>Fiches à distance</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>';
+
+    html += '<div class="section-label">Importer une fiche par photo/PDF (IA)</div>'+
+      '<p style="font-size:11.5px;color:var(--ink-faint);margin:2px 0 10px;">Prenez en photo (ou téléversez le PDF/l\'image de) la fiche personnelle d\'un(e) enseignant(e) : l\'IA en extrait les informations et pré-remplit sa fiche.</p>'+
+      (hasKey
+        ? '<div class="btn-row"><button class="btn ghost sm" id="btnImportEnsFiche" type="button">'+ICONS.cam+' Importer une fiche (IA)</button></div>'
+        : '<p style="font-size:11px;color:var(--ink-faint);">Ajoutez une clé Gemini dans Réglages → Assistant IA pour activer cet import.</p>');
+
+    html += '<div class="side-divider" style="margin:16px 0;"></div><div class="section-label">Lien à distance</div>';
+    if(!ff.formUrl){
+      html += '<p style="font-size:11.5px;color:var(--ink-faint);margin:2px 0 10px;">Pour que les réponses de vos enseignant(e)s arrivent automatiquement dans une feuille Google Sheets — comme avec un Google Form —, configurez-le une seule fois :</p>'+
+        '<ol style="font-size:11.5px;color:var(--ink-faint);margin:0 0 10px;padding-left:18px;">'+
+          '<li>Sur <b>forms.google.com</b>, créez un formulaire.</li>'+
+          '<li>Ajoutez exactement ces questions (réponse courte, sauf « Notes » en paragraphe) : '+ficheFieldLabels().map(function(f){ return '<code>'+esc(f.l)+'</code>'; }).join(', ')+'.</li>'+
+          '<li>Onglet « Réponses » → icône Google Sheets → « Créer une feuille de calcul ».</li>'+
+          '<li>Bouton « Envoyer » → onglet lien → copiez-le et collez-le ci-dessous.</li>'+
+        '</ol>'+
+        '<div class="field"><label for="ffUrlInput">Lien du Google Form</label><input type="text" id="ffUrlInput" placeholder="https://docs.google.com/forms/d/…/viewform"></div>'+
+        '<div class="btn-row" style="flex-wrap:wrap;"><button class="btn primary sm" id="btnSaveFormUrl" type="button">Enregistrer le lien</button>'+
+        '<button class="btn ghost sm" id="btnUseSimpleLink" type="button">Utiliser un lien simple (sans Google Form)</button></div>';
+    } else {
+      html += '<div class="settings-row"><div><div class="l">Google Form lié</div><div class="s">'+esc(ff.formUrl)+'</div></div>'+
+        '<button class="btn ghost sm" id="btnEditFormUrl" type="button">Modifier</button></div>'+
+        '<div class="btn-row" style="margin-top:8px;"><button class="btn ghost sm" id="btnFicheHubLink" type="button">'+ICONS.ext+' Obtenir le lien à envoyer</button></div>'+
+        '<div class="field" style="margin-top:10px;"><label>Feuille de réponses</label>'+
+        (ff.sheetFileId
+          ? '<div class="settings-row"><div><div class="l">'+esc(ff.sheetTitle||'Feuille liée')+'</div><div class="s">Liée — utilisée par « Importer les nouvelles réponses » ci-dessous.</div></div><button class="btn ghost sm" id="btnRelinkFicheSheet" type="button">Changer</button></div>'
+          : '<p style="font-size:11.5px;color:var(--ink-faint);margin:2px 0 8px;">Liez la feuille de réponses créée par votre Google Form pour pouvoir importer automatiquement les nouvelles réponses.</p>'+
+            '<div class="search-row"><input type="text" id="ficheSheetSearch" placeholder="Nom de la feuille…"><button type="button" id="ficheSheetSearchBtn">OK</button></div>'+
+            '<div id="ficheSheetResults" class="doc-list" style="margin-top:9px;"></div>')+
+        '</div>';
+    }
+
+    html += '<div class="side-divider" style="margin:16px 0;"></div><div class="section-label">Réponses reçues</div>';
+    if(ff.sheetFileId){
+      html += '<div class="btn-row"><button class="btn primary sm" id="btnImportFicheResponses" type="button">'+ICONS.dl+' Importer les nouvelles réponses</button></div>';
+    }
+    html += '<p style="font-size:11.5px;color:var(--ink-faint);margin:10px 0 8px;">Vous pouvez aussi coller manuellement un message reçu par WhatsApp/email (lien simple) :</p>'+
+      '<div class="field"><textarea id="fiPasteText" rows="6" placeholder="Collez ici le texte reçu…"></textarea></div>'+
       '<div class="banner err" id="fiParseErr" hidden></div>'+
-      '<div class="btn-row"><button class="btn primary" id="btnFiParse" type="button">Analyser</button></div>'+
-      '</div></div>';
+      '<div class="btn-row"><button class="btn ghost sm" id="btnFiParse" type="button">Analyser le texte collé</button></div>';
+
+    html += '</div></div>';
+    return html;
   }
   /* Mini-formulaire public (voir le bloc #fiche=1 tout en haut du fichier) : remplace tout le <body> —
      seuls $/esc/waHref/waGreeting (déjà définis ou, pour les déclarations de fonction, hoistés) sont
@@ -2371,6 +2498,13 @@
       state.programmeAnnuel.attachments = state.programmeAnnuel.attachments || [];
       saveLocal('programmeAnnuel');
     }
+    /* Configuration du lien Google Form / feuille de réponses : même principe de fusion singleton
+       « le plus récent l'emporte » que le programme annuel — voir ficheFormSet(). */
+    if(remote.ficheForm && remote.ficheForm.updatedAt &&
+       (!state.ficheForm || !state.ficheForm.updatedAt || new Date(remote.ficheForm.updatedAt) > new Date(state.ficheForm.updatedAt))){
+      state.ficheForm = Object.assign(defaultFicheForm(), remote.ficheForm);
+      saveLocal('ficheForm');
+    }
     render();
   }
   function doSync(){
@@ -2656,6 +2790,18 @@
   /* Programme annuel de travail : document singleton (comme templates/profil), horodaté à chaque
      enregistrement explicite pour permettre la fusion « le plus récent l'emporte » entre appareils
      (voir mergeRemoteBackupIntoLocal) — jamais réécrit automatiquement pendant la simple édition. */
+  /* Configuration du lien Google Form (voir la section « fiche à distance » plus haut) : document
+     singleton comme le programme annuel/profil, synchronisé de la même façon (fusion « le plus récent
+     l'emporte » via pushJsonBackup/mergeRemoteBackupIntoLocal), pour que le lien du formulaire, la
+     feuille de réponses liée et la liste des réponses déjà importées (seenTimestamps, pour ne jamais
+     réimporter deux fois la même ligne) restent identiques sur tous les appareils de l'inspecteur(trice). */
+  function defaultFicheForm(){
+    return { formUrl:'', sheetFileId:null, sheetTitle:null, seenTimestamps:[], updatedAt:null };
+  }
+  function ficheFormSet(patch){
+    state.ficheForm = Object.assign({}, defaultFicheForm(), state.ficheForm, patch, {updatedAt: nowIso()});
+    saveLocal('ficheForm'); render();
+  }
   function programmeAnnuelSet(pa){
     pa.updatedAt = nowIso();
     state.programmeAnnuel = pa;
@@ -3506,15 +3652,12 @@
       html += '<div class="search-row"><input type="text" id="ensSearchInput" placeholder="Rechercher un(e) enseignant(e)…" value="'+esc(state.ensQuery)+'"></div>';
     }
     html += '<div class="setup-actions"><button class="btn ghost sm" id="btnExportEns" type="button">Exporter CSV</button><button class="btn ghost sm" id="btnImportEns" type="button">Importer CSV</button></div>';
-    /* Import d'une fiche personnelle par IA (photo/PDF, OCR + extraction Gemini), lien à distance à
-       envoyer à un(e) enseignant(e) pour qu'il/elle consigne lui-même/elle-même ses informations, et
-       import de la réponse reçue (WhatsApp/email) — voir applyFicheValuesToDraft/openFicheLinkModal/
-       openFicheImportTextModal. Le bouton d'import IA n'apparaît que si une clé Gemini est configurée
-       (même convention que les autres boutons IA de l'application, via state.sampleReady). */
+    /* Un seul bouton « Fiches à distance » (au lieu de trois boutons séparés) ouvre le hub qui
+       regroupe l'import d'une fiche par IA (photo/PDF), le lien à distance (Google Form ou lien simple)
+       et l'import des réponses reçues — voir ficheHubModalHtml/openFicheHubModal (suppression des
+       accès en double sur cet écran). */
     html += '<div class="setup-actions">'+
-      (state.sampleReady ? '<button class="btn ghost sm" id="btnImportEnsFiche" type="button">'+ICONS.cam+' Importer une fiche (IA)</button>' : '')+
-      '<button class="btn ghost sm" id="btnFicheLink" type="button">'+ICONS.ext+' Lien à distance</button>'+
-      '<button class="btn ghost sm" id="btnFicheImportText" type="button">Coller une réponse</button></div>';
+      '<button class="btn ghost sm" id="btnFicheHub" type="button">'+ICONS.ext+' Fiches à distance</button></div>';
     if(state.ensHoraireMode){
       html += '<div class="setup-card"><h2>Qui est en classe à quel moment ?</h2>'+
         '<div class="field"><label>Jour</label><div class="seg" id="horJourSeg">'+JOURS.map(function(j){ return '<button type="button" data-v="'+j+'" aria-pressed="'+(state.horaireJour===j)+'">'+j.slice(0,3)+'</button>'; }).join('')+'</div></div>'+
@@ -3538,9 +3681,7 @@
     var hh = $('horHeure'); if(hh) hh.onchange = function(){ state.horaireHeure = hh.value; render(); };
     var be = $('btnExportEns'); if(be) be.onclick = function(){ exportCSV('enseignants'); };
     var bi = $('btnImportEns'); if(bi) bi.onclick = function(){ importTarget='enseignants'; $('fileImportInput').click(); };
-    var bif = $('btnImportEnsFiche'); if(bif) bif.onclick = startEnsFicheImport;
-    var bfl = $('btnFicheLink'); if(bfl) bfl.onclick = function(){ openFicheLinkModal(null); };
-    var bfit = $('btnFicheImportText'); if(bfit) bfit.onclick = openFicheImportTextModal;
+    var bfh = $('btnFicheHub'); if(bfh) bfh.onclick = openFicheHubModal;
     host.querySelectorAll('[data-actstop]').forEach(function(el){ el.onclick = function(ev){ ev.stopPropagation(); }; });
     host.querySelectorAll('.rec-row').forEach(function(el){
       el.onclick = function(){ var e = state.enseignants.find(function(x){ return x.id===el.getAttribute('data-id'); }); if(e) openEnseignantEditor(e); };
@@ -3788,7 +3929,8 @@
       if(m.type==='search') return searchModalHtml(idx);
       if(m.type==='programme') return programmeAnnuelModalHtml(idx);
       if(m.type==='ficheLink') return ficheLinkModalHtml(idx, m);
-      if(m.type==='ficheImportText') return ficheImportTextModalHtml(idx);
+      if(m.type==='ficheHub') return ficheHubModalHtml(idx);
+      if(m.type==='ficheResponsesQueue') return ficheResponsesQueueModalHtml(idx);
       return '';
     }).join('');
     wireModalEvents();
@@ -5081,6 +5223,50 @@
       };
     }
 
+    /* -- hub « Fiches à distance » (import IA, lien Google Form/simple, feuille de réponses) -- */
+    var bImportFicheAI = $('btnImportEnsFiche');
+    if(bImportFicheAI) bImportFicheAI.onclick = function(){ closeTopModal(); startEnsFicheImport(); };
+    var btnFicheHubLink = $('btnFicheHubLink');
+    if(btnFicheHubLink) btnFicheHubLink.onclick = function(){ closeTopModal(); openFicheLinkModal(null); };
+    var btnUseSimpleLink = $('btnUseSimpleLink');
+    if(btnUseSimpleLink) btnUseSimpleLink.onclick = function(){ closeTopModal(); openFicheLinkModal(null); };
+    var btnSaveFormUrl = $('btnSaveFormUrl');
+    if(btnSaveFormUrl) btnSaveFormUrl.onclick = function(){
+      var url = ($('ffUrlInput').value||'').trim();
+      if(!/^https?:\/\//i.test(url)){ toast("Collez d'abord le lien complet de votre Google Form (commençant par https://)."); return; }
+      ficheFormSet({formUrl:url});
+      toast('Lien du Google Form enregistré.');
+    };
+    var btnEditFormUrl = $('btnEditFormUrl');
+    if(btnEditFormUrl) btnEditFormUrl.onclick = function(){ ficheFormSet({formUrl:''}); };
+    var btnRelinkFicheSheet = $('btnRelinkFicheSheet');
+    if(btnRelinkFicheSheet) btnRelinkFicheSheet.onclick = function(){ ficheFormSet({sheetFileId:null, sheetTitle:null}); };
+    var ficheSheetSearchBtn = $('ficheSheetSearchBtn');
+    if(ficheSheetSearchBtn) ficheSheetSearchBtn.onclick = function(){
+      var q = $('ficheSheetSearch').value.trim();
+      var query = "mimeType = 'application/vnd.google-apps.spreadsheet'" + (q ? " and title contains '"+q.replace(/'/g,"\\'")+"'" : '');
+      $('ficheSheetResults').innerHTML = '<div class="empty">Recherche…</div>';
+      mcpCall('search_files', {query: query, pageSize: 10, excludeContentSnippets:true}).then(function(res){
+        var files = (res.payload && res.payload.files) || [];
+        $('ficheSheetResults').innerHTML = files.length ? files.map(function(f){ return '<div class="doc-row" data-linkfichesheet="'+f.id+'" style="cursor:pointer;"><div class="doc-ico">'+ICONS.sheet+'</div><div class="doc-info"><div class="t">'+esc(f.title)+'</div><div class="s tnum">'+fmtDate(f.modifiedTime)+'</div></div></div>'; }).join('') : '<div class="empty">Aucune feuille trouvée.</div>';
+        $('ficheSheetResults').querySelectorAll('[data-linkfichesheet]').forEach(function(el){
+          el.onclick = function(){ var f=files.find(function(x){ return x.id===el.getAttribute('data-linkfichesheet'); }); if(f) ficheFormSet({sheetFileId:f.id, sheetTitle:f.title}); };
+        });
+      }).catch(function(err){ $('ficheSheetResults').innerHTML = '<div class="banner err">'+ICONS.warn+'<div>'+esc(mcpErrorMessage(err))+'</div></div>'; });
+    };
+    var btnImportFicheResponses = $('btnImportFicheResponses');
+    if(btnImportFicheResponses) btnImportFicheResponses.onclick = importFicheResponses;
+    document.querySelectorAll('[data-ficheresp]').forEach(function(el){
+      el.onclick = function(){
+        var i = parseInt(el.getAttribute('data-ficheresp'), 10);
+        var r = (state.ficheResponsesQueue||[])[i];
+        if(!r) return;
+        state.ficheResponsesQueue.splice(i,1);
+        var existing = state.enseignants.find(function(x){ return (x.nom||'').trim().toLowerCase()===String(r.nom||'').trim().toLowerCase(); });
+        applyFicheValuesToDraft(r, existing);
+      };
+    });
+
     /* -- etablissement / zone editors -- */
     function syncEtabFields(){
       var e = state.draftRecord, el;
@@ -5496,8 +5682,6 @@
   $('btnMenu').onclick = openSidebar;
   $('btnSidebarClose').onclick = closeSidebar;
   $('sidebarBackdrop').onclick = closeSidebar;
-  $('btnSideSync').onclick = function(){ closeSidebar(); doSync(); };
-  $('btnSideSettings').onclick = function(){ closeSidebar(); openSettings(); };
   $('btnSideTemplates').onclick = function(){ closeSidebar(); pushModal({type:'settings', tab:'templates'}); };
   /* Le Programme annuel EST le plan d'action tel que conçu par l'inspecteur(trice) (grille officielle
      par catégorie/activité/mois) : ce bouton, très visible dans le menu principal, ouvre directement
@@ -5529,10 +5713,44 @@
 })();
 </script>
 <script>
+  /* Dispositif de mise à jour : le service worker (voir sw.js) sert désormais la page principale en
+     mode « réseau d'abord » (repli sur la copie en cache seulement hors-ligne), pour que toute mise à
+     jour publiée — modification, ajout ou suppression — soit prise en compte dès la prochaine ouverture
+     normale de l'application, sans manipulation particulière. En complément, si l'application reste
+     ouverte pendant qu'une mise à jour est publiée, ce bloc la détecte en arrière-plan et affiche un
+     bandeau « Actualiser » plutôt que de recharger tout seul (pour ne jamais couper l'utilisateur(trice)
+     en pleine saisie d'une fiche ou d'un formulaire). */
   if('serviceWorker' in navigator){
     window.addEventListener('load', function(){
-      navigator.serviceWorker.register('sw.js').catch(function(){});
+      navigator.serviceWorker.register('sw.js').then(function(reg){
+        function showUpdateBar(){
+          var bar = document.getElementById('updateBar');
+          if(bar) bar.hidden = false;
+        }
+        function watchInstalling(sw){
+          if(!sw) return;
+          sw.addEventListener('statechange', function(){
+            if(sw.state === 'installed' && navigator.serviceWorker.controller){
+              // Un service worker contrôlait déjà la page : il s'agit bien d'une mise à jour, pas de
+              // la toute première installation (où rien n'a encore besoin d'être actualisé).
+              showUpdateBar();
+            }
+          });
+        }
+        if(reg.waiting && navigator.serviceWorker.controller) showUpdateBar();
+        if(reg.installing) watchInstalling(reg.installing);
+        reg.addEventListener('updatefound', function(){ watchInstalling(reg.installing); });
+        // Vérifie activement la présence d'une mise à jour chaque fois que l'application revient au
+        // premier plan (l'app pouvant rester ouverte longtemps sans qu'aucune requête réseau naturelle
+        // ne redéclenche la vérification automatique du navigateur).
+        document.addEventListener('visibilitychange', function(){
+          if(document.visibilityState === 'visible') reg.update().catch(function(){});
+        });
+        setInterval(function(){ reg.update().catch(function(){}); }, 60*60*1000);
+      }).catch(function(){});
     });
+    var btnUpdateNow = document.getElementById('btnUpdateNow');
+    if(btnUpdateNow) btnUpdateNow.onclick = function(){ location.reload(); };
   }
 </script>
 </body>
