@@ -7,7 +7,7 @@
    un chargement instantané. Les appels réseau vers Google Drive/Sheets (googleapis.com,
    accounts.google.com) et vers les polices Google Fonts ne sont volontairement PAS interceptés : ils
    passent toujours par le réseau. */
-var CACHE_NAME = 'carnet-inspection-v19';
+var CACHE_NAME = 'carnet-inspection-v20';
 var APP_SHELL = [
   './',
   './index.html',
@@ -66,6 +66,19 @@ self.addEventListener('fetch', function(event){
         return res;
       }).catch(function(){ return cached; });
       return cached || network;
+    })
+  );
+});
+
+/* Notifications des évènements imminents (voir checkImminentTaskNotifications/showTaskNotification
+   dans l'application) : un tap sur la notification ramène au premier plan un onglet déjà ouvert de
+   l'application plutôt que d'en ouvrir un nouveau, ou en ouvre un nouveau s'il n'y en a aucun. */
+self.addEventListener('notificationclick', function(event){
+  event.notification.close();
+  event.waitUntil(
+    self.clients.matchAll({type:'window', includeUncontrolled:true}).then(function(list){
+      for(var i=0;i<list.length;i++){ if('focus' in list[i]) return list[i].focus(); }
+      if(self.clients.openWindow) return self.clients.openWindow('./');
     })
   );
 });

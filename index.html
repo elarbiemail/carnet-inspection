@@ -607,6 +607,85 @@
     var d = new Date(iso.length<=10 ? iso+'T23:59:59' : iso);
     return d.getTime() < Date.now();
   }
+  /* ================= notifications des évènements imminents =================
+     Limite assumée (application 100% autonome, sans serveur ni service de push — voir plus haut) : ces
+     alertes ne peuvent se déclencher QUE pendant que l'application reste ouverte (premier plan ou
+     arrière-plan récent d'un onglet/PWA encore chargé(e)), jamais lorsqu'elle est totalement fermée.
+     L'affichage passe par le service worker (ServiceWorkerRegistration.showNotification), seule méthode
+     fiable sur Android/PWA installée — le constructeur Notification() direct y est souvent silencieux
+     ou indisponible — avec repli sur ce dernier si aucun service worker n'est actif. */
+  function localDateISO(d){
+    d = d || new Date();
+    var y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), dd=String(d.getDate()).padStart(2,'0');
+    return y+'-'+m+'-'+dd;
+  }
+  function notifPermission(){ return (typeof Notification!=='undefined') ? Notification.permission : 'unsupported'; }
+  function requestNotifPermission(){
+    if(typeof Notification==='undefined') return Promise.resolve('unsupported');
+    return Notification.requestPermission().then(function(perm){ render(); return perm; }).catch(function(){ return notifPermission(); });
+  }
+  function showTaskNotification(t, body){
+    var title = (TT_LABEL[t.taskType]||'Tâche') + ' — ' + (t.titre||'(sans titre)');
+    var opts = { body: body, tag: 'task-'+t.id, icon: 'icon-192.png', badge: 'icon-192.png' };
+    if('serviceWorker' in navigator){
+      navigator.serviceWorker.ready.then(function(reg){ return reg.showNotification(title, opts); }).catch(function(){
+        try{ new Notification(title, opts); }catch(e){}
+      });
+    } else {
+      try{ new Notification(title, opts); }catch(e){}
+    }
+  }
+  /* Petit cache local (jamais synchronisé entre appareils — chaque appareil notifie pour lui-même) des
+     rappels déjà envoyés, pour ne jamais notifier deux fois le même évènement : une clé par tâche ET par
+     date/heure précise, pour qu'une modification de la tâche (report de date, par exemple) redevienne
+     notifiable normalement. */
+  var NOTIF_SEEN_KEY = 'ci_notif_seen';
+  function notifSeenGet(){ try{ return JSON.parse(localStorage.getItem(NOTIF_SEEN_KEY)||'[]'); }catch(e){ return []; } }
+  function notifSeenAdd(key){
+    try{
+      var seen = notifSeenGet();
+      if(seen.indexOf(key)===-1){
+        seen.push(key);
+        if(seen.length>500) seen = seen.slice(seen.length-500);
+        localStorage.setItem(NOTIF_SEEN_KEY, JSON.stringify(seen));
+      }
+    }catch(e){}
+  }
+  function taskStartDateTime(t){
+    if(!t.echeance) return null;
+    var d = new Date(t.heureDebut ? (t.echeance+'T'+t.heureDebut) : (t.echeance+'T00:00'));
+    return isNaN(d.getTime()) ? null : d;
+  }
+  /* Parcourt les tâches non clôturées : avec une heure de début précise, prévient une seule fois dans
+     la fenêtre [maintenant ; +délai réglé] ; sans heure précisée, un seul rappel « aujourd'hui » le
+     jour même de l'échéance. Appelée au démarrage, périodiquement et au retour au premier plan — voir
+     start(). */
+  function checkImminentTaskNotifications(){
+    if(notifPermission()!=='granted') return;
+    var leadMin = Number(state.config.notifLeadMinutes)>0 ? Number(state.config.notifLeadMinutes) : 60;
+    var now = Date.now(), seen = notifSeenGet(), todayKey = localDateISO();
+    state.tasks.forEach(function(t){
+      if(t.statut==='cloturee') return;
+      var start = taskStartDateTime(t);
+      if(!start) return;
+      var lieuTxt = t.lieu || t.etablissementNom || '';
+      if(t.heureDebut){
+        var diffMin = (start.getTime()-now)/60000;
+        var key = 'h:'+t.id+':'+t.echeance+':'+t.heureDebut;
+        if(diffMin>=0 && diffMin<=leadMin && seen.indexOf(key)===-1){
+          var when = t.heureDebut+(t.heureFin?'–'+t.heureFin:'');
+          showTaskNotification(t, 'Aujourd\'hui à '+when+(lieuTxt?' · '+lieuTxt:''));
+          notifSeenAdd(key);
+        }
+      } else if(t.echeance===todayKey){
+        var key2 = 'd:'+t.id+':'+t.echeance;
+        if(seen.indexOf(key2)===-1){
+          showTaskNotification(t, "Aujourd'hui"+(lieuTxt?' · '+lieuTxt:''));
+          notifSeenAdd(key2);
+        }
+      }
+    });
+  }
   function toast(msg){
     var el = document.createElement('div');
     el.className = 'toast'; el.textContent = msg;
@@ -731,6 +810,8 @@
   var TASK_TYPES = [
     {v:'inspection', l:'Inspection'}, {v:'visite_conseil', l:'Visite conseil'},
     {v:'reunion_pedagogique', l:'Réunion pédagogique'}, {v:'cours_experimental', l:'Cours expérimental'},
+    {v:'formation', l:'Formation'}, {v:'reunion_distance', l:'Réunion à distance'},
+    {v:'reunion_administrative', l:'Réunion administrative'},
     {v:'recherche_action', l:'Recherche action'}, {v:'observation_examen', l:"Observation d'examen"},
     {v:'conception_examen', l:"Conception d'examen"}, {v:'autre', l:'Autre'}
   ];
@@ -739,6 +820,15 @@
   function normTaskType(v){ if(TT_LABEL[v]) return v; if(LEGACY_TASKTYPE[v]) return LEGACY_TASKTYPE[v]; return 'autre'; }
   var TASK_TYPES_GRADED = {inspection:true};
   var TASK_TYPES_NOTIFY = {reunion_pedagogique:true, cours_experimental:true};
+  /* Établissement + enseignant(e) (sélecteurs uniques) : comportement historique conservé pour tous les
+     types de tâches qui ciblent UNE personne dans UN établissement précis (inspection, visite conseil,
+     recherche action, observation d'examen, conception d'examen, autre). Seuls en sont exclus : la
+     réunion pédagogique/le cours expérimental (qui utilisent déjà la liste d'invité(e)s
+     multi-établissements ci-dessus) et les nouveaux types formation/réunion à distance/réunion
+     administrative (tâches de type réunion/formation, non rattachées à un(e) enseignant(e) précis(e)) —
+     pour ceux-ci, seul le champ « Lieu » générique (texte libre, avec suggestions — voir
+     taskLieuSuggestions) s'applique. */
+  var TASK_TYPES_SINGLE_TARGET = {inspection:true, visite_conseil:true, recherche_action:true, observation_examen:true, conception_examen:true, autre:true};
   /* « plan_action » n'est plus proposé ici depuis qu'il a été remplacé par le Programme annuel comme
      plan d'action (voir le bouton « Plan d'action » du menu principal, qui ouvre désormais directement
      Réglages → Programme annuel) — DOC_TYPE_INFO/DOC_TEMPLATE_FIELDS/RTL_DOC_TYPES et la génération de
@@ -749,6 +839,9 @@
     visite_conseil:['lettre_information','observation','rapport','bordereau'],
     reunion_pedagogique:['lettre_information','presence','compte_rendu','attestation','bordereau'],
     cours_experimental:['lettre_information','presence','compte_rendu','attestation','bordereau'],
+    formation:['lettre_information','presence','compte_rendu','attestation','bordereau'],
+    reunion_distance:['lettre_information','compte_rendu','bordereau'],
+    reunion_administrative:['lettre_information','compte_rendu','bordereau'],
     recherche_action:['rapport','bordereau'],
     observation_examen:['observation','rapport','bordereau'],
     conception_examen:['rapport','bordereau'],
@@ -816,7 +909,7 @@
   var DOC_TEMPLATE_TAGS = [
     {tag:'etablissement', label:'Établissement'}, {tag:'enseignant', label:"Enseignant(e)"},
     {tag:'classe', label:'Classe'}, {tag:'matiere', label:'Matière'}, {tag:'date', label:'Date'},
-    {tag:'heure', label:'Heure'}, {tag:'objet', label:'Objet'}, {tag:'lieu', label:'Lieu'},
+    {tag:'heure', label:'Heure (début)'}, {tag:'heureFin', label:'Heure de fin'}, {tag:'objet', label:'Objet'}, {tag:'lieu', label:'Lieu'},
     {tag:'inspecteur', label:"Inspecteur(trice)"}, {tag:'grade', label:'Grade'},
     {tag:'academie', label:'Académie régionale'}, {tag:'province', label:'Province / DP'},
     {tag:'ppr', label:'PPR (enseignant(e))'}, {tag:'cadre', label:"Cadre / échelle (enseignant(e))"}
@@ -831,9 +924,10 @@
       etablissement: (task&&task.etablissementNom) || d.lieu || '',
       enseignant: (task&&task.enseignantNom) || d.enseignantNom || d.beneficiaireNom || '',
       classe: d.classe || '', matiere: d.matiere || (ens&&ens.matiere) || '',
-      date: fmtDate(d.date || (task&&task.echeance)), heure: (task&&task.heure) || '',
+      date: fmtDate(d.date || (task&&task.echeance)),
+      heure: (task&&(task.heureDebut||task.heure)) || '', heureFin: (task&&task.heureFin) || '',
       objet: d.objet || d.titre || (task&&task.titre) || '',
-      lieu: d.lieu || (task&&task.etablissementNom) || '',
+      lieu: (task&&task.lieu) || d.lieu || (task&&task.etablissementNom) || '',
       inspecteur: profil.nom || '', grade: profil.grade || '',
       academie: profil.academieRegionale || '', province: profil.province || '',
       ppr: (ens&&ens.ppr) || '', cadre: (ens&&ens.cadre) || ''
@@ -878,9 +972,21 @@
     nav.querySelectorAll('[data-sub]').forEach(function(b){ b.onclick = function(){ setSub(state.view, b.getAttribute('data-sub')); }; });
   }
   var TT_BADGE_CLASS = { inspection:'violet', visite_conseil:'violet', observation_examen:'violet',
-    reunion_pedagogique:'accent', cours_experimental:'accent',
+    reunion_pedagogique:'accent', cours_experimental:'accent', formation:'accent',
+    reunion_distance:'neutral', reunion_administrative:'neutral',
     recherche_action:'warn', conception_examen:'warn', autre:'neutral' };
   function taskBadgeClass(v){ return TT_BADGE_CLASS[v] || 'neutral'; }
+  /* Lieux déjà saisis sur d'autres tâches, proposés comme suggestions (datalist) sur le champ Lieu de
+     l'éditeur — jamais de liste figée : purement dérivé des tâches existantes, donc toujours à jour. */
+  function taskLieuSuggestions(){
+    var seen = {}, out = [];
+    state.tasks.forEach(function(t){
+      var l = (t.lieu||'').trim();
+      if(l && !seen[l]){ seen[l]=true; out.push(l); }
+    });
+    out.sort(function(a,b){ return a.localeCompare(b); });
+    return out;
+  }
   /* Valeurs par défaut pré-remplies avec les informations réelles d'Elarbi (application personnelle,
      non générique — voir aussi DEFAULT_ENTETE ci-dessus, déjà personnalisé de la même façon) : elles
      n'écrasent jamais une valeur déjà saisie (Object.assign les place APRÈS le profil existant lors du
@@ -2397,6 +2503,12 @@
       enseignants: state.enseignants, tasks: state.tasks, documents: state.documents, templates: state.templates,
       regionsMaroc: state.regionsMaroc, regionsMarocUpdatedAt: state.regionsMarocUpdatedAt, assetsIndex: assetsIndex,
       programmeAnnuel: state.programmeAnnuel,
+      /* Sans cette ligne, la configuration du lien Google Form (voir ficheFormSet/defaultFicheForm et
+         la fusion correspondante dans mergeRemoteBackupIntoLocal, qui lit déjà remote.ficheForm) ne
+         quittait jamais cet appareil : elle restait absente de la sauvegarde JSON poussée sur Drive, et
+         ne pouvait donc jamais être retrouvée sur un autre appareil malgré le code de fusion déjà en
+         place côté lecture. */
+      ficheForm: state.ficheForm,
       /* Voir mergeTombstones/mergeById : sans cela, un enregistrement supprimé ici mais encore présent
          dans une copie plus ancienne sur un autre appareil serait repris comme « nouveau » par cet
          appareil au lieu de disparaître à son tour. */
@@ -2674,18 +2786,23 @@
   function pushModal(m){ state.modalStack.push(m); render(); }
 
   function openTaskEditor(task){
-    state.draftTask = task ? Object.assign({heure:'', invites:[], attachments:[]}, JSON.parse(JSON.stringify(task))) : {
+    state.draftTask = task ? Object.assign({heureDebut:'', heureFin:'', lieu:'', lienConnexion:'', invites:[], attachments:[]}, JSON.parse(JSON.stringify(task))) : {
       id: uid(), titre:'', statut:'a_planifier', priorite:'moyenne', taskType:'inspection',
-      enseignantId:null, enseignantNom:'', etablissementId:null, etablissementNom:'', heure:'',
+      enseignantId:null, enseignantNom:'', etablissementId:null, etablissementNom:'',
+      heureDebut:'', heureFin:'', lieu:'', lienConnexion:'',
       echeance:'', description:'', docTitre:'', docUrl:'', noteGlobale:'', notificationEnvoyee:false,
       invites:[], attachments:[]
     };
+    /* Rétrocompatibilité : une tâche créée avant l'introduction de la plage horaire (début/fin) n'a
+       qu'un seul champ « heure » — repris ici comme heure de début tant qu'il n'a pas été remplacé. */
+    if(task && !state.draftTask.heureDebut && task.heure) state.draftTask.heureDebut = task.heure;
     pushModal({type:'task', isNew: !task});
   }
   function openTaskEditorPrefilled(partial){
     state.draftTask = Object.assign({
       id: uid(), titre:'', statut:'a_planifier', priorite:'moyenne', taskType:'inspection',
-      enseignantId:null, enseignantNom:'', etablissementId:null, etablissementNom:'', heure:'',
+      enseignantId:null, enseignantNom:'', etablissementId:null, etablissementNom:'',
+      heureDebut:'', heureFin:'', lieu:'', lienConnexion:'',
       echeance:'', description:'', docTitre:'', docUrl:'', noteGlobale:'', notificationEnvoyee:false,
       invites:[], attachments:[]
     }, partial);
@@ -2835,9 +2952,9 @@
          l'établissement », gardé pour les tâches qui n'ont pas (encore) de liste d'invités. */
       var parts = invites.length ? invites.map(function(iv){ return {nom:iv.nom, fonction:'Enseignant(e)'}; })
         : state.enseignants.filter(function(e){ return e.etablissementId===task.etablissementId; }).map(function(e){ return {nom:e.nom, fonction:'Enseignant(e)'}; });
-      base.objet = task.titre; base.lieu = task.etablissementNom||''; base.participants = parts;
+      base.objet = task.titre; base.lieu = task.lieu||task.etablissementNom||''; base.participants = parts;
     } else if(type==='compte_rendu'){
-      base.lieu = task.etablissementNom||''; base.presents= invites.length ? invites.map(function(iv){ return iv.nom; }).join(', ') : '';
+      base.lieu = task.lieu||task.etablissementNom||''; base.presents= invites.length ? invites.map(function(iv){ return iv.nom; }).join(', ') : '';
       base.absents=''; base.ordreJour=''; base.pointsDiscutes='';
       base.decisions=''; base.actions=[];
     } else if(type==='observation'){
@@ -2850,7 +2967,7 @@
     } else if(type==='rapport'){
       base.texte='';
     } else if(type==='attestation'){
-      base.beneficiaireNom = task.enseignantNom||''; base.fonction='Enseignant(e)'; base.objet = task.titre; base.lieu = task.etablissementNom||''; base.texteLibre='';
+      base.beneficiaireNom = task.enseignantNom||''; base.fonction='Enseignant(e)'; base.objet = task.titre; base.lieu = task.lieu||task.etablissementNom||''; base.texteLibre='';
     } else if(type==='lettre_information'){
       /* Pour une réunion pédagogique / un cours expérimental, le courrier d'information est adressé au
          service pédagogique (et non au/à la directeur(trice) de l'établissement comme pour une visite
@@ -2859,21 +2976,21 @@
          buildDocSpecInner et TEACHER_DOC_TYPES plus bas). */
       base.destinataire = TASK_TYPES_NOTIFY[task.taskType] ? 'Service pédagogique'
         : "Monsieur/Madame le/la Directeur(trice) de "+(task.etablissementNom||"l'établissement");
-      base.objet = task.titre; base.lieu = task.etablissementNom||'';
+      base.objet = task.titre; base.lieu = task.lieu||task.etablissementNom||'';
       base.invites = invites.slice();
-      var quandTxt = fmtDate(task.echeance)+(task.heure?' à '+task.heure:'');
+      var quandTxt = fmtDate(task.echeance)+(task.heureDebut?' à '+task.heureDebut+(task.heureFin?'–'+task.heureFin:''):'');
       base.corps = invites.length
         ? "J'ai l'honneur de vous informer que "+(TT_LABEL[task.taskType]||'une réunion').toLowerCase()+" aura lieu le "+quandTxt+(task.etablissementNom?" à "+task.etablissementNom:"")+", avec la participation des enseignant(e)s dont la liste figure ci-après. Je vous prie de bien vouloir prendre les dispositions nécessaires à cet effet."
         : "J'ai l'honneur de vous informer que "+(TT_LABEL[task.taskType]||'une visite').toLowerCase()+" aura lieu le "+quandTxt+(task.enseignantNom?" concernant l'enseignant(e) "+task.enseignantNom:"")+". Je vous prie de bien vouloir prendre les dispositions nécessaires à cet effet.";
     } else if(type==='rapport_inspection'){
-      base.enseignantNom = task.enseignantNom||''; base.lieu = task.etablissementNom||''; base.classe=''; base.matiere='';
+      base.enseignantNom = task.enseignantNom||''; base.lieu = task.lieu||task.etablissementNom||''; base.classe=''; base.matiere='';
       base.appreciation = task.noteGlobale || ''; base.constats=''; base.recommandations='';
     } else if(type==='bordereau'){
       base.destinataire = 'Monsieur le Directeur Provincial'; base.reference=''; base.objet = task.titre;
       base.pieces = [{designation: task.titre, nombre:'1'}]; base.observations='';
       base.tableauxValides = []; base.tableauxNonValides = [];
     } else if(type==='plan_action'){
-      base.lieu = task.etablissementNom||''; base.objet = task.titre; base.contexte=''; base.objectifs=''; base.actions=[];
+      base.lieu = task.lieu||task.etablissementNom||''; base.objet = task.titre; base.contexte=''; base.objectifs=''; base.actions=[];
     }
     /* Modèle personnalisé (Réglages → Modèles de documents → Modèles personnalisés) : si l'utilisateur
        a défini un texte de modèle avec balises {{...}} pour un ou plusieurs champs de ce type de
@@ -3630,7 +3747,7 @@
     var late = isLate(t.echeance, t.statut);
     var enNom = t.enseignantNom || ensName(t.enseignantId);
     var etNom = t.etablissementNom || etabName(t.etablissementId);
-    var meta = [enNom, etNom].filter(Boolean).join(' · ');
+    var meta = [enNom, etNom, (!enNom && !etNom ? t.lieu : '')].filter(Boolean).join(' · ');
     return '<article class="task-card'+(t.statut==='cloturee'?' done':'')+'" style="--prio:'+PRIO_VAR[t.priorite]+'" data-id="'+t.id+'">'+
       '<div class="task-meta"><span class="type-badge '+taskBadgeClass(t.taskType)+'">'+esc(TT_LABEL[t.taskType]||'Autre')+'</span></div>'+
       '<div class="task-title'+(t.statut==='cloturee'?' strike':'')+'">'+esc(t.titre)+'</div>'+
@@ -3939,17 +4056,22 @@
   /* ---- Task editor ---- */
   function taskModalHtml(idx){
     var t = state.draftTask;
+    var singleTarget = TASK_TYPES_SINGLE_TARGET[t.taskType];
     return '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
       '<div class="sheet-head"><h2>'+(state.modalStack[idx].isNew?'Nouvelle tâche':'Modifier la tâche')+'</h2>'+
         '<button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
       '<div class="field"><label for="fTypeSel">Type de tâche</label><select id="fTypeSel" style="width:100%;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:10px 11px;">'+
       TASK_TYPES.map(function(tt){ return '<option value="'+tt.v+'"'+(t.taskType===tt.v?' selected':'')+'>'+tt.l+'</option>'; }).join('')+'</select></div>'+
       '<div class="field"><label for="fTitre">Titre</label><input type="text" id="fTitre" value="'+esc(t.titre)+'" placeholder="Ex. Visite de classe 1BAC"></div>'+
-      '<div class="field"><label>Établissement</label><button type="button" class="pickbtn" id="btnPickEtab"><span class="'+(t.etablissementNom||etabName(t.etablissementId)?'':'ph')+' t">'+esc(t.etablissementNom||etabName(t.etablissementId)||'Choisir un établissement…')+'</span></button></div>'+
-      '<div class="field"><label>Enseignant(e)</label><button type="button" class="pickbtn" id="btnPickEns"><span class="'+(t.enseignantNom||ensName(t.enseignantId)?'':'ph')+' t">'+esc(t.enseignantNom||ensName(t.enseignantId)||'Choisir un(e) enseignant(e)…')+'</span></button></div>'+
+      (singleTarget ? '<div class="field"><label>Établissement</label><button type="button" class="pickbtn" id="btnPickEtab"><span class="'+(t.etablissementNom||etabName(t.etablissementId)?'':'ph')+' t">'+esc(t.etablissementNom||etabName(t.etablissementId)||'Choisir un établissement…')+'</span></button></div>'+
+      '<div class="field"><label>Enseignant(e)</label><button type="button" class="pickbtn" id="btnPickEns"><span class="'+(t.enseignantNom||ensName(t.enseignantId)?'':'ph')+' t">'+esc(t.enseignantNom||ensName(t.enseignantId)||'Choisir un(e) enseignant(e)…')+'</span></button></div>' : '')+
       '<div class="field"><label>Priorité</label><div class="seg" id="fPrioSeg">'+['basse','moyenne','haute'].map(function(v){ return '<button type="button" data-v="'+v+'" aria-pressed="'+(t.priorite===v)+'">'+v.charAt(0).toUpperCase()+v.slice(1)+'</button>'; }).join('')+'</div></div>'+
-      '<div class="field-row"><div class="field"><label for="fEcheance">Échéance</label><input type="date" id="fEcheance" value="'+esc(t.echeance)+'"></div>'+
-      '<div class="field"><label for="fHeure">Heure</label><input type="time" id="fHeure" value="'+esc(t.heure)+'"></div></div>'+
+      '<div class="field"><label for="fEcheance">Échéance</label><input type="date" id="fEcheance" value="'+esc(t.echeance)+'"></div>'+
+      '<div class="field-row"><div class="field"><label for="fHeureDebut">Début</label><input type="time" id="fHeureDebut" value="'+esc(t.heureDebut||'')+'"></div>'+
+      '<div class="field"><label for="fHeureFin">Fin</label><input type="time" id="fHeureFin" value="'+esc(t.heureFin||'')+'"></div></div>'+
+      '<div class="field"><label for="fLieu">Lieu</label><input type="text" id="fLieu" list="lieuSuggestions" value="'+esc(t.lieu||'')+'" placeholder="Ex. Salle des professeurs, Chorouk…">'+
+      '<datalist id="lieuSuggestions">'+taskLieuSuggestions().map(function(l){ return '<option value="'+esc(l)+'">'; }).join('')+'</datalist></div>'+
+      (t.taskType==='reunion_distance' ? '<div class="field"><label for="fLienConnexion">Lien de connexion</label><input type="text" id="fLienConnexion" value="'+esc(t.lienConnexion||'')+'" placeholder="https://meet.google.com/… ou https://zoom.us/…"></div>' : '')+
       (TASK_TYPES_GRADED[t.taskType] ? '<div class="field"><label>Note globale de l\'inspection</label><div class="seg" id="fNoteSeg">'+NOTE_SCALE.map(function(n){ return '<button type="button" data-v="'+n+'" aria-pressed="'+(t.noteGlobale===n)+'">'+n+'</button>'; }).join('')+'</div></div>' : '')+
       (TASK_TYPES_NOTIFY[t.taskType] ? '<div class="field"><label class="chk-row" style="display:flex;align-items:center;gap:8px;font-weight:500;"><input type="checkbox" id="fNotif"'+(t.notificationEnvoyee?' checked':'')+'> Notification envoyée à l\'administration</label></div>' : '')+
       (TASK_TYPES_NOTIFY[t.taskType] ? taskInvitesFieldHtml(t) : '')+
@@ -3993,9 +4115,12 @@
     var html = '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
       '<div class="sheet-head"><h2 style="text-wrap:balance;">'+esc(t.titre)+'</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
       '<div class="task-meta" style="margin-bottom:10px;"><span class="type-badge '+taskBadgeClass(t.taskType)+'">'+esc(TT_LABEL[t.taskType])+'</span>'+
-      (enNom?'<span>'+esc(enNom)+'</span>':'')+(etNom?'<span>· '+esc(etNom)+'</span>':'')+(t.echeance?'<span>· '+fmtDate(t.echeance)+(t.heure?' à '+esc(t.heure):'')+'</span>':'')+'</div>'+
+      (enNom?'<span>'+esc(enNom)+'</span>':'')+(etNom?'<span>· '+esc(etNom)+'</span>':'')+
+      (t.echeance?'<span>· '+fmtDate(t.echeance)+(t.heureDebut?' à '+esc(t.heureDebut)+(t.heureFin?'–'+esc(t.heureFin):''):'')+'</span>':'')+
+      (t.lieu?'<span>· '+esc(t.lieu)+'</span>':'')+'</div>'+
       (ensTel ? '<div class="btn-row" style="margin-bottom:10px;"><a class="btn ghost sm" href="'+telHref(ensTel)+'">'+ICONS.phone+' Appeler '+esc(enNom)+'</a>'+
         '<a class="btn ghost sm" href="'+waHref(ensTel, waGreeting(enNom))+'" target="_blank" rel="noopener">'+ICONS.chat+' WhatsApp</a></div>' : '')+
+      (t.lienConnexion ? '<div class="btn-row" style="margin-bottom:10px;"><a class="btn ghost sm" href="'+esc(t.lienConnexion)+'" target="_blank" rel="noopener">'+ICONS.ext+' Rejoindre la réunion</a></div>' : '')+
       (t.description ? '<p style="font-size:13px;color:var(--ink-soft);white-space:pre-line;margin:0 0 12px;">'+esc(t.description)+'</p>' : '')+
       (invites.length ? '<div class="section-label">Enseignant(e)s invité(e)s ('+invites.length+')</div><p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;line-height:1.6;">'+
         invites.map(function(iv){ return esc(iv.nom)+(iv.ppr?' <span style="color:var(--ink-faint);">(PPR '+esc(iv.ppr)+')</span>':''); }).join(', ')+'</p>' : '')+
@@ -4085,7 +4210,8 @@
       '<button class="chip" data-stab="profil" aria-pressed="'+(tab==='profil')+'">Profil inspecteur</button>'+
       '<button class="chip" data-stab="templates" aria-pressed="'+(tab==='templates')+'">Modèles de documents</button>'+
       '<button class="chip" data-stab="referentiel" aria-pressed="'+(tab==='referentiel')+'">Régions / DP</button>'+
-      '<button class="chip" data-stab="ia" aria-pressed="'+(tab==='ia')+'">Assistant IA</button></div>';
+      '<button class="chip" data-stab="ia" aria-pressed="'+(tab==='ia')+'">Assistant IA</button>'+
+      '<button class="chip" data-stab="notifications" aria-pressed="'+(tab==='notifications')+'">Notifications</button></div>';
 
     if(tab==='sync'){
       var cid = c.googleClientId || '';
@@ -4148,8 +4274,32 @@
       html += referentielTabHtml();
     } else if(tab==='ia'){
       html += iaTabHtml();
+    } else if(tab==='notifications'){
+      html += notificationsTabHtml();
     }
     html += '</div></div>';
+    return html;
+  }
+  /* Réglages → Notifications : activation du rappel des évènements imminents (voir
+     checkImminentTaskNotifications plus haut) et réglage du délai de prévenance. L'état affiché suit
+     directement Notification.permission (jamais de booléen propre à l'application qui pourrait se
+     désynchroniser du vrai réglage du navigateur). */
+  function notificationsTabHtml(){
+    var perm = notifPermission();
+    var permLabel = {granted:'Activées', denied:'Bloquées par le navigateur', default:'Non activées', unsupported:'Non prises en charge par ce navigateur'}[perm] || perm;
+    var html = '<div class="settings-row"><div><div class="l">Notifications des évènements imminents</div><div class="s">'+esc(permLabel)+'</div></div>'+
+      (perm==='default' ? '<button class="btn primary" id="btnEnableNotif" type="button">Activer</button>' : '')+'</div>';
+    if(perm==='denied'){
+      html += '<p style="font-size:11.5px;color:var(--ink-faint);margin-top:8px;">Les notifications ont été refusées pour cette application dans ce navigateur. Pour les réactiver, autorisez-les dans les réglages du site (généralement via l\'icône de cadenas à côté de l\'adresse), puis revenez sur cet écran.</p>';
+    } else if(perm==='unsupported'){
+      html += '<p style="font-size:11.5px;color:var(--ink-faint);margin-top:8px;">Ce navigateur ne prend pas en charge les notifications.</p>';
+    } else if(perm==='granted'){
+      html += '<div class="field" style="margin-top:12px;"><label for="notifLeadInput">Me prévenir combien de minutes avant le début ?</label>'+
+        '<input type="number" min="5" max="1440" step="5" id="notifLeadInput" value="'+esc(state.config.notifLeadMinutes||60)+'"></div>'+
+        '<div class="btn-row"><button class="btn primary sm" id="btnSaveNotifLead" type="button">Enregistrer</button>'+
+        '<button class="btn ghost sm" id="btnTestNotif" type="button">Tester une notification</button></div>';
+    }
+    html += '<p style="font-size:11px;color:var(--ink-faint);margin-top:14px;">Important : comme l\'application fonctionne entièrement sans serveur (voir Synchronisation), ces alertes ne peuvent se déclencher que pendant qu\'elle reste ouverte — au premier plan ou en arrière-plan récent. Gardez-la ouverte à l\'approche de vos évènements pour recevoir le rappel ; sans heure de début précisée, un seul rappel est envoyé le jour même de l\'échéance.</p>';
     return html;
   }
   /* Éditeur de la clé API Gemini (Réglages → Assistant IA) : même principe « clé personnelle collée
@@ -4721,7 +4871,10 @@
     /* -- task editor -- */
     function syncTaskFields(){
       var t = state.draftTask, el;
-      el=$('fTitre'); if(el) t.titre=el.value; el=$('fEcheance'); if(el) t.echeance=el.value; el=$('fHeure'); if(el) t.heure=el.value; el=$('fDesc'); if(el) t.description=el.value;
+      el=$('fTitre'); if(el) t.titre=el.value; el=$('fEcheance'); if(el) t.echeance=el.value;
+      el=$('fHeureDebut'); if(el) t.heureDebut=el.value; el=$('fHeureFin'); if(el) t.heureFin=el.value;
+      el=$('fLieu'); if(el) t.lieu=el.value; el=$('fLienConnexion'); if(el) t.lienConnexion=el.value;
+      el=$('fDesc'); if(el) t.description=el.value;
       el=$('fNotif'); if(el) t.notificationEnvoyee=el.checked;
       /* Lu à chaque syncTaskFields (pas seulement à l'enregistrement final) pour ne pas perdre les
          cases cochées si un autre changement (type de tâche, établissement…) redessine le formulaire
@@ -5073,6 +5226,25 @@
       if(!confirm("Retirer la clé API Gemini ? Les boutons d'assistance IA seront masqués jusqu'à ce que vous en enregistriez une nouvelle.")) return;
       state.geminiKeyError = null;
       configSet({ geminiApiKey: null }).then(function(){ toast('Clé API Gemini retirée.'); });
+    };
+
+    /* -- notifications des évènements imminents -- */
+    var btnEnableNotif = $('btnEnableNotif');
+    if(btnEnableNotif) btnEnableNotif.onclick = function(){
+      requestNotifPermission().then(function(perm){
+        if(perm==='granted'){ toast('Notifications activées.'); checkImminentTaskNotifications(); }
+        else if(perm==='denied') toast('Notifications refusées.');
+      });
+    };
+    var btnSaveNotifLead = $('btnSaveNotifLead');
+    if(btnSaveNotifLead) btnSaveNotifLead.onclick = function(){
+      var v = parseInt(($('notifLeadInput').value||'').trim(), 10);
+      if(!v || v<1){ toast('Indiquez un nombre de minutes valide.'); return; }
+      configSet({ notifLeadMinutes: v }).then(function(){ toast('Délai de prévenance enregistré.'); });
+    };
+    var btnTestNotif = $('btnTestNotif');
+    if(btnTestNotif) btnTestNotif.onclick = function(){
+      showTaskNotification({ id:'test', taskType:'autre', titre:'Notification de test' }, "Si vous voyez cette alerte, les notifications fonctionnent sur cet appareil.");
     };
 
     /* -- profil inspecteur -- */
@@ -5708,6 +5880,15 @@
     /* Toujours après le premier rendu (données locales déjà affichées, hors-ligne d'abord) : tente
        une synchronisation silencieuse en arrière-plan si cet appareil a déjà été connecté. */
     autoSyncOnLaunch();
+    /* Notifications des évènements imminents (voir checkImminentTaskNotifications ci-dessus) : un
+       contrôle immédiat, puis répété pendant que l'application reste ouverte — toutes les 5 minutes, et
+       chaque fois qu'elle revient au premier plan (un onglet mis en arrière-plan de longues minutes
+       pourrait sinon manquer la fenêtre de rappel d'un évènement proche à son retour). */
+    checkImminentTaskNotifications();
+    setInterval(checkImminentTaskNotifications, 5*60*1000);
+    document.addEventListener('visibilitychange', function(){
+      if(document.visibilityState==='visible') checkImminentTaskNotifications();
+    });
   }
   start();
 })();
