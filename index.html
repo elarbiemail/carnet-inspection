@@ -209,6 +209,7 @@
   .pill.wf-cloturee{ background:var(--done-soft); color:var(--done); }
   .due-chip{ font-size:11.5px; color:var(--ink-faint); font-family:var(--font-mono); }
   .due-chip.late{ color:var(--danger); font-weight:700; }
+  .due-chip.vacance{ color:var(--warn); font-weight:700; }
   .doc-chip{
     display:inline-flex; align-items:center; gap:4px; font-size:11.5px; color:var(--accent); font-weight:600;
     background:none; border:none; padding:0; cursor:pointer; max-width:200px;
@@ -624,9 +625,10 @@
     if(typeof Notification==='undefined') return Promise.resolve('unsupported');
     return Notification.requestPermission().then(function(perm){ render(); return perm; }).catch(function(){ return notifPermission(); });
   }
-  function showTaskNotification(t, body){
-    var title = (TT_LABEL[t.taskType]||'Tâche') + ' — ' + (t.titre||'(sans titre)');
-    var opts = { body: body, tag: 'task-'+t.id, icon: 'icon-192.png', badge: 'icon-192.png' };
+  /* Fonction d'affichage mutualisée (tâches imminentes ET vacances ci-dessous) : un seul endroit qui
+     connaît le repli service worker → Notification() direct. */
+  function showNotificationRaw(title, body, tag){
+    var opts = { body: body, tag: tag, icon: 'icon-192.png', badge: 'icon-192.png' };
     if('serviceWorker' in navigator){
       navigator.serviceWorker.ready.then(function(reg){ return reg.showNotification(title, opts); }).catch(function(){
         try{ new Notification(title, opts); }catch(e){}
@@ -634,6 +636,10 @@
     } else {
       try{ new Notification(title, opts); }catch(e){}
     }
+  }
+  function showTaskNotification(t, body){
+    var title = (TT_LABEL[t.taskType]||'Tâche') + ' — ' + (t.titre||'(sans titre)');
+    showNotificationRaw(title, body, 'task-'+t.id);
   }
   /* Petit cache local (jamais synchronisé entre appareils — chaque appareil notifie pour lui-même) des
      rappels déjà envoyés, pour ne jamais notifier deux fois le même évènement : une clé par tâche ET par
@@ -683,6 +689,47 @@
           showTaskNotification(t, "Aujourd'hui"+(lieuTxt?' · '+lieuTxt:''));
           notifSeenAdd(key2);
         }
+      }
+    });
+  }
+  /* Rappel de l'approche d'une période de vacances (voir Réglages → Vacances) : un seul avertissement,
+     déclenché dès que son début se situe dans la fenêtre [aujourd'hui ; +délai réglé, 7 jours par
+     défaut] — pas de répétition une fois le rappel envoyé pour cette période (voir notifSeenAdd). */
+  function checkUpcomingVacancesNotifications(){
+    if(notifPermission()!=='granted') return;
+    var leadDays = Number(state.config.vacanceLeadDays)>0 ? Number(state.config.vacanceLeadDays) : 7;
+    var today = localDateISO(), seen = notifSeenGet();
+    var todayMs = new Date(today+'T00:00').getTime();
+    state.vacances.forEach(function(v){
+      if(!v.dateDebut) return;
+      var startMs = new Date(v.dateDebut+'T00:00').getTime();
+      if(isNaN(startMs)) return;
+      var diffDays = Math.round((startMs-todayMs)/86400000);
+      var key = 'vac:'+v.id+':'+v.dateDebut;
+      if(diffDays>=0 && diffDays<=leadDays && seen.indexOf(key)===-1){
+        var when = diffDays===0 ? "commencent aujourd'hui" : 'commencent dans '+diffDays+' jour'+(diffDays>1?'s':'')+' (le '+fmtDate(v.dateDebut)+')';
+        showNotificationRaw('Vacances à venir', (v.nom||'Vacances')+' '+when+'.', 'vacance-'+v.id);
+        notifSeenAdd(key);
+      }
+    });
+  }
+  /* Alerte de concomitance : une tâche (non clôturée) dont l'échéance tombe dans une période de
+     vacances déjà enregistrée. Déclenchée une seule fois par couple tâche/période (voir notifSeenAdd) —
+     qu'elle soit entrée avant ou après coup n'a pas d'importance, seul l'ordre de détection compte. Un
+     avertissement visuel équivalent (bannière/puce) reste affiché en continu dans le formulaire de
+     tâche, la fiche de tâche et sa carte — voir taskModalHtml/taskDetailModalHtml/taskCardHtml et
+     vacanceForDate — pour rester visible même sans notification activée. */
+  function checkTaskVacanceConflicts(){
+    if(notifPermission()!=='granted') return;
+    var seen = notifSeenGet();
+    state.tasks.forEach(function(t){
+      if(t.statut==='cloturee' || !t.echeance) return;
+      var v = vacanceForDate(t.echeance);
+      if(!v) return;
+      var key = 'conflict:'+t.id+':'+t.echeance+':'+v.id;
+      if(seen.indexOf(key)===-1){
+        showNotificationRaw('Conflit avec les vacances', (t.titre||'Cette tâche')+' est prévue le '+fmtDate(t.echeance)+', pendant '+(v.nom||'une période de vacances')+'.', 'conflict-'+t.id+'-'+v.id);
+        notifSeenAdd(key);
       }
     });
   }
@@ -765,6 +812,123 @@
       out.push(o);
     }
     return out;
+  }
+  /* ================= import des périodes de vacances (voir Réglages → Vacances) =================
+     Trois formats reconnus, choisis pour couvrir les quatre sources demandées (saisie manuelle à part,
+     voir btnAddVacance) sans dépendance externe ni backend :
+       - CSV (colonnes nom/debut/fin, ou dateDebut/dateFin — voir importVacancesCSV) ;
+       - un flux iCalendar (.ics) — c'est le format qu'exporte tout agenda Google (« Paramètres de
+         l'agenda » → « Adresse secrète/publique au format iCal ») aussi bien que la plupart des agendas
+         scolaires publics ;
+       - un tableau JSON (toute « API » qui renvoie une liste d'objets {nom, dateDebut, dateFin} ou noms
+         de champs approchants).
+     parseVacancesFeed() détecte le format automatiquement ; fetchVacancesFromUrl() tente une récupération
+     directe puis, en cas d'échec réseau — en pratique quasi systématique pour calendar.google.com, dont
+     les liens iCal n'autorisent pas les requêtes cross-origin depuis un navigateur (CORS) —, invite à
+     coller le contenu récupéré autrement dans la zone de texte de repli. */
+  function icsUnescape(s){
+    return String(s||'').replace(/\\n/gi,' ').replace(/\\,/g,',').replace(/\\;/g,';').replace(/\\\\/g,'\\');
+  }
+  function icsDateToIso(v){
+    var m = /^(\d{4})(\d{2})(\d{2})/.exec(String(v||'').trim());
+    return m ? (m[1]+'-'+m[2]+'-'+m[3]) : '';
+  }
+  function parseICS(text){
+    var unfolded = String(text||'').replace(/\r\n/g,'\n').replace(/\n[ \t]/g,'');
+    var blocks = unfolded.split(/BEGIN:VEVENT/i).slice(1);
+    var out = [];
+    blocks.forEach(function(b){
+      var end = b.search(/END:VEVENT/i); if(end!==-1) b = b.slice(0, end);
+      var summary = (/^SUMMARY[^:]*:(.*)$/mi.exec(b)||[])[1] || '';
+      var dtstartLine = (/^DTSTART([^:]*):(.*)$/mi.exec(b)||[]);
+      var dtendLine = (/^DTEND([^:]*):(.*)$/mi.exec(b)||[]);
+      var isAllDay = /VALUE=DATE/i.test(dtstartLine[1]||'');
+      var debut = icsDateToIso(dtstartLine[2]);
+      var finRaw = icsDateToIso(dtendLine[2]);
+      var fin = finRaw || debut;
+      /* DTEND d'un évènement « journée entière » est EXCLUSIF dans la norme iCalendar (le lendemain du
+         dernier jour) : on retranche un jour pour rejoindre notre propre convention (dateFin incluse). */
+      if(isAllDay && finRaw){
+        var fd = new Date(finRaw+'T00:00:00'); fd.setDate(fd.getDate()-1);
+        fin = localDateISO(fd);
+      }
+      if(debut) out.push({nom: icsUnescape(summary).trim() || 'Vacances', dateDebut: debut, dateFin: fin});
+    });
+    return out;
+  }
+  function parseVacancesJSON(text){
+    var data = JSON.parse(text);
+    var arr = Array.isArray(data) ? data
+      : Array.isArray(data.vacances) ? data.vacances
+      : Array.isArray(data.items) ? data.items
+      : Array.isArray(data.events) ? data.events : [];
+    return arr.map(function(o){
+      o = o || {};
+      var nom = o.nom||o.name||o.title||o.summary||'Vacances';
+      var debut = o.dateDebut||o.debut||o.start||o.startDate||o.date_debut||'';
+      var fin = o.dateFin||o.fin||o.end||o.endDate||o.date_fin||debut;
+      return { nom: String(nom), dateDebut: String(debut).slice(0,10), dateFin: String(fin).slice(0,10) };
+    }).filter(function(v){ return v.dateDebut; });
+  }
+  function parseVacancesFeed(text){
+    var trimmed = String(text||'').trim();
+    if(!trimmed) return [];
+    if(/BEGIN:VCALENDAR/i.test(trimmed) || /BEGIN:VEVENT/i.test(trimmed)) return parseICS(trimmed);
+    try{ return parseVacancesJSON(trimmed); }catch(e){ return []; }
+  }
+  function importVacancesCSV(text){
+    var objs = csvToObjects(text);
+    var list = objs.map(function(o){
+      var nom = o.nom||o.name||o.titre||'';
+      var debut = o.datedebut||o.debut||o.start||o.date_debut||'';
+      var fin = o.datefin||o.fin||o.end||o.date_fin||debut;
+      return { nom: nom, dateDebut: String(debut).slice(0,10), dateFin: String(fin).slice(0,10) };
+    });
+    importVacancesList(list, 'csv');
+  }
+  /* Fusionne une liste de périodes importées dans state.vacances, en ignorant les doublons exacts
+     (même nom/mêmes dates) déjà présents — pour qu'un ré-import (même fichier, même flux consulté deux
+     fois) n'empile jamais les mêmes vacances plusieurs fois. */
+  function importVacancesList(list, source){
+    var added = 0, skipped = 0;
+    (list||[]).forEach(function(v){
+      if(!v || !v.dateDebut){ skipped++; return; }
+      var fin = v.dateFin || v.dateDebut;
+      var dup = state.vacances.some(function(x){ return x.dateDebut===v.dateDebut && x.dateFin===fin && (x.nom||'').toLowerCase()===(v.nom||'').toLowerCase(); });
+      if(dup){ skipped++; return; }
+      state.vacances.push({ id: uid(), nom: (v.nom||'Vacances').trim()||'Vacances', dateDebut: v.dateDebut, dateFin: fin, source: source, createdAt: nowIso(), updatedAt: nowIso() });
+      added++;
+    });
+    if(added) saveLocal('vacances');
+    render();
+    toast(added+' période(s) importée(s)'+(skipped?', '+skipped+' ignorée(s) (déjà présente(s) ou invalide(s))':'')+'.');
+  }
+  function showVacancesImportErr(msg){
+    var el = $('vacancesImportErr'); if(!el) return;
+    el.hidden = false; el.innerHTML = ICONS.warn+'<div>'+esc(msg)+'</div>';
+  }
+  function hideVacancesImportErr(){ var el = $('vacancesImportErr'); if(el) el.hidden = true; }
+  function fetchVacancesFromUrl(url){
+    url = (url||'').trim();
+    if(!url){ toast('Collez une adresse (.ics ou API) avant de récupérer.'); return; }
+    hideVacancesImportErr();
+    toast('Récupération en cours…');
+    fetch(url).then(function(res){
+      if(!res.ok) throw new Error('HTTP '+res.status);
+      return res.text();
+    }).then(function(text){
+      var list = parseVacancesFeed(text);
+      if(!list.length){ showVacancesImportErr('Adresse jointe, mais aucune période reconnue dans la réponse (ni .ics, ni JSON du format attendu).'); return; }
+      importVacancesList(list, 'url');
+    }).catch(function(err){
+      showVacancesImportErr('Récupération impossible depuis cette application (restriction de sécurité du navigateur — CORS — ou réseau indisponible ; c\'est systématique pour la plupart des liens calendar.google.com). Téléchargez le fichier/la réponse autrement puis collez son contenu ci-dessous. Détail technique : '+((err&&err.message)||err));
+    });
+  }
+  function importVacancesPaste(text){
+    var list = parseVacancesFeed(text);
+    if(!list.length){ showVacancesImportErr('Contenu non reconnu (ni .ics, ni JSON du format attendu).'); return; }
+    hideVacancesImportErr();
+    importVacancesList(list, 'url');
   }
   function b64ToUtf8(b64){
     var bin = atob(b64);
@@ -1259,7 +1423,7 @@
   /* ================= state ================= */
   var state = {
     view: 'home', filter: 'all',
-    tasks: [], zones: [], etablissements: [], enseignants: [], documents: [], assets: {},
+    tasks: [], zones: [], etablissements: [], enseignants: [], documents: [], vacances: [], assets: {},
     regionsMaroc: [], regionsMarocUpdatedAt: null,
     programmeAnnuel: null,
     ficheForm: null, ficheResponsesQueue: null,
@@ -1280,7 +1444,7 @@
        voir plus bas) ne peut pas la distinguer d'un enregistrement jamais créé, et la RESSUSCITE dès
        la synchronisation suivante en la reprenant de la sauvegarde distante (encore ancienne). Voir
        recordDelete / mergeById / mergeTombstones. */
-    tombstones: {tasks:{}, zones:{}, etablissements:{}, enseignants:{}, documents:{}}
+    tombstones: {tasks:{}, zones:{}, etablissements:{}, enseignants:{}, documents:{}, vacances:{}}
   };
   /* L'app est autonome : stockage 100% local (navigateur), aucune dépendance à Claude.
      mcpNs reste un objet non-nul en permanence — l'accès Drive réel est géré par mcpCall()
@@ -1298,7 +1462,7 @@
 
   /* ---- stockage local (localStorage) — seul et unique moteur de persistance ---- */
   var LS_KEYS = {tasks:'ci_tasks_fallback', zones:'ci_zones_fallback', etablissements:'ci_etabs_fallback',
-    enseignants:'ci_ens_fallback', documents:'ci_docs_fallback', config:'ci_config_fallback', templates:'ci_tmpl_fallback',
+    enseignants:'ci_ens_fallback', documents:'ci_docs_fallback', vacances:'ci_vacances_fallback', config:'ci_config_fallback', templates:'ci_tmpl_fallback',
     assets:'ci_assets_fallback', regionsMaroc:'ci_regions_fallback', programmeAnnuel:'ci_programme_fallback',
     ficheForm:'ci_ficheform_fallback', tombstones:'ci_tombstones_fallback'};
   function loadLocalAll(){
@@ -1308,6 +1472,7 @@
       state.etablissements = JSON.parse(localStorage.getItem(LS_KEYS.etablissements)||'[]');
       state.enseignants = JSON.parse(localStorage.getItem(LS_KEYS.enseignants)||'[]');
       state.documents = JSON.parse(localStorage.getItem(LS_KEYS.documents)||'[]');
+      state.vacances = JSON.parse(localStorage.getItem(LS_KEYS.vacances)||'[]');
       state.config = JSON.parse(localStorage.getItem(LS_KEYS.config)||'{}');
       state.assets = JSON.parse(localStorage.getItem(LS_KEYS.assets)||'{}');
       var t = JSON.parse(localStorage.getItem(LS_KEYS.templates)||'null');
@@ -1321,13 +1486,13 @@
       var ff = JSON.parse(localStorage.getItem(LS_KEYS.ficheForm)||'null');
       state.ficheForm = Object.assign(defaultFicheForm(), ff||{});
       var tb = JSON.parse(localStorage.getItem(LS_KEYS.tombstones)||'null');
-      if(tb) state.tombstones = Object.assign({tasks:{}, zones:{}, etablissements:{}, enseignants:{}, documents:{}}, tb);
+      if(tb) state.tombstones = Object.assign({tasks:{}, zones:{}, etablissements:{}, enseignants:{}, documents:{}, vacances:{}}, tb);
     }catch(e){}
   }
   function saveLocal(coll){
     try{
       var map = {tasks:state.tasks, zones:state.zones, etablissements:state.etablissements, enseignants:state.enseignants,
-        documents:state.documents, config:state.config, templates:state.templates, assets:state.assets,
+        documents:state.documents, vacances:state.vacances, config:state.config, templates:state.templates, assets:state.assets,
         regionsMaroc:{list:state.regionsMaroc, updatedAt:state.regionsMarocUpdatedAt}, programmeAnnuel:state.programmeAnnuel,
         ficheForm:state.ficheForm, tombstones:state.tombstones};
       localStorage.setItem(LS_KEYS[coll], JSON.stringify(map[coll]));
@@ -1401,6 +1566,34 @@
     state.tombstones[coll][id] = nowIso();
     saveLocal(coll); saveLocal('tombstones'); render();
     return Promise.resolve();
+  }
+  /* ================= vacances (périodes à éviter : notification d'approche + alerte de concomitance
+     avec une tâche — voir Réglages → Vacances, checkUpcomingVacancesNotifications,
+     checkTaskVacanceConflicts et vacanceForDate) =================
+     Volontairement en dehors du magasin générique recordSet/recordDelete ci-dessus (qui connaît déjà
+     tasks/zones/etablissements/enseignants/documents en dur et déclenche des effets de bord propres aux
+     tâches) plutôt que d'y ajouter une sixième branche — mêmes principes (id, updatedAt, tombstone),
+     fonctions dédiées. */
+  function vacanceSet(v){
+    v.updatedAt = nowIso();
+    if(!v.createdAt) v.createdAt = v.updatedAt;
+    var i = state.vacances.findIndex(function(x){ return x.id===v.id; });
+    if(i>=0) state.vacances[i]=v; else state.vacances.push(v);
+    saveLocal('vacances'); render();
+  }
+  function vacanceDelete(id){
+    state.vacances = state.vacances.filter(function(x){ return x.id!==id; });
+    state.tombstones.vacances = state.tombstones.vacances || {};
+    state.tombstones.vacances[id] = nowIso();
+    saveLocal('vacances'); saveLocal('tombstones'); render();
+  }
+  /* Comparaison par chaînes AAAA-MM-JJ (ordre lexicographique = ordre chronologique pour ce format) :
+     retourne la première période de vacances dont l'intervalle [dateDebut;dateFin] (inclusif) couvre
+     la date donnée, ou null. Utilisée à la fois pour l'avertissement en direct dans le formulaire de
+     tâche et pour le badge affiché sur la fiche/carte de tâche. */
+  function vacanceForDate(iso){
+    if(!iso) return null;
+    return state.vacances.find(function(v){ return v.dateDebut && v.dateFin && iso>=v.dateDebut && iso<=v.dateFin; }) || null;
   }
   /* « Acceptation des établissements » dans le formulaire de zone : applique en bloc la liste cochée
      d'établissements à cette zone (rattache les cases cochées, détache celles décochées qui lui
@@ -2500,7 +2693,7 @@
     });
     var data = {
       exportedAt: nowIso(), zones: state.zones, etablissements: state.etablissements,
-      enseignants: state.enseignants, tasks: state.tasks, documents: state.documents, templates: state.templates,
+      enseignants: state.enseignants, tasks: state.tasks, documents: state.documents, vacances: state.vacances, templates: state.templates,
       regionsMaroc: state.regionsMaroc, regionsMarocUpdatedAt: state.regionsMarocUpdatedAt, assetsIndex: assetsIndex,
       programmeAnnuel: state.programmeAnnuel,
       /* Sans cette ligne, la configuration du lien Google Form (voir ficheFormSet/defaultFicheForm et
@@ -2561,7 +2754,7 @@
        les suppressions faites sur un autre appareil soient déjà connues au moment d'appliquer
        mergeById juste après, sur cet appareil-ci comme sur celui qui a supprimé. */
     var remoteTomb = remote.tombstones || {};
-    ['tasks','zones','etablissements','enseignants','documents'].forEach(function(coll){
+    ['tasks','zones','etablissements','enseignants','documents','vacances'].forEach(function(coll){
       state.tombstones[coll] = mergeTombstones(state.tombstones[coll]||{}, remoteTomb[coll]||{});
     });
     saveLocal('tombstones');
@@ -2576,7 +2769,7 @@
       });
       if(keptTasks.length !== state.tasks.length){ state.tasks = keptTasks; saveLocal('tasks'); }
     }
-    ['zones','etablissements','enseignants','documents'].forEach(function(coll){
+    ['zones','etablissements','enseignants','documents','vacances'].forEach(function(coll){
       if(Array.isArray(remote[coll])){ state[coll] = mergeById(state[coll], remote[coll], state.tombstones[coll]); saveLocal(coll); }
     });
     if(Array.isArray(remote.regionsMaroc) && remote.regionsMarocUpdatedAt &&
@@ -3745,6 +3938,7 @@
   var PRIO_VAR = {basse:'var(--line)', moyenne:'var(--warn)', haute:'var(--danger)'};
   function taskCardHtml(t){
     var late = isLate(t.echeance, t.statut);
+    var vacConflict = t.statut!=='cloturee' ? vacanceForDate(t.echeance) : null;
     var enNom = t.enseignantNom || ensName(t.enseignantId);
     var etNom = t.etablissementNom || etabName(t.etablissementId);
     var meta = [enNom, etNom, (!enNom && !etNom ? t.lieu : '')].filter(Boolean).join(' · ');
@@ -3753,7 +3947,7 @@
       '<div class="task-title'+(t.statut==='cloturee'?' strike':'')+'">'+esc(t.titre)+'</div>'+
       (meta ? '<div class="task-meta">'+esc(meta)+'</div>' : '')+
       '<div class="task-foot"><span class="pill wf-'+t.statut+'">'+WF_LABEL[t.statut]+'</span>'+
-      (t.echeance ? '<span class="due-chip'+(late?' late':'')+'">'+(late?'En retard · ':'')+fmtDate(t.echeance)+'</span>' : '<span></span>')+'</div>'+
+      (t.echeance ? '<span class="due-chip'+(late?' late':(vacConflict?' vacance':''))+'">'+(late?'En retard · ':(vacConflict?'⚠ Vacances · ':''))+fmtDate(t.echeance)+'</span>' : '<span></span>')+'</div>'+
       '</article>';
   }
 
@@ -4054,6 +4248,13 @@
   }
 
   /* ---- Task editor ---- */
+  /* Avertissement en direct (voir vacanceForDate) dans le formulaire de tâche — conteneur toujours
+     présent (même vide) pour que #fEcheance.onchange (wireModalEvents) puisse le mettre à jour sans
+     redessiner tout le formulaire. */
+  function taskVacanceWarningHtml(iso){
+    var v = vacanceForDate(iso);
+    return '<div id="fVacanceWarning">'+(v ? '<div class="banner warn" style="margin:-4px 0 10px;">'+ICONS.warn+'<div>Cette date tombe pendant <b>'+esc(v.nom||'une période de vacances')+'</b> (du '+fmtDate(v.dateDebut)+' au '+fmtDate(v.dateFin)+').</div></div>' : '')+'</div>';
+  }
   function taskModalHtml(idx){
     var t = state.draftTask;
     var singleTarget = TASK_TYPES_SINGLE_TARGET[t.taskType];
@@ -4067,6 +4268,7 @@
       '<div class="field"><label>Enseignant(e)</label><button type="button" class="pickbtn" id="btnPickEns"><span class="'+(t.enseignantNom||ensName(t.enseignantId)?'':'ph')+' t">'+esc(t.enseignantNom||ensName(t.enseignantId)||'Choisir un(e) enseignant(e)…')+'</span></button></div>' : '')+
       '<div class="field"><label>Priorité</label><div class="seg" id="fPrioSeg">'+['basse','moyenne','haute'].map(function(v){ return '<button type="button" data-v="'+v+'" aria-pressed="'+(t.priorite===v)+'">'+v.charAt(0).toUpperCase()+v.slice(1)+'</button>'; }).join('')+'</div></div>'+
       '<div class="field"><label for="fEcheance">Échéance</label><input type="date" id="fEcheance" value="'+esc(t.echeance)+'"></div>'+
+      taskVacanceWarningHtml(t.echeance)+
       '<div class="field-row"><div class="field"><label for="fHeureDebut">Début</label><input type="time" id="fHeureDebut" value="'+esc(t.heureDebut||'')+'"></div>'+
       '<div class="field"><label for="fHeureFin">Fin</label><input type="time" id="fHeureFin" value="'+esc(t.heureFin||'')+'"></div></div>'+
       '<div class="field"><label for="fLieu">Lieu</label><input type="text" id="fLieu" list="lieuSuggestions" value="'+esc(t.lieu||'')+'" placeholder="Ex. Salle des professeurs, Chorouk…">'+
@@ -4112,12 +4314,14 @@
     var avail = DOCS_FOR_TYPE[t.taskType] || ['rapport'];
     var invites = t.invites || [];
     var attachments = t.attachments || [];
+    var vacConflict = t.statut!=='cloturee' ? vacanceForDate(t.echeance) : null;
     var html = '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
       '<div class="sheet-head"><h2 style="text-wrap:balance;">'+esc(t.titre)+'</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
       '<div class="task-meta" style="margin-bottom:10px;"><span class="type-badge '+taskBadgeClass(t.taskType)+'">'+esc(TT_LABEL[t.taskType])+'</span>'+
       (enNom?'<span>'+esc(enNom)+'</span>':'')+(etNom?'<span>· '+esc(etNom)+'</span>':'')+
       (t.echeance?'<span>· '+fmtDate(t.echeance)+(t.heureDebut?' à '+esc(t.heureDebut)+(t.heureFin?'–'+esc(t.heureFin):''):'')+'</span>':'')+
       (t.lieu?'<span>· '+esc(t.lieu)+'</span>':'')+'</div>'+
+      (vacConflict ? '<div class="banner warn" style="margin-bottom:10px;">'+ICONS.warn+'<div>Cette tâche tombe pendant <b>'+esc(vacConflict.nom||'une période de vacances')+'</b> (du '+fmtDate(vacConflict.dateDebut)+' au '+fmtDate(vacConflict.dateFin)+').</div></div>' : '')+
       (ensTel ? '<div class="btn-row" style="margin-bottom:10px;"><a class="btn ghost sm" href="'+telHref(ensTel)+'">'+ICONS.phone+' Appeler '+esc(enNom)+'</a>'+
         '<a class="btn ghost sm" href="'+waHref(ensTel, waGreeting(enNom))+'" target="_blank" rel="noopener">'+ICONS.chat+' WhatsApp</a></div>' : '')+
       (t.lienConnexion ? '<div class="btn-row" style="margin-bottom:10px;"><a class="btn ghost sm" href="'+esc(t.lienConnexion)+'" target="_blank" rel="noopener">'+ICONS.ext+' Rejoindre la réunion</a></div>' : '')+
@@ -4211,7 +4415,8 @@
       '<button class="chip" data-stab="templates" aria-pressed="'+(tab==='templates')+'">Modèles de documents</button>'+
       '<button class="chip" data-stab="referentiel" aria-pressed="'+(tab==='referentiel')+'">Régions / DP</button>'+
       '<button class="chip" data-stab="ia" aria-pressed="'+(tab==='ia')+'">Assistant IA</button>'+
-      '<button class="chip" data-stab="notifications" aria-pressed="'+(tab==='notifications')+'">Notifications</button></div>';
+      '<button class="chip" data-stab="notifications" aria-pressed="'+(tab==='notifications')+'">Notifications</button>'+
+      '<button class="chip" data-stab="vacances" aria-pressed="'+(tab==='vacances')+'">Vacances</button></div>';
 
     if(tab==='sync'){
       var cid = c.googleClientId || '';
@@ -4276,6 +4481,8 @@
       html += iaTabHtml();
     } else if(tab==='notifications'){
       html += notificationsTabHtml();
+    } else if(tab==='vacances'){
+      html += vacancesTabHtml();
     }
     html += '</div></div>';
     return html;
@@ -4300,6 +4507,49 @@
         '<button class="btn ghost sm" id="btnTestNotif" type="button">Tester une notification</button></div>';
     }
     html += '<p style="font-size:11px;color:var(--ink-faint);margin-top:14px;">Important : comme l\'application fonctionne entièrement sans serveur (voir Synchronisation), ces alertes ne peuvent se déclencher que pendant qu\'elle reste ouverte — au premier plan ou en arrière-plan récent. Gardez-la ouverte à l\'approche de vos évènements pour recevoir le rappel ; sans heure de début précisée, un seul rappel est envoyé le jour même de l\'échéance.</p>';
+    return html;
+  }
+  /* Réglages → Vacances : liste des périodes à éviter (vacances scolaires ou tout autre congé), avec
+     trois façons de les renseigner en plus de la saisie manuelle — voir le bloc d'import plus haut
+     (importVacancesCSV/fetchVacancesFromUrl/importVacancesPaste/parseVacancesFeed). Alimente à la fois
+     le rappel d'approche (checkUpcomingVacancesNotifications) et l'alerte de concomitance avec une
+     tâche (checkTaskVacanceConflicts, + avertissement en direct dans le formulaire de tâche et puce sur
+     la fiche/carte — voir vacanceForDate). */
+  function vacancesTabHtml(){
+    var list = state.vacances.slice().sort(function(a,b){ return (a.dateDebut||'').localeCompare(b.dateDebut||''); });
+    var srcLabel = {manuel:'', csv:'CSV', url:'calendrier/API'};
+    var html = '<p style="font-size:11.5px;color:var(--ink-faint);margin-bottom:10px;">Renseignez ici les vacances scolaires (ou tout autre congé à éviter) : vous serez prévenu(e) à l\'approche de leur début, et toute tâche programmée pendant l\'une d\'elles sera signalée (dans son formulaire, sa fiche et sa carte).</p>';
+    html += list.length ? '<div class="doc-list" style="margin-bottom:14px;">'+list.map(function(v){
+      return '<div class="doc-row"><div class="doc-ico">'+ICONS.calendar+'</div>'+
+        '<div class="doc-info"><div class="t">'+esc(v.nom||'(sans nom)')+'</div><div class="s">'+fmtDate(v.dateDebut)+' – '+fmtDate(v.dateFin)+(srcLabel[v.source]?' · '+esc(srcLabel[v.source]):'')+'</div></div>'+
+        '<button class="icon-btn" data-delvac="'+v.id+'" style="width:30px;height:30px;color:var(--danger);" aria-label="Supprimer">'+ICONS.trash+'</button></div>';
+    }).join('')+'</div>' : '<div class="empty" style="margin-bottom:14px;">Aucune période de vacances enregistrée pour l\'instant.</div>';
+
+    html += '<div class="section-label">Ajouter manuellement</div>'+
+      '<div class="field"><label for="vacNom">Nom</label><input type="text" id="vacNom" placeholder="Ex. Vacances de printemps"></div>'+
+      '<div class="field-row"><div class="field"><label for="vacDebut">Début</label><input type="date" id="vacDebut"></div>'+
+      '<div class="field"><label for="vacFin">Fin</label><input type="date" id="vacFin"></div></div>'+
+      '<div class="btn-row"><button class="btn primary sm" id="btnAddVacance" type="button">Ajouter</button></div>';
+
+    html += '<div class="side-divider" style="margin:16px 0;"></div><div class="section-label">Importer un fichier CSV</div>'+
+      '<p style="font-size:11.5px;color:var(--ink-faint);margin:2px 0 8px;">Colonnes attendues : <code>nom</code>, <code>debut</code> (ou <code>dateDebut</code>), <code>fin</code> (ou <code>dateFin</code>), au format AAAA-MM-JJ.</p>'+
+      '<div class="btn-row"><button class="btn ghost sm" id="btnImportVacancesCsv" type="button">'+ICONS.upload+' Importer un CSV</button>'+
+      '<input type="file" id="vacancesCsvInput" accept=".csv,text/csv" hidden></div>';
+
+    html += '<div class="side-divider" style="margin:16px 0;"></div><div class="section-label">Calendrier Google ou API</div>'+
+      '<p style="font-size:11.5px;color:var(--ink-faint);margin:2px 0 8px;">Collez soit l\'adresse de votre agenda au format <b>iCal</b> (Google Agenda → réglages de l\'agenda concerné → « Intégrer l\'agenda » → adresse secrète ou publique au format iCal), soit l\'URL d\'une API qui renvoie un tableau JSON de périodes <code>{nom, dateDebut, dateFin}</code>. La récupération automatique échoue souvent pour les liens <code>calendar.google.com</code> (restriction de sécurité du navigateur) : dans ce cas, téléchargez le fichier/la réponse autrement et collez son contenu ci-dessous.</p>'+
+      '<div class="field"><label for="vacancesUrlInput">Adresse (.ics ou API JSON)</label><input type="text" id="vacancesUrlInput" placeholder="https://calendar.google.com/calendar/ical/…/basic.ics"></div>'+
+      '<div class="btn-row"><button class="btn ghost sm" id="btnFetchVacancesUrl" type="button">Récupérer</button></div>'+
+      '<details style="margin-top:10px;"><summary style="cursor:pointer;font-size:12px;font-weight:600;color:var(--ink);">Ou coller le contenu directement</summary>'+
+      '<div class="field" style="margin-top:8px;"><label for="vacancesPasteInput">Contenu .ics ou JSON</label><textarea id="vacancesPasteInput" rows="4" placeholder="BEGIN:VCALENDAR… ou [{&quot;nom&quot;:&quot;…&quot;,&quot;dateDebut&quot;:&quot;2026-…&quot;,&quot;dateFin&quot;:&quot;2026-…&quot;}]"></textarea></div>'+
+      '<div class="btn-row"><button class="btn ghost sm" id="btnParseVacancesPaste" type="button">Importer ce contenu</button></div></details>'+
+      '<div id="vacancesImportErr" class="banner err" hidden style="margin-top:10px;"></div>';
+
+    html += '<div class="side-divider" style="margin:16px 0;"></div>'+
+      '<div class="field"><label for="vacLeadInput">Me prévenir combien de jours avant le début des vacances ?</label>'+
+      '<input type="number" min="1" max="60" id="vacLeadInput" value="'+esc(state.config.vacanceLeadDays||7)+'"></div>'+
+      '<div class="btn-row"><button class="btn ghost sm" id="btnSaveVacLead" type="button">Enregistrer</button></div>'+
+      '<p style="font-size:11px;color:var(--ink-faint);margin-top:6px;">Ce rappel utilise les mêmes notifications que Réglages → Notifications — pensez à les y activer.</p>';
     return html;
   }
   /* Éditeur de la clé API Gemini (Réglages → Assistant IA) : même principe « clé personnelle collée
@@ -4888,6 +5138,15 @@
         }).filter(Boolean);
       }
     }
+    /* Avertissement de concomitance (voir vacanceForDate/taskVacanceWarningHtml) mis à jour en direct à
+       chaque changement de date, sans redessiner tout le formulaire (ni perdre le focus/la sélection en
+       cours sur les autres champs). */
+    var fEch = $('fEcheance');
+    if(fEch) fEch.onchange = function(){
+      state.draftTask.echeance = fEch.value;
+      var warnBox = $('fVacanceWarning');
+      if(warnBox) warnBox.outerHTML = taskVacanceWarningHtml(fEch.value);
+    };
     var selType = $('fTypeSel'); if(selType) selType.onchange = function(){ syncTaskFields(); state.draftTask.taskType=selType.value; render(); };
     var segP = $('fPrioSeg'); if(segP) segP.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ syncTaskFields(); state.draftTask.priorite=b.getAttribute('data-v'); render(); }; });
     var segNote = $('fNoteSeg'); if(segNote) segNote.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ syncTaskFields(); state.draftTask.noteGlobale=b.getAttribute('data-v'); render(); }; });
@@ -5245,6 +5504,37 @@
     var btnTestNotif = $('btnTestNotif');
     if(btnTestNotif) btnTestNotif.onclick = function(){
       showTaskNotification({ id:'test', taskType:'autre', titre:'Notification de test' }, "Si vous voyez cette alerte, les notifications fonctionnent sur cet appareil.");
+    };
+
+    /* -- vacances (voir Réglages → Vacances, vacanceSet/vacanceDelete et le bloc d'import plus haut) -- */
+    var btnAddVacance = $('btnAddVacance');
+    if(btnAddVacance) btnAddVacance.onclick = function(){
+      var nom = ($('vacNom')||{}).value||'', debut = ($('vacDebut')||{}).value||'', fin = ($('vacFin')||{}).value||'';
+      if(!debut){ toast('Indiquez au moins une date de début.'); return; }
+      vacanceSet({ id: uid(), nom: nom.trim()||'Vacances', dateDebut: debut, dateFin: fin||debut, source:'manuel' });
+      toast('Période ajoutée.');
+    };
+    document.querySelectorAll('[data-delvac]').forEach(function(el){
+      el.onclick = function(){ vacanceDelete(el.getAttribute('data-delvac')); };
+    });
+    var btnImportVacancesCsv = $('btnImportVacancesCsv'), vacancesCsvInput = $('vacancesCsvInput');
+    if(btnImportVacancesCsv && vacancesCsvInput) btnImportVacancesCsv.onclick = function(){ vacancesCsvInput.click(); };
+    if(vacancesCsvInput) vacancesCsvInput.onchange = function(){
+      var f = vacancesCsvInput.files && vacancesCsvInput.files[0];
+      if(!f) return;
+      var reader = new FileReader();
+      reader.onload = function(){ importVacancesCSV(String(reader.result||'')); vacancesCsvInput.value=''; };
+      reader.readAsText(f);
+    };
+    var btnFetchVacancesUrl = $('btnFetchVacancesUrl');
+    if(btnFetchVacancesUrl) btnFetchVacancesUrl.onclick = function(){ fetchVacancesFromUrl(($('vacancesUrlInput')||{}).value||''); };
+    var btnParseVacancesPaste = $('btnParseVacancesPaste');
+    if(btnParseVacancesPaste) btnParseVacancesPaste.onclick = function(){ importVacancesPaste(($('vacancesPasteInput')||{}).value||''); };
+    var btnSaveVacLead = $('btnSaveVacLead');
+    if(btnSaveVacLead) btnSaveVacLead.onclick = function(){
+      var v = parseInt(($('vacLeadInput').value||'').trim(), 10);
+      if(!v || v<1){ toast('Indiquez un nombre de jours valide.'); return; }
+      configSet({ vacanceLeadDays: v }).then(function(){ toast('Délai de prévenance enregistré.'); });
     };
 
     /* -- profil inspecteur -- */
@@ -5880,14 +6170,20 @@
     /* Toujours après le premier rendu (données locales déjà affichées, hors-ligne d'abord) : tente
        une synchronisation silencieuse en arrière-plan si cet appareil a déjà été connecté. */
     autoSyncOnLaunch();
-    /* Notifications des évènements imminents (voir checkImminentTaskNotifications ci-dessus) : un
-       contrôle immédiat, puis répété pendant que l'application reste ouverte — toutes les 5 minutes, et
-       chaque fois qu'elle revient au premier plan (un onglet mis en arrière-plan de longues minutes
-       pourrait sinon manquer la fenêtre de rappel d'un évènement proche à son retour). */
-    checkImminentTaskNotifications();
-    setInterval(checkImminentTaskNotifications, 5*60*1000);
+    /* Notifications des évènements imminents, de l'approche des vacances et des conflits de planning
+       (voir checkImminentTaskNotifications/checkUpcomingVacancesNotifications/checkTaskVacanceConflicts
+       ci-dessus) : un contrôle immédiat, puis répété pendant que l'application reste ouverte — toutes
+       les 5 minutes, et chaque fois qu'elle revient au premier plan (un onglet mis en arrière-plan de
+       longues minutes pourrait sinon manquer la fenêtre de rappel d'un évènement proche à son retour). */
+    function checkAllNotifications(){
+      checkImminentTaskNotifications();
+      checkUpcomingVacancesNotifications();
+      checkTaskVacanceConflicts();
+    }
+    checkAllNotifications();
+    setInterval(checkAllNotifications, 5*60*1000);
     document.addEventListener('visibilitychange', function(){
-      if(document.visibilityState==='visible') checkImminentTaskNotifications();
+      if(document.visibilityState==='visible') checkAllNotifications();
     });
   }
   start();
