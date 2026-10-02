@@ -2815,16 +2815,31 @@
   function doSync(){
     if(!state.config.sheetFileId){ openSettings(); return; }
     state.syncing = true; state.syncError = null; render();
-    var folderRef = null;
+    var folderRef = null, sheetFileId = state.config.sheetFileId;
     ensureAppFolder().catch(function(){ return null; }).then(function(folder){
       folderRef = folder;
-      var move = (folder && state.config.sheetFileId && state.config.sheetParentId !== folder.id)
-        ? mcpCall('update_file', {fileId: state.config.sheetFileId, parentId: folder.id}).catch(function(){})
-        : Promise.resolve();
-      return move;
+      /* Comme pullJsonBackup le fait déjà pour la sauvegarde JSON (voir findFileByTitle juste en
+         dessous) : on retrouve TOUJOURS la feuille de tâches ACTUELLE par son titre dans le dossier,
+         plutôt que de se fier à l'id mis en cache localement (state.config.sheetFileId). Cet id
+         devient périmé dès qu'un AUTRE appareil synchronise avant celui-ci, puisque chaque
+         synchronisation crée une nouvelle feuille et met l'ancienne à la corbeille (voir plus bas) :
+         un appareil qui garderait l'ancien id continuerait à lire une copie figée au moment de SA
+         dernière synchronisation (toujours accessible en lecture même corbeillée, donc sans erreur
+         visible) au lieu de la copie à jour — ses propres tâches seraient bien poussées à chaque
+         synchronisation, mais dans une copie devenue parallèle et isolée, jamais revue par les autres
+         appareils ni mise à jour avec leurs changements. C'était exactement le bug rapporté : « les
+         tâches sur un appareil restent uniquement en local ». */
+      var lookup = folder ? findFileByTitle(folder.id, state.config.sheetTitle || SHEET_TITLE) : Promise.resolve(null);
+      return lookup.then(function(found){
+        if(found && found.id) sheetFileId = found.id;
+        var move = (folder && sheetFileId && state.config.sheetParentId !== folder.id)
+          ? mcpCall('update_file', {fileId: sheetFileId, parentId: folder.id}).catch(function(){})
+          : Promise.resolve();
+        return move;
+      });
     })
     .then(function(){
-      return mcpCall('download_file_content', {fileId: state.config.sheetFileId, exportMimeType:'text/csv'});
+      return mcpCall('download_file_content', {fileId: sheetFileId, exportMimeType:'text/csv'});
     })
       .then(function(res){
         var payload = res.payload || {};
@@ -2844,7 +2859,7 @@
       .then(function(createRes){
         var payload = createRes.payload || {};
         var newId = payload.id;
-        var oldId = state.config.sheetFileId;
+        var oldId = sheetFileId;
         var p = newId ? mcpCall('trash_file', {fileId: oldId}).catch(function(){}) : Promise.resolve();
         return p.then(function(){
           return configSet({ sheetFileId: newId || oldId, sheetTitle: payload.title || state.config.sheetTitle,
