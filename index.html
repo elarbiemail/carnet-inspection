@@ -1434,7 +1434,7 @@
     syncing: false, syncError: null,
     modalStack: [], draftTask: null, draftRecord: null, draftDoc: null,
     setupBusy: false, setupError: null, driveSetupError: null, geminiKeyError: null,
-    ensQuery: '', ensHoraireMode: false, horaireJour: 'Lundi', horaireHeure: '09:00',
+    ensQuery: '', ensEtabFilter: '', ensHoraireMode: false, horaireJour: 'Lundi', horaireHeure: '09:00',
     bilanPeriod: 'mois', bilanCustomFrom: '', bilanCustomTo: '',
     subEtab: 'zones', subDocs: 'generes', docsGenQuery: '', docsGenFilter: 'all', searchQuery: '',
     pickTarget: null, // {kind:'enseignant'|'etablissement'|'zone', onPick}
@@ -3323,8 +3323,120 @@
   function openTaskDetail(task){ pushModal({type:'taskdetail', taskId: task.id}); }
 
   function openPicker(kind, onPick, filterFn){
+    /* Les enseignant(e)s passent toujours par le sélecteur à filtre établissement → enseignant. */
+    if(kind==='enseignant') return openEnsPicker({ onPick: onPick });
     state.pickTarget = {kind:kind, onPick:onPick, filterFn:filterFn};
     pushModal({type:'picker', kind:kind});
+  }
+  /* ================= sélecteur d'enseignant(e)s : filtre établissement → enseignant =================
+     Sélecteur unique utilisé partout où l'on choisit un(e) enseignant(e) (tâches, invité(e)s des
+     réunions pédagogiques/cours expérimentaux, tableaux de service du bordereau, liste de présence…) :
+     on choisit d'abord l'établissement (liste déroulante avec le nombre d'enseignant(e)s), et la liste
+     se réduit aussitôt à cet établissement ; une recherche (nom, PPR, matière) affine encore. Deux
+     modes :
+       - simple (opts.onPick(r)) : toucher un nom le sélectionne et ferme ;
+       - multiple (opts.onPickMany(liste)) : cases à cocher conservées quand on change d'établissement
+         ou de recherche (on peut donc inviter des enseignant(e)s de plusieurs établissements), boutons
+         « tout cocher / tout décocher » sur la liste affichée, puis « Valider ».
+     opts.etabId pré-sélectionne un établissement (ex. celui déjà choisi dans la tâche) ;
+     opts.selectedIds pré-coche des enseignant(e)s (mode multiple). */
+  function openEnsPicker(opts){
+    opts = opts || {};
+    var sel = {}; (opts.selectedIds||[]).forEach(function(id){ if(id) sel[id] = true; });
+    var etabId = opts.etabId && state.etablissements.some(function(x){ return x.id===opts.etabId; }) ? opts.etabId : '';
+    state.ensPick = { multi: !!opts.multi, etabId: etabId, q: '', selected: sel, title: opts.title||'',
+      onPick: opts.onPick||null, onPickMany: opts.onPickMany||null };
+    pushModal({type:'ensPicker'});
+  }
+  function etabIdByName(nom){
+    var n = String(nom||'').trim().toLowerCase();
+    if(!n) return '';
+    var e = state.etablissements.find(function(x){ return (x.nom||'').trim().toLowerCase()===n; });
+    return e ? e.id : '';
+  }
+  function ensPickFiltered(){
+    var p = state.ensPick || {};
+    var q = String(p.q||'').trim().toLowerCase();
+    return state.enseignants.filter(function(e){
+      if(p.etabId==='__none__'){ if(e.etablissementId && etabName(e.etablissementId)) return false; }
+      else if(p.etabId && e.etablissementId!==p.etabId) return false;
+      if(!q) return true;
+      return [e.nom, e.ppr, e.matiere, e.cycle].some(function(v){ return String(v||'').toLowerCase().indexOf(q)>=0; });
+    }).sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||''); });
+  }
+  function ensPickCount(){ var s = (state.ensPick&&state.ensPick.selected)||{}; return Object.keys(s).filter(function(k){ return s[k]; }).length; }
+  function ensPickListHtml(){
+    var p = state.ensPick, list = ensPickFiltered();
+    if(!state.enseignants.length) return '<div class="empty">Aucun enseignant enregistré. Ajoutez-en un depuis l\'onglet Enseignants.</div>';
+    if(!list.length) return '<div class="empty">Aucun(e) enseignant(e) ne correspond à ce filtre.</div>';
+    var showEtab = !p.etabId;
+    return '<div class="rec-list">'+list.map(function(e){
+      var av = e.photoAssetId ? '<img src="'+assetUrl(e.photoAssetId)+'" alt="">' : initials(e.nom);
+      var sub = [e.ppr?'PPR '+e.ppr:'', e.matiere, showEtab ? etabName(e.etablissementId) : ''].filter(Boolean).join(' · ');
+      if(p.multi){
+        return '<label class="rec-row" style="cursor:pointer;"><input type="checkbox" data-enspick="'+e.id+'"'+(p.selected[e.id]?' checked':'')+' style="width:19px;height:19px;flex-shrink:0;margin-right:2px;">'+
+          '<div class="avatar">'+av+'</div><div class="rec-info"><div class="t">'+esc(e.nom)+'</div><div class="s">'+esc(sub)+'</div></div></label>';
+      }
+      return '<div class="rec-row" data-enspickone="'+e.id+'" style="cursor:pointer;"><div class="avatar">'+av+'</div><div class="rec-info"><div class="t">'+esc(e.nom)+'</div><div class="s">'+esc(sub)+'</div></div></div>';
+    }).join('')+'</div>';
+  }
+  function ensPickerModalHtml(idx){
+    var p = state.ensPick;
+    var counts = {}, noEtab = 0;
+    state.enseignants.forEach(function(e){ if(e.etablissementId && etabName(e.etablissementId)) counts[e.etablissementId] = (counts[e.etablissementId]||0)+1; else noEtab++; });
+    var etabs = state.etablissements.slice().sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||''); });
+    var selStyle = 'width:100%;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:10px 11px;';
+    var html = '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
+      '<div class="sheet-head"><h2>'+esc(p.title || (p.multi ? 'Choisir des enseignant(e)s' : 'Choisir un(e) enseignant(e)'))+'</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
+      '<div class="field"><label for="epEtab">1. Établissement</label><select id="epEtab" style="'+selStyle+'">'+
+        '<option value="">Tous les établissements ('+state.enseignants.length+')</option>'+
+        etabs.map(function(x){ return '<option value="'+x.id+'"'+(p.etabId===x.id?' selected':'')+'>'+esc(x.nom)+' ('+(counts[x.id]||0)+')</option>'; }).join('')+
+        (noEtab ? '<option value="__none__"'+(p.etabId==='__none__'?' selected':'')+'>Sans établissement ('+noEtab+')</option>' : '')+
+      '</select></div>'+
+      '<div class="field"><label for="epSearch">2. Enseignant(e)</label><div class="search-row" style="margin:0;"><input type="text" id="epSearch" placeholder="Rechercher par nom, PPR ou matière…" value="'+esc(p.q)+'" autocomplete="off"></div></div>';
+    if(p.multi){
+      html += '<div class="btn-row" style="margin:-4px 0 8px;justify-content:flex-start;"><button class="btn ghost sm" id="epAll" type="button">Tout cocher</button><button class="btn ghost sm" id="epNone" type="button">Tout décocher</button></div>';
+    }
+    html += '<div id="epList">'+ensPickListHtml()+'</div>';
+    if(p.multi){
+      html += '<div class="btn-row" style="position:sticky;bottom:0;background:var(--surface);padding-top:10px;margin-top:10px;">'+
+        '<button class="btn primary" id="epValidate" type="button">Valider la sélection (<span id="epCount">'+ensPickCount()+'</span>)</button></div>';
+    }
+    html += '</div></div>';
+    return html;
+  }
+  function wireEnsPickList(){
+    var p = state.ensPick; if(!p) return;
+    document.querySelectorAll('[data-enspick]').forEach(function(cb){
+      cb.onchange = function(){
+        var id = cb.getAttribute('data-enspick');
+        if(cb.checked) p.selected[id] = true; else delete p.selected[id];
+        var c = $('epCount'); if(c) c.textContent = ensPickCount();
+      };
+    });
+    document.querySelectorAll('[data-enspickone]').forEach(function(el){
+      el.onclick = function(){
+        var r = state.enseignants.find(function(x){ return x.id===el.getAttribute('data-enspickone'); });
+        var cb = p.onPick;
+        state.ensPick = null; closeTopModal();
+        if(r && cb){ cb(r); render(); }
+      };
+    });
+  }
+  function wireEnsPicker(){
+    var p = state.ensPick; if(!p || !$('epList')) return;
+    var refresh = function(){ $('epList').innerHTML = ensPickListHtml(); wireEnsPickList(); };
+    var es = $('epEtab'); if(es) es.onchange = function(){ p.etabId = es.value; refresh(); };
+    var sq = $('epSearch'); if(sq) sq.oninput = function(){ p.q = sq.value; refresh(); };
+    var all = $('epAll'); if(all) all.onclick = function(){ ensPickFiltered().forEach(function(e){ p.selected[e.id] = true; }); refresh(); $('epCount').textContent = ensPickCount(); };
+    var none = $('epNone'); if(none) none.onclick = function(){ ensPickFiltered().forEach(function(e){ delete p.selected[e.id]; }); refresh(); $('epCount').textContent = ensPickCount(); };
+    var ok = $('epValidate'); if(ok) ok.onclick = function(){
+      var picked = state.enseignants.filter(function(e){ return p.selected[e.id]; }).sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||''); });
+      var cb = p.onPickMany;
+      state.ensPick = null; closeTopModal();
+      if(cb){ cb(picked); render(); }
+    };
+    wireEnsPickList();
   }
 
   /* Sélecteur à cases à cocher (plusieurs remarques à la fois) pour REMARQUES_TABLEAU_SERVICE — voir
@@ -4279,7 +4391,13 @@
     var host = $('viewEnseignants');
     var html = '';
     if(!state.ensHoraireMode){
-      html += '<div class="search-row"><input type="text" id="ensSearchInput" placeholder="Rechercher un(e) enseignant(e)…" value="'+esc(state.ensQuery)+'"></div>';
+      html += '<div class="field" style="margin-bottom:8px;"><select id="ensEtabFilter" aria-label="Filtrer par établissement" style="width:100%;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:10px 11px;">'+
+        '<option value="">Tous les établissements ('+state.enseignants.length+')</option>'+
+        state.etablissements.slice().sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||''); }).map(function(x){
+          var n = state.enseignants.filter(function(e){ return e.etablissementId===x.id; }).length;
+          return '<option value="'+x.id+'"'+(state.ensEtabFilter===x.id?' selected':'')+'>'+esc(x.nom)+' ('+n+')</option>';
+        }).join('')+'</select></div>'+
+        '<div class="search-row"><input type="text" id="ensSearchInput" placeholder="Rechercher un(e) enseignant(e)…" value="'+esc(state.ensQuery)+'"></div>';
     }
     html += '<div class="setup-actions"><button class="btn ghost sm" id="btnExportEns" type="button">Exporter CSV</button><button class="btn ghost sm" id="btnImportEns" type="button">Importer CSV</button></div>';
     /* Un seul bouton « Fiches à distance » (au lieu de trois boutons séparés) ouvre le hub qui
@@ -4300,12 +4418,13 @@
       }).join('')+'</div>' : '<div class="empty">Personne en séance à ce créneau.</div>';
     } else {
       var q = state.ensQuery.toLowerCase();
-      var list = state.enseignants.filter(function(e){ return !q || e.nom.toLowerCase().indexOf(q)>=0 || (e.matiere||'').toLowerCase().indexOf(q)>=0; })
+      var list = state.enseignants.filter(function(e){ return (!state.ensEtabFilter || e.etablissementId===state.ensEtabFilter) && (!q || e.nom.toLowerCase().indexOf(q)>=0 || (e.matiere||'').toLowerCase().indexOf(q)>=0 || String(e.ppr||'').indexOf(q)>=0); })
         .sort(function(a,b){ return a.nom.localeCompare(b.nom); });
-      html += !list.length ? '<div class="empty">Aucun enseignant enregistré. Touchez « + » pour en ajouter un.</div>' :
+      html += !list.length ? '<div class="empty">'+(state.enseignants.length ? 'Aucun(e) enseignant(e) ne correspond à ce filtre.' : 'Aucun enseignant enregistré. Touchez « + » pour en ajouter un.')+'</div>' :
         '<div class="rec-list">'+list.map(function(e){ return ensRowHtml(e, [e.matiere, etabName(e.etablissementId), etabZoneHierLine(e.etablissementId)].filter(Boolean).join(' · ')); }).join('')+'</div>';
     }
     host.innerHTML = html;
+    var ef = $('ensEtabFilter'); if(ef) ef.onchange = function(){ state.ensEtabFilter = ef.value; render(); };
     var si = $('ensSearchInput'); if(si) si.oninput = function(){ state.ensQuery = si.value; render(); setTimeout(function(){ var el=$('ensSearchInput'); if(el){ el.focus(); el.selectionStart=el.selectionEnd=el.value.length; } },0); };
     var jseg = $('horJourSeg'); if(jseg) jseg.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ state.horaireJour=b.getAttribute('data-v'); render(); }; });
     var hh = $('horHeure'); if(hh) hh.onchange = function(){ state.horaireHeure = hh.value; render(); };
@@ -4550,6 +4669,7 @@
       if(m.type==='taskdetail') return taskDetailModalHtml(idx, m);
       if(m.type==='settings') return settingsModalHtml(idx, m);
       if(m.type==='picker') return pickerModalHtml(idx, m);
+      if(m.type==='ensPicker') return state.ensPick ? ensPickerModalHtml(idx) : '';
       if(m.type==='remarquesPicker') return remarquesPickerModalHtml(idx);
       if(m.type==='enseignant') return enseignantModalHtml(idx);
       if(m.type==='etablissement') return etablissementModalHtml(idx);
@@ -4601,24 +4721,22 @@
       '<div class="btn-row">'+(state.modalStack[idx].isNew ? '' : '<button class="btn danger" id="btnDeleteTask" type="button">Supprimer</button>')+
       '<button class="btn primary" id="btnSaveTask" type="button">Enregistrer</button></div></div></div>';
   }
-  /* Liste des enseignant(e)s invité(e)s (réunion pédagogique / cours expérimental) : cocher un nom
-     l'ajoute à t.invites avec un instantané {enseignantId, nom, ppr, etablissementNom} — un instantané
+  /* Liste des enseignant(e)s invité(e)s (réunion pédagogique / cours expérimental), choisis avec le
+     sélecteur multiple filtré par établissement (openEnsPicker) : chaque choix est ajouté à t.invites avec un instantané {enseignantId, nom, ppr, etablissementNom} — un instantané
      plutôt qu'une simple référence d'id, pour que le courrier d'information et les attestations
      gardent les bonnes informations même si la fiche enseignant est modifiée ensuite (même principe
      que enseignantNom/etablissementNom déjà dénormalisés ailleurs dans une tâche). Lu au moment
      d'Enregistrer (voir btnSaveTask), comme la checklist d'établissements de la zone. */
   function taskInvitesFieldHtml(t){
-    var invited = {}; (t.invites||[]).forEach(function(iv){ invited[iv.enseignantId] = true; });
-    var list = state.enseignants.slice().sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||''); });
-    return '<div class="field"><label>Enseignant(e)s invité(e)s <span style="font-weight:400;color:var(--ink-faint);">(pour le courrier d\'information, la liste de présence et les attestations)</span></label>'+
-      '<div id="fInvitesList" style="max-height:230px;overflow:auto;border:1px solid var(--line);border-radius:9px;">'+
-      (list.length ? list.map(function(e){
-        return '<label style="display:flex;align-items:center;gap:9px;padding:9px 11px;border-bottom:1px solid var(--line);">'+
-          '<input type="checkbox" data-invitepick="'+e.id+'"'+(invited[e.id]?' checked':'')+'>'+
-          '<span style="flex:1;">'+esc(e.nom)+(e.ppr?'<span style="color:var(--ink-faint);"> · PPR '+esc(e.ppr)+'</span>':'')+
-          (etabName(e.etablissementId)?'<span style="display:block;font-size:11.5px;color:var(--ink-faint);">'+esc(etabName(e.etablissementId))+'</span>':'')+'</span></label>';
-      }).join('') : '<div class="empty" style="padding:12px;">Aucun enseignant enregistré pour l\'instant.</div>')+
-      '</div></div>';
+    var inv = (t.invites||[]).slice().sort(function(a,b){ return (a.etablissementNom||'').localeCompare(b.etablissementNom||'') || (a.nom||'').localeCompare(b.nom||''); });
+    return '<div class="field"><label>Enseignant(e)s invité(e)s'+(inv.length?' ('+inv.length+')':'')+' <span style="font-weight:400;color:var(--ink-faint);">(pour le courrier d\'information, la liste de présence et les attestations)</span></label>'+
+      (inv.length ? '<div id="fInvitesList" style="max-height:230px;overflow:auto;border:1px solid var(--line);border-radius:9px;margin-bottom:8px;">'+inv.map(function(iv){
+        return '<div style="display:flex;align-items:center;gap:9px;padding:8px 11px;border-bottom:1px solid var(--line);">'+
+          '<span style="flex:1;min-width:0;">'+esc(iv.nom)+(iv.ppr?'<span style="color:var(--ink-faint);"> · PPR '+esc(iv.ppr)+'</span>':'')+
+          (iv.etablissementNom?'<span style="display:block;font-size:11.5px;color:var(--ink-faint);">'+esc(iv.etablissementNom)+'</span>':'')+'</span>'+
+          '<button class="rm" data-rminvite="'+esc(iv.enseignantId)+'" type="button" aria-label="Retirer">'+ICONS.trash+'</button></div>';
+      }).join('')+'</div>' : '')+
+      '<button class="addline" id="btnPickInvites" type="button">'+ICONS.users+' '+(inv.length?'Ajouter / modifier les invité(e)s':'Choisir les enseignant(e)s invité(e)s')+'</button></div>';
   }
 
   /* ---- Task detail (workflow + documents) ---- */
@@ -5296,7 +5414,7 @@
         '<div class="field"><label>Participants</label><div id="partList">'+(d.participants||[]).map(function(p,i){
           return '<div class="rowline"><input type="text" data-part="nom" data-i="'+i+'" value="'+esc(p.nom)+'" placeholder="Nom" style="flex:1;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;">'+
             '<input type="text" data-part="fonction" data-i="'+i+'" value="'+esc(p.fonction)+'" placeholder="Fonction" style="flex:1;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;"><button class="rm" data-rmpart="'+i+'" type="button">'+ICONS.trash+'</button></div>';
-        }).join('')+'</div><button class="addline" id="btnAddPart" type="button">'+ICONS.plus+' Ajouter un participant</button></div>';
+        }).join('')+'</div><button class="addline" id="btnAddPart" type="button">'+ICONS.plus+' Ajouter un participant</button><button class="addline" id="btnAddPartMulti" type="button">'+ICONS.users+' Ajouter des enseignant(e)s</button></div>';
     } else if(m.docType==='compte_rendu'){
       body += '<div class="field-row"><div class="field"><label for="dLieu">Lieu</label><input type="text" id="dLieu" value="'+esc(d.lieu)+'"></div><div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div></div>'+
         '<div class="field"><label for="dPresents">Présents</label><input type="text" id="dPresents" value="'+esc(d.presents)+'"></div>'+
@@ -5397,7 +5515,7 @@
               '</div></div>'+
             '<button class="icon-btn" data-picktsval="'+i+'" type="button" title="Choisir un(e) enseignant(e)" style="width:38px;height:38px;flex-shrink:0;">'+ICONS.users+'</button>'+
             '<button class="rm" data-rmtsval="'+i+'" type="button">'+ICONS.trash+'</button></div>';
-        }).join('')+'</div><button class="addline" id="btnAddTsVal" type="button">'+ICONS.plus+' Ajouter un tableau validé</button></div>'+
+        }).join('')+'</div><button class="addline" id="btnAddTsVal" type="button">'+ICONS.plus+' Ajouter un tableau validé</button><button class="addline" id="btnAddTsValMulti" type="button">'+ICONS.users+' Ajouter plusieurs enseignant(e)s</button></div>'+
         '<div class="field"><label>Tableaux de service non validés</label><div id="tsNvList">'+(d.tableauxNonValides||[]).map(function(r,i){
           return '<div class="rowline" style="align-items:flex-start;">'+
             '<div style="flex:1;display:flex;flex-direction:column;gap:6px;min-width:0;">'+
@@ -5410,7 +5528,7 @@
               '<button class="addline" data-addremark="'+i+'" type="button" style="margin:0;padding:6px 10px;font-size:12px;">'+ICONS.plus+' Choisir une remarque usuelle</button></div>'+
             '<button class="icon-btn" data-picktsnv="'+i+'" type="button" title="Choisir un(e) enseignant(e)" style="width:38px;height:38px;flex-shrink:0;">'+ICONS.users+'</button>'+
             '<button class="rm" data-rmtsnv="'+i+'" type="button">'+ICONS.trash+'</button></div>';
-        }).join('')+'</div><button class="addline" id="btnAddTsNv" type="button">'+ICONS.plus+' Ajouter un tableau non validé</button></div>';
+        }).join('')+'</div><button class="addline" id="btnAddTsNvMulti" type="button">'+ICONS.users+' Ajouter plusieurs enseignant(e)s</button><button class="addline" id="btnAddTsNv" type="button">'+ICONS.plus+' Ajouter un tableau non validé</button></div>';
     }
     /* Zones de texte libres définies pour CE type dans Réglages → Modèles de documents (voir
        docTemplatesEditorHtml) : rendues ici de façon générique, quel que soit le type, après les champs
@@ -5472,17 +5590,8 @@
       el=$('fLieu'); if(el) t.lieu=el.value; el=$('fLienConnexion'); if(el) t.lienConnexion=el.value;
       el=$('fDesc'); if(el) t.description=el.value;
       el=$('fNotif'); if(el) t.notificationEnvoyee=el.checked;
-      /* Lu à chaque syncTaskFields (pas seulement à l'enregistrement final) pour ne pas perdre les
-         cases cochées si un autre changement (type de tâche, établissement…) redessine le formulaire
-         entre-temps — la checklist n'existe dans le DOM que pour reunion_pedagogique/cours_experimental
-         (voir TASK_TYPES_NOTIFY et taskInvitesFieldHtml). */
-      if($('fInvitesList')){
-        var picked = document.querySelectorAll('[data-invitepick]:checked');
-        t.invites = Array.prototype.map.call(picked, function(cb){
-          var e = state.enseignants.find(function(x){ return x.id===cb.getAttribute('data-invitepick'); });
-          return e ? {enseignantId:e.id, nom:e.nom, ppr:e.ppr||'', etablissementNom: etabName(e.etablissementId)||''} : null;
-        }).filter(Boolean);
-      }
+      /* Les invité(e)s (t.invites) sont mis à jour directement par le sélecteur multiple (voir
+         btnPickInvites / data-rminvite) : plus rien à relire dans le formulaire ici. */
     }
     /* Avertissement de concomitance (voir vacanceForDate/taskVacanceWarningHtml) mis à jour en direct à
        chaque changement de date, sans redessiner tout le formulaire (ni perdre le focus/la sélection en
@@ -5496,8 +5605,27 @@
     var selType = $('fTypeSel'); if(selType) selType.onchange = function(){ syncTaskFields(); state.draftTask.taskType=selType.value; render(); };
     var segP = $('fPrioSeg'); if(segP) segP.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ syncTaskFields(); state.draftTask.priorite=b.getAttribute('data-v'); render(); }; });
     var segNote = $('fNoteSeg'); if(segNote) segNote.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ syncTaskFields(); state.draftTask.noteGlobale=b.getAttribute('data-v'); render(); }; });
-    var bpe = $('btnPickEtab'); if(bpe) bpe.onclick = function(){ syncTaskFields(); openPicker('etablissement', function(r){ state.draftTask.etablissementId=r.id; state.draftTask.etablissementNom=r.nom; }); };
-    var bpn = $('btnPickEns'); if(bpn) bpn.onclick = function(){ syncTaskFields(); openPicker('enseignant', function(r){ state.draftTask.enseignantId=r.id; state.draftTask.enseignantNom=r.nom; }); };
+    /* Établissement puis enseignant(e) : le sélecteur d'enseignant s'ouvre filtré sur l'établissement
+       déjà choisi ; choisir un(e) enseignant(e) renseigne aussi son établissement, et changer
+       d'établissement retire l'enseignant(e) s'il/elle n'y exerce pas. */
+    var bpe = $('btnPickEtab'); if(bpe) bpe.onclick = function(){ syncTaskFields(); openPicker('etablissement', function(r){
+      var t = state.draftTask;
+      t.etablissementId=r.id; t.etablissementNom=r.nom;
+      var ens = t.enseignantId ? state.enseignants.find(function(x){ return x.id===t.enseignantId; }) : null;
+      if(ens && ens.etablissementId && ens.etablissementId!==r.id){ t.enseignantId=null; t.enseignantNom=''; }
+    }); };
+    var bpn = $('btnPickEns'); if(bpn) bpn.onclick = function(){ syncTaskFields(); var t0 = state.draftTask; openEnsPicker({ etabId: t0.etablissementId, onPick: function(r){
+      var t = state.draftTask;
+      t.enseignantId=r.id; t.enseignantNom=r.nom;
+      if(r.etablissementId && etabName(r.etablissementId)){ t.etablissementId=r.etablissementId; t.etablissementNom=etabName(r.etablissementId); }
+    }}); };
+    var bInv = $('btnPickInvites'); if(bInv) bInv.onclick = function(){ syncTaskFields(); var t0 = state.draftTask; openEnsPicker({ multi:true, title:'Enseignant(e)s invité(e)s',
+      selectedIds: (t0.invites||[]).map(function(iv){ return iv.enseignantId; }),
+      onPickMany: function(list){
+        state.draftTask.invites = list.map(function(e){ return {enseignantId:e.id, nom:e.nom, ppr:e.ppr||'', etablissementNom: etabName(e.etablissementId)||''}; });
+      }}); };
+    document.querySelectorAll('[data-rminvite]').forEach(function(el){ el.onclick = function(){ syncTaskFields(); var id = el.getAttribute('data-rminvite');
+      state.draftTask.invites = (state.draftTask.invites||[]).filter(function(iv){ return iv.enseignantId!==id; }); render(); }; });
     /* Description générée par IA à partir du seul titre (+ le peu de contexte déjà renseigné :
        type de tâche, établissement, enseignant, échéance) — utile pour ne pas laisser les notes
        vides sur une tâche vite créée. Mode « enrichir » standard de aiDraft si des notes existent déjà. */
@@ -5955,6 +6083,7 @@
     var btnSaveProfil = $('btnSaveProfil'); if(btnSaveProfil) btnSaveProfil.onclick = function(){ syncProfilFields(); templatesSet({profil:state.templates.profil}); toast('Profil enregistré.'); };
 
     /* -- picker -- */
+    wireEnsPicker();
     document.querySelectorAll('[data-pickrec]').forEach(function(el){
       el.onclick = function(){
         var kind = state.pickTarget.kind;
@@ -6206,17 +6335,38 @@
     var addPiece = $('btnAddPiece'); if(addPiece) addPiece.onclick = function(){ syncDocGenericFields(); (state.draftDoc.pieces=state.draftDoc.pieces||[]).push({designation:'',nombre:'1'}); render(); };
     document.querySelectorAll('[data-rmpiece]').forEach(function(el){ el.onclick=function(){ syncDocGenericFields(); state.draftDoc.pieces.splice(parseInt(el.getAttribute('data-rmpiece')),1); render(); }; });
     /* -- bordereau : tableaux de service (validés / non validés) -- */
+    /* Ajout groupé (sélection multiple filtrée par établissement) : une ligne par enseignant(e)
+       coché(e), sans doublon avec les lignes déjà présentes (même PPR ou même nom). Les lignes vides
+       laissées par « Ajouter un tableau » sont réutilisées en premier. */
+    function addEnsRows(key, makeRow){
+      syncDocGenericFields();
+      var d = state.draftDoc; d[key] = d[key] || [];
+      var etab0 = ''; for(var k=d[key].length-1;k>=0;k--){ if(d[key][k].etablissement){ etab0 = etabIdByName(d[key][k].etablissement); break; } }
+      openEnsPicker({ multi:true, etabId: etab0, onPickMany: function(list){
+        var rows = state.draftDoc[key] = state.draftDoc[key] || [];
+        list.forEach(function(e){
+          var dup = rows.some(function(r){ return (e.ppr && r.ppr===e.ppr) || ((r.enseignant||r.nom||'').trim().toLowerCase()===(e.nom||'').trim().toLowerCase()); });
+          if(dup) return;
+          var blank = rows.findIndex(function(r){ return !(r.enseignant||r.nom||'').trim() && !(r.ppr||'').trim(); });
+          var row = makeRow(e, blank>=0 ? rows[blank] : null);
+          if(blank>=0) rows[blank] = row; else rows.push(row);
+        });
+      }});
+    }
+    var addTsValM = $('btnAddTsValMulti'); if(addTsValM) addTsValM.onclick = function(){ addEnsRows('tableauxValides', function(e){ return {etablissement: etabName(e.etablissementId)||'', enseignant: e.nom||'', ppr: e.ppr||''}; }); };
+    var addTsNvM = $('btnAddTsNvMulti'); if(addTsNvM) addTsNvM.onclick = function(){ addEnsRows('tableauxNonValides', function(e, old){ return {etablissement: etabName(e.etablissementId)||'', enseignant: e.nom||'', ppr: e.ppr||'', observation: old ? (old.observation||'') : ''}; }); };
+    var addPartM = $('btnAddPartMulti'); if(addPartM) addPartM.onclick = function(){ addEnsRows('participants', function(e, old){ return {nom: e.nom||'', fonction: (old && old.fonction) || 'Enseignant(e)'}; }); };
     var addTsVal = $('btnAddTsVal'); if(addTsVal) addTsVal.onclick = function(){ syncDocGenericFields(); (state.draftDoc.tableauxValides=state.draftDoc.tableauxValides||[]).push({etablissement:'',enseignant:'',ppr:''}); render(); };
     document.querySelectorAll('[data-rmtsval]').forEach(function(el){ el.onclick=function(){ syncDocGenericFields(); state.draftDoc.tableauxValides.splice(parseInt(el.getAttribute('data-rmtsval')),1); render(); }; });
     document.querySelectorAll('[data-picktsval]').forEach(function(el){
       var i = parseInt(el.getAttribute('data-picktsval'));
-      el.onclick = function(){ syncDocGenericFields(); openPicker('enseignant', function(r){ state.draftDoc.tableauxValides[i] = {etablissement: etabName(r.etablissementId)||'', enseignant: r.nom||'', ppr: r.ppr||''}; }); };
+      el.onclick = function(){ syncDocGenericFields(); var row0 = state.draftDoc.tableauxValides[i]; openEnsPicker({ etabId: etabIdByName(row0 && row0.etablissement), onPick: function(r){ state.draftDoc.tableauxValides[i] = {etablissement: etabName(r.etablissementId)||'', enseignant: r.nom||'', ppr: r.ppr||''}; }}); };
     });
     var addTsNv = $('btnAddTsNv'); if(addTsNv) addTsNv.onclick = function(){ syncDocGenericFields(); (state.draftDoc.tableauxNonValides=state.draftDoc.tableauxNonValides||[]).push({etablissement:'',enseignant:'',ppr:'',observation:''}); render(); };
     document.querySelectorAll('[data-rmtsnv]').forEach(function(el){ el.onclick=function(){ syncDocGenericFields(); state.draftDoc.tableauxNonValides.splice(parseInt(el.getAttribute('data-rmtsnv')),1); render(); }; });
     document.querySelectorAll('[data-picktsnv]').forEach(function(el){
       var i = parseInt(el.getAttribute('data-picktsnv'));
-      el.onclick = function(){ syncDocGenericFields(); openPicker('enseignant', function(r){ var row = state.draftDoc.tableauxNonValides[i]; state.draftDoc.tableauxNonValides[i] = {etablissement: etabName(r.etablissementId)||'', enseignant: r.nom||'', ppr: r.ppr||'', observation: row?row.observation:''}; }); };
+      el.onclick = function(){ syncDocGenericFields(); var row0 = state.draftDoc.tableauxNonValides[i]; openEnsPicker({ etabId: etabIdByName(row0 && row0.etablissement), onPick: function(r){ var row = state.draftDoc.tableauxNonValides[i]; state.draftDoc.tableauxNonValides[i] = {etablissement: etabName(r.etablissementId)||'', enseignant: r.nom||'', ppr: r.ppr||'', observation: row?row.observation:''}; }}); };
     });
     document.querySelectorAll('[data-addremark]').forEach(function(el){
       var i = parseInt(el.getAttribute('data-addremark'));
