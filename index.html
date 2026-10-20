@@ -1456,7 +1456,7 @@
   function initCapabilities(){
     loadLocalAll();
     state.dbReady = true; state.downloadsReady = true; state.assetsReady = true;
-    state.sampleReady = aiReady();
+    state.sampleReady = aiUsable();
     render();
   }
 
@@ -1612,7 +1612,7 @@
   }
   function configSet(patch){
     state.config = Object.assign({}, state.config, patch);
-    state.sampleReady = aiReady();
+    state.sampleReady = aiUsable();
     saveLocal('config'); render();
     return Promise.resolve();
   }
@@ -1970,7 +1970,7 @@
     });
   }
   function geminiGenerateRoute(prompt, attempt, imagePart, onText, onReason){
-    var pv = aiProvider();
+    var pv = aiEffectiveProvider();
     aiLastMeta.engine = imagePart ? 'Gemini' : pv==='local' ? localAiModel().label.split(' — ')[0] : pv==='server' ? 'serveur IA local' : 'Gemini';
     if(pv==='local' || pv==='server'){
       if(imagePart){
@@ -1988,7 +1988,7 @@
     return sec < 60 ? sec+' s' : Math.floor(sec/60)+' min '+('0'+(sec%60)).slice(-2)+' s';
   }
   function aiStatusStart(statusEl){
-    var t0 = Date.now(), local = aiProvider()==='local', st = { reasonLen:0, timer:null };
+    var t0 = Date.now(), local = aiEffectiveProvider()==='local', st = { reasonLen:0, timer:null };
     var label = 'Génération en cours avec '+aiEngineLabel()+(aiReasoningOn()?' (mode raisonnement)':'');
     function tick(){
       if(!statusEl) return;
@@ -2041,7 +2041,7 @@
   function localAiPrefsSet(patch){
     var p = Object.assign(localAiPrefs(), patch);
     try{ localStorage.setItem(LOCAL_AI_KEY, JSON.stringify(p)); }catch(e){}
-    state.sampleReady = aiReady();
+    state.sampleReady = aiUsable();
     return p;
   }
   function aiProvider(){ var v = localAiPrefs().provider; return (v==='local' || v==='server') ? v : 'gemini'; }
@@ -2052,7 +2052,12 @@
   }
   function localModelReady(){ return !!localAiPrefs().ready[localAiModel().id]; }
   function aiReady(){ var pv = aiProvider(); return pv==='local' ? localModelReady() : pv==='server' ? !!aiServerUrl() : !!geminiApiKey(); }
-  function aiEngineLabel(){ var pv = aiProvider(); return pv==='local' ? "l'IA locale" : pv==='server' ? 'le serveur IA local' : 'Gemini'; }
+  /* Les boutons IA restent affichés dès qu'un moteur est utilisable : si l'IA locale est choisie mais
+     que son modèle n'est pas (ou plus) disponible sur cet appareil, Gemini prend le relais tant
+     qu'une clé est enregistrée, au lieu de faire disparaître tous les boutons IA. */
+  function aiEffectiveProvider(){ var pv = aiProvider(); return (pv==='local' && !localModelReady() && geminiApiKey()) ? 'gemini' : pv; }
+  function aiUsable(){ return aiReady() || !!geminiApiKey() || aiProvider()!=='gemini'; }
+  function aiEngineLabel(){ var pv = aiEffectiveProvider(); return pv==='local' ? "l'IA locale" : pv==='server' ? 'le serveur IA local' : 'Gemini'; }
   function localModelUrl(m){ return 'https://huggingface.co/'+m.repo+'/resolve/main/'+m.file; }
   function fmtMo(n){ return Math.round(n/1048576)+' Mo'; }
   /* Affiche l'avancement (téléchargement/chargement) dans Réglages → Assistant IA sans redessiner tout
@@ -2084,8 +2089,40 @@
   function localPartLen(m, i){ return Math.min(LOCAL_AI_CHUNK, m.bytes - i*LOCAL_AI_CHUNK); }
   /* Liste des tranches complètes déjà présentes : tableau de File (ou null pour une tranche absente
      ou incomplète). */
+  /* Migration : un modèle téléchargé avec une version précédente du carnet (un seul fichier
+     carnet-ia-modeles/<nom>.gguf) est découpé en tranches au premier usage, au lieu d'être considéré
+     comme absent (ce qui masquait les boutons IA). */
+  var localLegacyChecked = {};
+  function migrateLegacyModel(m){
+    if(localLegacyChecked[m.id]) return Promise.resolve();
+    localLegacyChecked[m.id] = true;
+    if(!navigator.storage || !navigator.storage.getDirectory) return Promise.resolve();
+    var root;
+    return navigator.storage.getDirectory().then(function(r){ return r.getDirectoryHandle(LOCAL_AI_DIR, {create:true}); }).then(function(r){
+      root = r;
+      return root.getFileHandle(m.file).then(function(h){ return h.getFile(); }, function(){ return null; });
+    }).then(function(f){
+      if(!f) return;
+      if(f.size !== m.bytes){ return root.removeEntry(m.file).catch(function(){}); }
+      return root.getDirectoryHandle(m.id, {create:true}).then(function(dir){
+        var n = localPartCount(m), i = 0;
+        function next(){
+          if(i >= n) return;
+          var idx = i++, start = idx * LOCAL_AI_CHUNK;
+          return file_part(idx, start).then(next);
+        }
+        function file_part(idx, start){
+          return dir.getFileHandle(localPartName(idx)).then(function(h){ return h.getFile(); }).then(function(pf){ return pf.size === localPartLen(m, idx); }, function(){ return false; }).then(function(ok){
+            if(ok) return;
+            return f.slice(start, start + localPartLen(m, idx)).arrayBuffer().then(function(buf){ return writeLocalPart(dir, idx, buf); });
+          });
+        }
+        return next();
+      }).then(function(){ return root.removeEntry(m.file).catch(function(){}); }).then(function(){ markLocalModelReady(m, true); });
+    }).catch(function(){});
+  }
   function localModelParts(m){
-    return localModelDir(m, false).then(function(dir){
+    return migrateLegacyModel(m).then(function(){ return localModelDir(m, false); }).then(function(dir){
       var n = localPartCount(m), out = [], i = 0;
       function next(){
         if(i >= n) return out;
@@ -2388,7 +2425,11 @@
     if(localAi.instance || localAi.loading) return;
     ensureLocalModel().catch(function(){ localAi.error = ''; });
   }
-  setTimeout(function(){ localAiIsolationSync(); setTimeout(localAiPreload, 1200); }, 0);
+  setTimeout(function(){
+    localAiIsolationSync();
+    var mig = aiProvider()==='local' ? migrateLegacyModel(localAiModel()) : Promise.resolve();
+    mig.then(function(){ state.sampleReady = aiUsable(); render(); setTimeout(localAiPreload, 1200); });
+  }, 0);
   function deleteLocalModel(){
     var m = localAiModel();
     var p = localAi.instance ? localAi.instance.exit().catch(function(){}) : Promise.resolve();
@@ -2408,10 +2449,10 @@
      lue seulement à l'enregistrement (syncDocGenericFields), donc aucun render() n'est déclenché ici
      pour ne pas écraser la valeur qu'on vient d'y poser. */
   function runAiPrompt(btn, statusEl, targetTextarea, prompt){
-    if(!aiReady()){ toast(geminiErrorMessage({code:'not_configured'})); return; }
+    if(!aiUsable() || (aiEffectiveProvider()==='local' && !localModelReady())){ toast(geminiErrorMessage({code:'not_configured'})); return; }
     if(btn) btn.disabled = true;
     var original = targetTextarea ? targetTextarea.value : '';
-    var local = aiProvider()==='local';
+    var local = aiEffectiveProvider()!=='gemini';
     var st = aiStatusStart(statusEl);
     /* IA locale : le texte s'affiche au fil de l'eau dans le champ ; en cas d'erreur on remet le
        contenu d'origine (notes de l'inspecteur) pour ne rien perdre. */
@@ -2465,7 +2506,7 @@
      volontairement vide : l'IA ne peut pas connaître de vraies contraintes de calendrier, c'est à
      l'inspecteur(trice) de la compléter. */
   function runAiActionsPlan(btn, statusEl, prompt){
-    if(!aiReady()){ toast(geminiErrorMessage({code:'not_configured'})); return; }
+    if(!aiUsable() || (aiEffectiveProvider()==='local' && !localModelReady())){ toast(geminiErrorMessage({code:'not_configured'})); return; }
     if(btn) btn.disabled = true;
     var st = aiStatusStart(statusEl);
     geminiGenerate(prompt, 1, null, null, st.onReason).then(function(text){
