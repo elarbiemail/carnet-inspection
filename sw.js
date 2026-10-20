@@ -7,7 +7,7 @@
    un chargement instantané. Les appels réseau vers Google Drive/Sheets (googleapis.com,
    accounts.google.com) et vers les polices Google Fonts ne sont volontairement PAS interceptés : ils
    passent toujours par le réseau. */
-var CACHE_NAME = 'carnet-inspection-v22';
+var CACHE_NAME = 'carnet-inspection-v23';
 var APP_SHELL = [
   './',
   './index.html',
@@ -19,6 +19,21 @@ var APP_SHELL = [
   './favicon-32.png'
 ];
 
+/* Accélération multicœur de l'IA locale (voir localAiIsolationSync dans index.html) : sur les appareils
+   où l'IA locale est choisie, l'application range un drapeau dans Cache Storage ; la page est alors
+   servie avec l'en-tête Document-Isolation-Policy, qui rend la page « isolée » (crossOriginIsolated)
+   et permet au moteur WebAssembly d'utiliser tous les cœurs du processeur. Sans drapeau, ou si le
+   navigateur ne connaît pas cet en-tête, rien ne change. */
+function withIaIsolation(res){
+  if(!res || res.type === 'opaque' || res.type === 'opaqueredirect' || res.status !== 200) return res;
+  return caches.open('ci-flags').then(function(c){ return c.match('./__ia-isolation'); }).then(function(flag){
+    if(!flag) return res;
+    var h = new Headers(res.headers);
+    h.set('Document-Isolation-Policy', 'isolate-and-credentialless');
+    return new Response(res.body, { status: res.status, statusText: res.statusText, headers: h });
+  }).catch(function(){ return res; });
+}
+
 self.addEventListener('install', function(event){
   self.skipWaiting();
   event.waitUntil(
@@ -29,7 +44,7 @@ self.addEventListener('install', function(event){
 self.addEventListener('activate', function(event){
   event.waitUntil(
     caches.keys().then(function(keys){
-      return Promise.all(keys.filter(function(k){ return k!==CACHE_NAME && k.indexOf('-ia')<0; }).map(function(k){ return caches.delete(k); }));
+      return Promise.all(keys.filter(function(k){ return k!==CACHE_NAME && k.indexOf('-ia')<0 && k!=='ci-flags'; }).map(function(k){ return caches.delete(k); }));
     }).then(function(){ return self.clients.claim(); })
   );
 });
@@ -64,7 +79,7 @@ self.addEventListener('fetch', function(event){
         return res;
       }).catch(function(){
         return caches.match(req).then(function(cached){ return cached || caches.match('./index.html'); });
-      })
+      }).then(function(res){ return req.mode === 'navigate' ? withIaIsolation(res) : res; })
     );
     return;
   }

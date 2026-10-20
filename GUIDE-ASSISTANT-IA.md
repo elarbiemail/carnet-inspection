@@ -159,3 +159,17 @@ raisonnement du modèle » sous le bouton IA pour lire sa réflexion.
 - Avec l'**IA locale**, il faut un modèle **Qwen 3** (1.7B, 1,1 Go, ou 4B,
   1,9 Go) ; les autres modèles rédigent sans raisonnement. Sur téléphone,
   comptez plusieurs minutes par rapport en mode raisonnement.
+
+## Réponses rapides, comme dans PocketPal
+
+- **Garder le modèle chargé** (activé par défaut) : le modèle est chargé en
+  mémoire dès l'ouverture de l'application ; la réponse commence aussitôt.
+- **Utiliser tous les cœurs du processeur** : activé au prochain lancement
+  de l'application si votre version de Chrome le permet (l'écran Assistant
+  IA indique s'il est actif).
+- **Calcul : carte graphique ou processeur seul** : comparez avec
+  « Tester », qui affiche la vitesse en jetons/s.
+- **Serveur IA local (natif)** : pour une vitesse identique à PocketPal,
+  lancez le même moteur natif (llama-server dans Termux, ou LM Studio /
+  Ollama sur un PC) et indiquez son adresse ; la marche à suivre est dans
+  l'écran Assistant IA.

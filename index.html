@@ -1847,9 +1847,11 @@
   function geminiErrorMessage(err){
     var code = err && err.code;
     switch(code){
-      case 'not_configured': return aiProvider()==='local'
+      case 'not_configured': return aiProvider()!=='gemini'
         ? "Téléchargez d'abord le modèle dans Réglages → Assistant IA (IA locale) pour activer l'assistant de rédaction."
         : "Ajoutez votre clé API Gemini dans Réglages → Assistant IA pour activer l'assistant de rédaction.";
+      case 'server_unreachable': return "Le serveur IA local ne répond pas à l'adresse "+aiServerUrl()+". Vérifiez que llama-server (Termux) ou LM Studio/Ollama est bien lancé, que l'adresse est exacte, et autorisez Chrome à accéder aux appareils locaux s'il le demande.";
+      case 'server_error': return "Le serveur IA local a renvoyé une erreur" + (err&&err.message?' : '+err.message:'') + ".";
       case 'local_no_image': return "L'IA locale ne lit pas les images : l'import d'une fiche par photo/PDF utilise Gemini. Ajoutez une clé Gemini dans Réglages → Assistant IA pour cet import (le reste de l'assistant continue de fonctionner en local).";
       case 'local_memory': return "Mémoire insuffisante sur cet appareil pour ce modèle. Fermez les autres applications ou choisissez un modèle plus léger dans Réglages → Assistant IA.";
       case 'local_network': return "Le téléchargement du modèle s'est interrompu (connexion coupée ou trop lente). Vérifiez le Wifi puis touchez « Reprendre le téléchargement » : il repartira de là où il s'est arrêté." + (err&&err.message?' (détail : '+err.message+')':'');
@@ -1968,13 +1970,14 @@
     });
   }
   function geminiGenerateRoute(prompt, attempt, imagePart, onText, onReason){
-    aiLastMeta.engine = (aiProvider()==='local' && !imagePart) ? localAiModel().label.split(' — ')[0] : 'Gemini';
-    if(aiProvider()==='local'){
+    var pv = aiProvider();
+    aiLastMeta.engine = imagePart ? 'Gemini' : pv==='local' ? localAiModel().label.split(' — ')[0] : pv==='server' ? 'serveur IA local' : 'Gemini';
+    if(pv==='local' || pv==='server'){
       if(imagePart){
         if(geminiApiKey()) return geminiGenerateCloud(prompt, attempt, imagePart);
         return Promise.reject({code:'local_no_image'});
       }
-      return localGenerate(prompt, onText, onReason);
+      return pv==='server' ? serverGenerate(prompt, onText, onReason) : localGenerate(prompt, onText, onReason);
     }
     return geminiGenerateCloud(prompt, attempt, imagePart);
   }
@@ -2002,6 +2005,7 @@
     var m = aiLastMeta;
     statusEl.hidden = false; statusEl.className = 'banner info';
     statusEl.innerHTML = '<div style="flex:1;min-width:0;">✓ Généré en <b>'+esc(fmtAiDuration(m.ms))+'</b> avec '+esc(m.engine||aiEngineLabel())+(m.reasoningUsed?' · mode raisonnement':'')+
+      (m.firstMs ? ' · 1<sup>er</sup> mot après '+esc(fmtAiDuration(m.firstMs))+(m.tps ? ', ≈ '+m.tps+' jetons/s' : '') : '')+
       (m.reasoning ? '<details style="margin-top:6px;"><summary style="cursor:pointer;font-weight:600;">Voir le raisonnement du modèle</summary><div style="white-space:pre-wrap;margin-top:6px;font-size:12px;max-height:220px;overflow:auto;">'+esc(m.reasoning)+'</div></details>' : '')+'</div>';
   }
 
@@ -2040,14 +2044,15 @@
     state.sampleReady = aiReady();
     return p;
   }
-  function aiProvider(){ return localAiPrefs().provider==='local' ? 'local' : 'gemini'; }
+  function aiProvider(){ var v = localAiPrefs().provider; return (v==='local' || v==='server') ? v : 'gemini'; }
+  function aiServerUrl(){ return String(localAiPrefs().serverUrl || 'http://127.0.0.1:8080').trim().replace(/\/+$/, ''); }
   function localAiModel(){
     var id = localAiPrefs().modelId;
     return LOCAL_AI_MODELS.filter(function(m){ return m.id===id; })[0] || LOCAL_AI_MODELS[0];
   }
   function localModelReady(){ return !!localAiPrefs().ready[localAiModel().id]; }
-  function aiReady(){ return aiProvider()==='local' ? localModelReady() : !!geminiApiKey(); }
-  function aiEngineLabel(){ return aiProvider()==='local' ? "l'IA locale" : 'Gemini'; }
+  function aiReady(){ var pv = aiProvider(); return pv==='local' ? localModelReady() : pv==='server' ? !!aiServerUrl() : !!geminiApiKey(); }
+  function aiEngineLabel(){ var pv = aiProvider(); return pv==='local' ? "l'IA locale" : pv==='server' ? 'le serveur IA local' : 'Gemini'; }
   function localModelUrl(m){ return 'https://huggingface.co/'+m.repo+'/resolve/main/'+m.file; }
   function fmtMo(n){ return Math.round(n/1048576)+' Mo'; }
   /* Affiche l'avancement (téléchargement/chargement) dans Réglages → Assistant IA sans redessiner tout
@@ -2172,6 +2177,7 @@
       localAi.downloading = null; localAiKeepAwake(false);
       localAi.phase = ''; localAi.pct = 0; localAiShowProgress();
       markLocalModelReady(m, true);
+      setTimeout(localAiPreload, 300);
     }, function(err){
       localAi.downloading = null; localAiKeepAwake(false);
       localAi.phase = ''; localAi.pct = 0;
@@ -2227,7 +2233,18 @@
       if(parts.some(function(f){ return !f; })){ markLocalModelReady(m, false); return Promise.reject({code:'local_incomplete_file'}); }
       var file = new Blob(parts);
       var w = new mod.Wllama({ default: WLLAMA_BASE+'src/wasm/wllama.wasm' }, { suppressNativeLog: true, logger: mod.LoggerWithoutDebug || console });
-      return w.loadModel([file], { n_ctx: m.reasoning ? 6144 : 4096 }).then(function(){ return w; });
+      /* Comme PocketPal : tous les cœurs disponibles (quand la page est isolée, voir
+         localAiIsolationSync) et la carte graphique (WebGPU) sauf si « Processeur seul » est choisi. */
+      var cpuOnly = localAiPrefs().compute === 'cpu';
+      var lp = { n_ctx: m.reasoning ? 6144 : 4096, n_batch: 512 };
+      if(cpuOnly) lp.n_gpu_layers = 0;
+      if(window.crossOriginIsolated && navigator.hardwareConcurrency > 2) lp.n_threads = Math.max(2, Math.min(8, navigator.hardwareConcurrency - 1));
+      return w.loadModel([file], lp).then(function(){
+        var gpu = !cpuOnly && w.isSupportWebGPU && w.isSupportWebGPU();
+        var th = (w.isMultithread && w.isMultithread()) ? w.getNumThreads() : 1;
+        localAi.backend = (gpu ? 'carte graphique (WebGPU) + ' : '') + 'processeur ' + th + ' cœur' + (th>1?'s':'');
+        return w;
+      });
     }).then(function(w){
       localAi.instance = w; localAi.loadedId = m.id; localAi.loading = null;
       localAi.phase = ''; localAi.pct = 0; localAiShowProgress();
@@ -2258,7 +2275,7 @@
     return ensureLocalModel().then(function(w){
       var m = localAiModel();
       var think = !!m.reasoning && aiReasoningOn();
-      var raw = '', reasonSep = '';
+      var raw = '', reasonSep = '', nTok = 0, tStart = Date.now(), tFirst = 0;
       var opts = {
         /* Un seul message « user » (pas de rôle system) : Gemma refuse le rôle system dans son
            gabarit de conversation, et les autres modèles s'en passent très bien. */
@@ -2269,6 +2286,7 @@
         onData: function(chunk){
           var c = chunk && chunk.choices && chunk.choices[0];
           var d = (c && c.delta) || {};
+          if(d.reasoning_content || d.content){ nTok++; if(!tFirst) tFirst = Date.now(); }
           if(d.reasoning_content){ reasonSep += d.reasoning_content; if(onReason) onReason(reasonSep); }
           if(d.content){
             raw += d.content;
@@ -2281,6 +2299,7 @@
       if(m.reasoning) opts.chat_template_kwargs = { enable_thinking: think };
       aiLastMeta.reasoningUsed = think;
       return w.createChatCompletion(opts).then(function(){
+        aiNoteSpeed(tStart, tFirst, nTok);
         var sp = splitThink(raw);
         aiLastMeta.reasoning = (reasonSep + (reasonSep && sp.reasoning ? '\n' : '') + sp.reasoning).trim();
         var out = sp.text.trim();
@@ -2289,6 +2308,87 @@
       });
     });
   }
+  function aiNoteSpeed(tStart, tFirst, nTok){
+    if(!tFirst) return;
+    aiLastMeta.firstMs = tFirst - tStart;
+    var gen = (Date.now() - tFirst) / 1000;
+    aiLastMeta.tps = (gen > 0.5 && nTok > 4) ? Math.round(nTok / gen * 10) / 10 : 0;
+  }
+  /* --- Moteur « serveur IA local » : le même moteur natif que PocketPal (llama.cpp compilé pour le
+     processeur du téléphone, tous les cœurs), lancé à part — par exemple llama-server dans Termux sur
+     le téléphone, ou LM Studio / Ollama sur un PC du même réseau — et joint par son API compatible
+     OpenAI (/v1/chat/completions, réponse en flux SSE). C'est le moyen d'obtenir des réponses aussi
+     rapides que dans PocketPal depuis cette application web : un navigateur ne peut pas exécuter le
+     code natif lui-même. */
+  function serverGenerate(prompt, onText, onReason){
+    var url = aiServerUrl() + '/v1/chat/completions';
+    var think = aiReasoningOn();
+    var body = { model: localAiPrefs().serverModel || 'local', stream: true,
+      messages: [{ role:'user', content: prompt }],
+      max_tokens: think ? 3500 : 1400, temperature: think ? 0.6 : 0.3, top_p: think ? 0.95 : 0.9,
+      chat_template_kwargs: { enable_thinking: think } };
+    var raw = '', reasonSep = '', nTok = 0, tStart = Date.now(), tFirst = 0;
+    aiLastMeta.reasoningUsed = think;
+    return fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) }).then(function(res){
+      if(!res.ok) return res.text().then(function(t){ return Promise.reject({code:'server_error', message:'HTTP '+res.status+(t?' — '+t.slice(0,160):'')}); });
+      if(!res.body || !res.body.getReader) return res.json().then(function(j){ raw = (j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content)||''; });
+      var reader = res.body.getReader(), dec = new TextDecoder(), buf = '';
+      function pump(){
+        return reader.read().then(function(r){
+          if(r.done) return;
+          buf += dec.decode(r.value, {stream:true});
+          var lines = buf.split('\n'); buf = lines.pop();
+          lines.forEach(function(line){
+            line = line.trim();
+            if(line.indexOf('data:')!==0) return;
+            var data = line.slice(5).trim();
+            if(!data || data==='[DONE]') return;
+            try{
+              var j = JSON.parse(data), d = (j.choices && j.choices[0] && j.choices[0].delta) || {};
+              var rc = d.reasoning_content || d.reasoning;
+              if(rc || d.content){ nTok++; if(!tFirst) tFirst = Date.now(); }
+              if(rc){ reasonSep += rc; if(onReason) onReason(reasonSep); }
+              if(d.content){ raw += d.content; var sp = splitThink(raw); if(sp.reasoning && onReason) onReason(reasonSep + sp.reasoning); if(onText) onText(sp.text); }
+            }catch(e){}
+          });
+          return pump();
+        });
+      }
+      return pump();
+    }, function(e){ return Promise.reject({code:'server_unreachable', message: e && e.message}); }).then(function(){
+      aiNoteSpeed(tStart, tFirst, nTok);
+      var sp = splitThink(raw);
+      aiLastMeta.reasoning = (reasonSep + (reasonSep && sp.reasoning ? '\n' : '') + sp.reasoning).trim();
+      var out = sp.text.trim();
+      if(!out) return Promise.reject({code:'empty_completion'});
+      return out;
+    });
+  }
+  /* --- Accélération multicœur de l'IA locale ---
+     Le moteur WebAssembly n'utilise plusieurs cœurs que si la page est « isolée »
+     (crossOriginIsolated). GitHub Pages ne permet pas d'envoyer les en-têtes nécessaires : c'est donc
+     le service worker (sw.js) qui ajoute l'en-tête Document-Isolation-Policy à la page, uniquement sur
+     les appareils où l'IA locale est choisie (drapeau rangé dans Cache Storage, lisible par le
+     service worker). Contrairement aux anciens en-têtes COOP/COEP, cette politique n'empêche pas la
+     fenêtre de connexion Google (Drive) de fonctionner. Sans effet sur les navigateurs qui ne la
+     prennent pas encore en charge : le moteur reste alors sur un seul cœur. Prise en compte au
+     prochain lancement de l'application. */
+  var LOCAL_AI_ISO_FLAG = './__ia-isolation';
+  function localAiIsolationWanted(){ return aiProvider()==='local' && localAiPrefs().multicore !== false; }
+  function localAiIsolationSync(){
+    if(!window.caches) return Promise.resolve();
+    return caches.open('ci-flags').then(function(c){
+      return localAiIsolationWanted() ? c.put(LOCAL_AI_ISO_FLAG, new Response('1')) : c.delete(LOCAL_AI_ISO_FLAG);
+    }).catch(function(){});
+  }
+  /* Préchargement : comme PocketPal, le modèle est chargé en mémoire dès l'ouverture de l'application
+     (en arrière-plan) et y reste ; la première demande n'attend donc plus le chargement. */
+  function localAiPreload(){
+    if(aiProvider()!=='local' || !localModelReady() || localAiPrefs().keepLoaded === false) return;
+    if(localAi.instance || localAi.loading) return;
+    ensureLocalModel().catch(function(){ localAi.error = ''; });
+  }
+  setTimeout(function(){ localAiIsolationSync(); setTimeout(localAiPreload, 1200); }, 0);
   function deleteLocalModel(){
     var m = localAiModel();
     var p = localAi.instance ? localAi.instance.exit().catch(function(){}) : Promise.resolve();
@@ -5088,13 +5188,29 @@
     var html = '<div class="section-label">Moteur de rédaction sur cet appareil</div>'+
       '<div class="seg" id="aiProviderSeg" style="margin:4px 0 8px;">'+
         '<button type="button" data-v="gemini" aria-pressed="'+(prov==='gemini')+'">Gemini (en ligne)</button>'+
-        '<button type="button" data-v="local" aria-pressed="'+(prov==='local')+'">IA locale (sur l\'appareil)</button></div>'+
+        '<button type="button" data-v="local" aria-pressed="'+(prov==='local')+'">IA locale (sur l\'appareil)</button>'+
+        '<button type="button" data-v="server" aria-pressed="'+(prov==='server')+'">Serveur IA local (natif)</button></div>'+
       '<div class="section-label" style="margin-top:12px;">Mode raisonnement</div>'+
       '<div class="seg" id="aiReasonSeg" style="margin:4px 0 6px;">'+
         '<button type="button" data-v="0" aria-pressed="'+(!aiReasoningOn())+'">Désactivé</button>'+
         '<button type="button" data-v="1" aria-pressed="'+aiReasoningOn()+'">Activé</button></div>'+
       '<p style="font-size:11.5px;color:var(--ink-faint);margin-bottom:6px;">Le modèle réfléchit avant de rédiger (analyse des observations, cohérence avec la structure demandée) : textes plus rigoureux, mais génération plus longue. Son raisonnement peut être consulté sous le bouton IA, avec le temps de réponse.'+
-        (prov==='local' && aiReasoningOn() && !localAiModel().reasoning ? ' <b>Le modèle local choisi ne raisonne pas : choisissez un modèle « Qwen 3 » ci-dessous.</b>' : '')+'</p>';
+        (prov==='local' && aiReasoningOn() && !localAiModel().reasoning ? ' <b>Le modèle local choisi ne raisonne pas : choisissez un modèle « Qwen 3 » ci-dessous.</b>' : '')+
+        (prov==='server' ? ' Côté serveur, lancez un modèle Qwen 3 pour en profiter.' : '')+'</p>';
+    if(prov==='server'){
+      html += '<p style="font-size:11.5px;color:var(--ink-faint);margin-bottom:10px;">Le carnet envoie ses demandes à un moteur IA natif qui tourne à côté : <b>llama-server</b> (le même moteur llama.cpp que PocketPal) dans l\'application Termux sur ce téléphone, ou LM Studio / Ollama sur un PC du même réseau. Les réponses sont alors aussi rapides que dans PocketPal, et rien ne sort de vos appareils.</p>'+
+        '<div class="field"><label for="aiServerUrlInput">Adresse du serveur</label><input type="text" id="aiServerUrlInput" value="'+esc(aiServerUrl())+'" placeholder="http://127.0.0.1:8080" autocapitalize="off" spellcheck="false"></div>'+
+        '<div class="btn-row"><button class="btn ghost" id="btnTestServer" type="button">Tester</button><button class="btn primary" id="btnSaveServerUrl" type="button">Enregistrer</button></div>'+
+        '<div class="banner info" id="serverTestStatus" hidden style="margin-top:8px;"></div>'+
+        '<details style="margin:10px 0;font-size:12px;color:var(--ink-faint);"><summary style="cursor:pointer;font-weight:600;color:var(--ink);">Installer le serveur sur le téléphone (Termux)</summary>'+
+        '<ol style="margin:8px 0 0 18px;padding:0;line-height:1.6;">'+
+          '<li>Installez <b>Termux</b> depuis F-Droid (la version du Play Store n\'est plus à jour).</li>'+
+          '<li>Dans Termux : <code>pkg update && pkg install llama-cpp</code>, puis <code>termux-setup-storage</code> pour accéder à vos Téléchargements.</li>'+
+          '<li>Téléchargez un modèle .gguf avec Chrome (par exemple '+esc(LOCAL_AI_MODELS[1].file)+' ou '+esc(LOCAL_AI_MODELS[3].file)+').</li>'+
+          '<li>Lancez : <code>llama-server -m ~/storage/downloads/NOM_DU_MODELE.gguf --host 127.0.0.1 --port 8080 -c 6144</code></li>'+
+          '<li>Laissez Termux ouvert en arrière-plan, revenez ici et touchez « Tester ». Chrome peut demander l\'autorisation d\'accéder aux appareils locaux : acceptez.</li>'+
+        '</ol><p style="margin-top:6px;">Sur un PC : LM Studio (onglet Developer → Start Server, option « Serve on Local Network ») ou Ollama, puis indiquez ici l\'adresse du PC, par ex. <code>http://192.168.1.20:1234</code>.</p></details>';
+    }
     if(prov==='local'){
       var lm = localAiModel(), ready = localModelReady();
       html += '<p style="font-size:11.5px;color:var(--ink-faint);margin-bottom:10px;">L\'IA locale tourne entièrement dans le navigateur de cet appareil : vos observations et vos rapports ne quittent jamais le téléphone, et la rédaction fonctionne hors connexion une fois le modèle téléchargé (une seule fois, de préférence en Wifi). Elle est plus lente que Gemini (environ une minute pour un rapport) et son texte demande une relecture attentive. Ce choix est propre à cet appareil : vos autres appareils gardent leur propre réglage.</p>'+
@@ -5110,13 +5226,20 @@
           '<div class="btn-row" style="margin-top:8px;"><button class="btn ghost sm" id="btnImportLocalModel" type="button">Importer le fichier téléchargé (.gguf)</button></div>'+
           '<input type="file" id="fileLocalModelInput" accept=".gguf,application/octet-stream" hidden></details>')+
         '<div class="banner info" id="localAiProgress" hidden style="margin-top:8px;"></div>'+
-        (ready ? '<p style="font-size:11px;color:var(--ink-faint);margin-top:8px;">Assistant actif — modèle local : '+esc(lm.label)+'.</p>' : '');
+        (ready ? '<p style="font-size:11px;color:var(--ink-faint);margin-top:8px;">Assistant actif — modèle local : '+esc(lm.label)+(localAi.instance && localAi.loadedId===lm.id ? ' · chargé en mémoire'+(localAi.backend?' ('+esc(localAi.backend)+')':'') : (localAi.loading ? ' · chargement en mémoire…' : ''))+'.</p>' : '')+
+        '<div class="section-label" style="margin-top:12px;">Vitesse</div>'+
+        '<label style="display:flex;align-items:flex-start;gap:9px;font-size:12.5px;margin:6px 0;"><input type="checkbox" id="chkKeepLoaded"'+(localAiPrefs().keepLoaded!==false?' checked':'')+' style="margin-top:2px;"><span><b>Garder le modèle chargé</b> — chargé dès l\'ouverture de l\'application, comme dans PocketPal : la réponse commence aussitôt (utilise '+esc(lm.size)+' de mémoire).</span></label>'+
+        '<label style="display:flex;align-items:flex-start;gap:9px;font-size:12.5px;margin:6px 0;"><input type="checkbox" id="chkMulticore"'+(localAiPrefs().multicore!==false?' checked':'')+' style="margin-top:2px;"><span><b>Utiliser tous les cœurs du processeur</b> — '+(window.crossOriginIsolated ? 'actif sur cet appareil ('+(navigator.hardwareConcurrency||'?')+' cœurs).' : 'pas encore actif : fermez puis rouvrez l\'application ; s\'il reste inactif, votre version de Chrome ne le permet pas encore (le moteur tourne alors sur un seul cœur — préférez dans ce cas le « Serveur IA local (natif) »).')+'</span></label>'+
+        '<div class="field" style="margin-top:8px;"><label>Calcul</label><div class="seg" id="aiComputeSeg">'+
+          '<button type="button" data-v="auto" aria-pressed="'+(localAiPrefs().compute!=='cpu')+'">Carte graphique si possible</button>'+
+          '<button type="button" data-v="cpu" aria-pressed="'+(localAiPrefs().compute==='cpu')+'">Processeur seul</button></div>'+
+          '<p style="font-size:11px;color:var(--ink-faint);margin-top:4px;">Selon les téléphones, l\'un ou l\'autre est plus rapide : comparez avec « Tester » (vitesse en jetons/s).</p></div>';
     }
     html += '<div class="side-divider" style="margin:16px 0;"></div><div class="section-label">Structure du rapport d\'inspection</div>'+
       '<p style="font-size:11.5px;color:var(--ink-faint);margin:2px 0 8px;">Consigne fixe suivie par l\'IA quand vous touchez « Rédiger/compléter avec l\'IA » dans le champ Constats d\'un rapport d\'inspection, après y avoir saisi ou dicté vos notes d\'observation.</p>'+
       '<div class="field"><textarea id="rapportStructureInput" rows="8">'+esc(rapportStructure())+'</textarea></div>'+
       '<div class="btn-row"><button class="btn ghost sm" id="btnResetRapportStructure" type="button">Structure par défaut</button><button class="btn primary sm" id="btnSaveRapportStructure" type="button">Enregistrer</button></div>';
-    html += '<div class="side-divider" style="margin:16px 0;"></div><div class="section-label">Clé Gemini'+(prov==='local'?' (facultative : import des fiches par photo/PDF)':'')+'</div>';
+    html += '<div class="side-divider" style="margin:16px 0;"></div><div class="section-label">Clé Gemini'+(prov!=='gemini'?' (facultative : import des fiches par photo/PDF)':'')+'</div>';
     html += '<p style="font-size:11.5px;color:var(--ink-faint);margin-bottom:10px;">Collez votre propre clé API Google Gemini (gratuite, personnelle) pour activer l\'assistant de rédaction IA — synthèses, comptes-rendus, rapports, lettres, recommandations, descriptions de tâches, zones de texte personnalisées — ainsi que la traduction français ↔ arabe, directement dans les formulaires concernés. Chaque génération appelle directement les serveurs Google depuis votre navigateur : la clé n\'est jamais envoyée à Claude ni à Anthropic, et reste enregistrée uniquement sur cet appareil (et dans votre propre Drive si vous synchronisez).</p>';
     if(state.geminiKeyError) html += '<div class="banner err" style="margin-bottom:10px;">'+ICONS.warn+'<div>'+esc(state.geminiKeyError)+'</div></div>';
     html += '<div class="field"><label for="geminiKeyInput">Clé API Google Gemini</label>'+
@@ -6045,9 +6168,27 @@
       localAiPrefsSet({ reasoning: b.getAttribute('data-v')==='1' }); render();
     }; });
     var segProv = $('aiProviderSeg'); if(segProv) segProv.querySelectorAll('button').forEach(function(b){ b.onclick = function(){
-      localAiPrefsSet({ provider: b.getAttribute('data-v') }); render();
+      localAiPrefsSet({ provider: b.getAttribute('data-v') }); localAiIsolationSync(); render(); setTimeout(localAiPreload, 300);
     }; });
-    var selModel = $('localModelSelect'); if(selModel) selModel.onchange = function(){ localAiPrefsSet({ modelId: selModel.value }); render(); };
+    var selModel = $('localModelSelect'); if(selModel) selModel.onchange = function(){ localAiPrefsSet({ modelId: selModel.value }); render(); setTimeout(localAiPreload, 300); };
+    var segCompute = $('aiComputeSeg'); if(segCompute) segCompute.querySelectorAll('button').forEach(function(b){ b.onclick = function(){
+      localAiPrefsSet({ compute: b.getAttribute('data-v') });
+      var inst = localAi.instance; localAi.instance = null; localAi.loadedId = null;
+      (inst ? inst.exit().catch(function(){}) : Promise.resolve()).then(function(){ render(); setTimeout(localAiPreload, 300); });
+    }; });
+    var chkKeep = $('chkKeepLoaded'); if(chkKeep) chkKeep.onchange = function(){ localAiPrefsSet({ keepLoaded: chkKeep.checked }); if(chkKeep.checked) localAiPreload(); };
+    var chkMc = $('chkMulticore'); if(chkMc) chkMc.onchange = function(){ localAiPrefsSet({ multicore: chkMc.checked }); localAiIsolationSync().then(function(){ toast('Pris en compte au prochain lancement : fermez puis rouvrez l\'application.'); }); };
+    var srvIn = $('aiServerUrlInput'), btnSrvSave = $('btnSaveServerUrl');
+    if(btnSrvSave) btnSrvSave.onclick = function(){ localAiPrefsSet({ serverUrl: (srvIn.value||'').trim() }); toast('Adresse du serveur enregistrée.'); render(); };
+    var btnSrvTest = $('btnTestServer'); if(btnSrvTest) btnSrvTest.onclick = function(){
+      if(srvIn && srvIn.value.trim()) localAiPrefsSet({ serverUrl: srvIn.value.trim() });
+      btnSrvTest.disabled = true;
+      var out = $('serverTestStatus'); out.hidden = false; out.className = 'banner info'; out.textContent = 'Test en cours…';
+      geminiGenerate('Réponds en une phrase, en français : à quoi sert une visite d\'inspection pédagogique ?').then(function(t){
+        btnSrvTest.disabled = false; out.className = 'banner info';
+        out.textContent = '✓ '+t+' — '+fmtAiDuration(aiLastMeta.ms)+(aiLastMeta.firstMs ? ', 1er mot après '+fmtAiDuration(aiLastMeta.firstMs) : '')+(aiLastMeta.tps ? ', ≈ '+aiLastMeta.tps+' jetons/s' : '');
+      }).catch(function(err){ btnSrvTest.disabled = false; out.className = 'banner err'; out.textContent = geminiErrorMessage(err); });
+    };
     var btnDlModel = $('btnDownloadLocalModel'); if(btnDlModel){
       localModelFileSize(localAiModel()).then(function(n){
         if(n > 0 && !localAi.downloading && document.body.contains(btnDlModel)) btnDlModel.textContent = 'Reprendre le téléchargement ('+fmtMo(n)+' / '+fmtMo(localAiModel().bytes)+')';
@@ -6076,9 +6217,9 @@
     var btnTestModel = $('btnTestLocalModel'); if(btnTestModel) btnTestModel.onclick = function(){
       btnTestModel.disabled = true;
       var started = Date.now();
-      localGenerate('Réponds en une phrase, en français : à quoi sert une visite d\'inspection pédagogique ?').then(function(t){
+      geminiGenerate('Réponds en une phrase, en français : à quoi sert une visite d\'inspection pédagogique ?').then(function(t){
         btnTestModel.disabled = false;
-        localAi.error = ''; localAi.phase = '✓ '+t+' ('+Math.round((Date.now()-started)/1000)+' s)'; localAi.pct = 0; localAiShowProgress(); localAi.phase = '';
+        localAi.error = ''; localAi.phase = '✓ '+t+' — '+fmtAiDuration(Date.now()-started)+(aiLastMeta.firstMs ? ', 1er mot après '+fmtAiDuration(aiLastMeta.firstMs) : '')+(aiLastMeta.tps ? ', ≈ '+aiLastMeta.tps+' jetons/s' : '')+(localAi.backend ? ' · '+localAi.backend : ''); localAi.pct = 0; localAiShowProgress(); localAi.phase = '';
       }).catch(function(err){ btnTestModel.disabled = false; localAi.error = geminiErrorMessage(err); localAiShowProgress(); });
     };
     if($('localAiProgress')) localAiShowProgress();
