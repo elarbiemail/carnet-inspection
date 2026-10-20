@@ -3486,6 +3486,7 @@
   function pushModal(m){ state.modalStack.push(m); render(); }
 
   function openTaskEditor(task){
+    state.draftTaskAutoTitle = undefined;
     state.draftTask = task ? Object.assign({heureDebut:'', heureFin:'', lieu:'', lienConnexion:'', invites:[], attachments:[]}, JSON.parse(JSON.stringify(task))) : {
       id: uid(), titre:'', statut:'a_planifier', priorite:'moyenne', taskType:'inspection',
       enseignantId:null, enseignantNom:'', etablissementId:null, etablissementNom:'',
@@ -3499,6 +3500,7 @@
     pushModal({type:'task', isNew: !task});
   }
   function openTaskEditorPrefilled(partial){
+    state.draftTaskAutoTitle = undefined;
     state.draftTask = Object.assign({
       id: uid(), titre:'', statut:'a_planifier', priorite:'moyenne', taskType:'inspection',
       enseignantId:null, enseignantNom:'', etablissementId:null, etablissementNom:'',
@@ -4882,15 +4884,57 @@
     var v = vacanceForDate(iso);
     return '<div id="fVacanceWarning">'+(v ? '<div class="banner warn" style="margin:-4px 0 10px;">'+ICONS.warn+'<div>Cette date tombe pendant <b>'+esc(v.nom||'une période de vacances')+'</b> (du '+fmtDate(v.dateDebut)+' au '+fmtDate(v.dateFin)+').</div></div>' : '')+'</div>';
   }
+  /* Titre automatique de la tâche, composé de ses éléments significatifs : type, personne ou public
+     visé, établissement (ou lieu), date et heure — ex. « Inspection · ALAMI Sara · Lycée Chorouk ·
+     21/10/2026 », « Réunion pédagogique · 12 enseignant(e)s · 3 établissements · 24/10/2026 à 09:00 ».
+     Tant que l'utilisateur n'a pas écrit son propre titre, il se met à jour à chaque modification ;
+     dès qu'il le modifie à la main, son titre est conservé (bouton « Titre automatique » pour revenir
+     au titre composé). */
+  function autoTaskTitle(t){
+    var parts = [TT_LABEL[t.taskType] || 'Tâche'];
+    var ens = t.enseignantNom || ensName(t.enseignantId);
+    var etab = t.etablissementNom || etabName(t.etablissementId);
+    var inv = t.invites || [];
+    if(TASK_TYPES_SINGLE_TARGET[t.taskType]){
+      if(ens) parts.push(ens);
+      if(etab) parts.push(etab);
+      else if(t.lieu) parts.push(t.lieu);
+    } else if(TASK_TYPES_NOTIFY[t.taskType]){
+      if(inv.length){
+        var etabs = []; inv.forEach(function(iv){ var n = (iv.etablissementNom||'').trim(); if(n && etabs.indexOf(n)<0) etabs.push(n); });
+        parts.push(inv.length===1 ? inv[0].nom : inv.length+' enseignant(e)s');
+        if(t.lieu) parts.push(t.lieu);
+        else if(etabs.length===1) parts.push(etabs[0]);
+        else if(etabs.length>1) parts.push(etabs.length+' établissements');
+      } else if(t.lieu) parts.push(t.lieu);
+    } else if(t.lieu) parts.push(t.lieu);
+    if(t.echeance) parts.push(fmtDate(t.echeance) + (t.heureDebut ? ' à '+t.heureDebut : ''));
+    return parts.filter(Boolean).join(' · ');
+  }
+  /* La tâche suit le titre automatique si son titre est vide ou identique au dernier titre automatique
+     proposé (state.draftTaskAutoTitle, jamais enregistré avec la tâche). */
+  function taskTitleIsAuto(t){ return !String(t.titre||'').trim() || t.titre === state.draftTaskAutoTitle; }
+  function refreshAutoTaskTitle(){
+    var t = state.draftTask; if(!t) return;
+    var auto = autoTaskTitle(t);
+    if(taskTitleIsAuto(t)){ t.titre = auto; var el = $('fTitre'); if(el && el.value !== auto) el.value = auto; }
+    state.draftTaskAutoTitle = auto;
+    var b = $('btnAutoTitre'); if(b) b.hidden = (t.titre === auto);
+  }
   function taskModalHtml(idx){
     var t = state.draftTask;
+    if(state.draftTaskAutoTitle === undefined && t.titre && t.titre === autoTaskTitle(t)) state.draftTaskAutoTitle = t.titre;
+    var autoT = autoTaskTitle(t);
+    if(taskTitleIsAuto(t)) t.titre = autoT;
+    state.draftTaskAutoTitle = autoT;
     var singleTarget = TASK_TYPES_SINGLE_TARGET[t.taskType];
     return '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
       '<div class="sheet-head"><h2>'+(state.modalStack[idx].isNew?'Nouvelle tâche':'Modifier la tâche')+'</h2>'+
         '<button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
       '<div class="field"><label for="fTypeSel">Type de tâche</label><select id="fTypeSel" style="width:100%;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:10px 11px;">'+
       TASK_TYPES.map(function(tt){ return '<option value="'+tt.v+'"'+(t.taskType===tt.v?' selected':'')+'>'+tt.l+'</option>'; }).join('')+'</select></div>'+
-      '<div class="field"><label for="fTitre">Titre</label><input type="text" id="fTitre" value="'+esc(t.titre)+'" placeholder="Ex. Visite de classe 1BAC"></div>'+
+      '<div class="field"><label for="fTitre">Titre <span style="font-weight:400;color:var(--ink-faint);">(composé automatiquement, modifiable)</span></label><input type="text" id="fTitre" value="'+esc(t.titre)+'" placeholder="'+esc(autoT)+'">'+
+        '<button class="addline" id="btnAutoTitre" type="button"'+(t.titre===autoT?' hidden':'')+' style="margin-top:6px;">'+ICONS.ai+' Titre automatique : '+esc(autoT)+'</button></div>'+
       (singleTarget ? '<div class="field"><label>Établissement</label><button type="button" class="pickbtn" id="btnPickEtab"><span class="'+(t.etablissementNom||etabName(t.etablissementId)?'':'ph')+' t">'+esc(t.etablissementNom||etabName(t.etablissementId)||'Choisir un établissement…')+'</span></button></div>'+
       '<div class="field"><label>Enseignant(e)</label><button type="button" class="pickbtn" id="btnPickEns"><span class="'+(t.enseignantNom||ensName(t.enseignantId)?'':'ph')+' t">'+esc(t.enseignantNom||ensName(t.enseignantId)||'Choisir un(e) enseignant(e)…')+'</span></button></div>' : '')+
       '<div class="field"><label>Priorité</label><div class="seg" id="fPrioSeg">'+['basse','moyenne','haute'].map(function(v){ return '<button type="button" data-v="'+v+'" aria-pressed="'+(t.priorite===v)+'">'+v.charAt(0).toUpperCase()+v.slice(1)+'</button>'; }).join('')+'</div></div>'+
@@ -5818,7 +5862,17 @@
       state.draftTask.echeance = fEch.value;
       var warnBox = $('fVacanceWarning');
       if(warnBox) warnBox.outerHTML = taskVacanceWarningHtml(fEch.value);
+      refreshAutoTaskTitle();
     };
+    ['fHeureDebut','fLieu'].forEach(function(id){ var el = $(id); if(el) el.addEventListener('change', function(){
+      if(id==='fHeureDebut') state.draftTask.heureDebut = el.value; else state.draftTask.lieu = el.value;
+      refreshAutoTaskTitle();
+    }); });
+    var fTit = $('fTitre'); if(fTit) fTit.oninput = function(){
+      state.draftTask.titre = fTit.value;
+      var b = $('btnAutoTitre'); if(b) b.hidden = (fTit.value === state.draftTaskAutoTitle);
+    };
+    var bAutoT = $('btnAutoTitre'); if(bAutoT) bAutoT.onclick = function(){ syncTaskFields(); state.draftTask.titre = ''; render(); };
     var selType = $('fTypeSel'); if(selType) selType.onchange = function(){ syncTaskFields(); state.draftTask.taskType=selType.value; render(); };
     var segP = $('fPrioSeg'); if(segP) segP.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ syncTaskFields(); state.draftTask.priorite=b.getAttribute('data-v'); render(); }; });
     var segNote = $('fNoteSeg'); if(segNote) segNote.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ syncTaskFields(); state.draftTask.noteGlobale=b.getAttribute('data-v'); render(); }; });
@@ -5861,7 +5915,8 @@
     if(saveBtn) saveBtn.onclick = function(){
       syncTaskFields();
       var t = state.draftTask;
-      t.titre = (t.titre||'').trim() || '(sans titre)';
+      t.titre = (t.titre||'').trim() || autoTaskTitle(t) || '(sans titre)';
+      state.draftTaskAutoTitle = undefined;
       recordSet('task', t).then(function(){ closeTopModal(); toast('Tâche enregistrée.'); }).catch(function(){ toast('Échec de l\'enregistrement.'); });
     };
     var delBtn = $('btnDeleteTask'); if(delBtn) delBtn.onclick = function(){ recordDelete('task', state.draftTask.id).then(function(){ closeTopModal(); toast('Tâche supprimée.'); }); };
