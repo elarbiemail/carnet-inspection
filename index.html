@@ -2063,6 +2063,7 @@
     var fn = function(t){
       if(stopped) return;
       pending = t;
+      if(document.visibilityState==='hidden'){ flush(); return; }
       if(!raf) raf = (window.requestAnimationFrame || function(f){ return setTimeout(f, 16); })(flush);
     };
     fn.stop = function(){ stopped = true; };
@@ -2580,7 +2581,15 @@
        génération : écran maintenu allumé, et brouillon de secours enregistré régulièrement (voir
        draftAutosave) avec les notes d'origine, pour ne rien perdre si l'on quitte l'application. */
     var streamFn = aiStreamInto(targetTextarea), lastSave = 0, gotText = false;
-    var onText = streamFn ? function(t){ gotText = gotText || !!String(t).trim(); streamFn(t); if(Date.now() - lastSave > 1500){ lastSave = Date.now(); setTimeout(draftAutosave, 50); } } : null;
+    /* Le texte reçu est gardé directement dans aiPending (et non relu dans le champ, qui n'est plus
+       redessiné quand l'application passe en arrière-plan) et enregistré sans minuterie — les
+       minuteries sont ralenties ou suspendues en arrière-plan sur Android. */
+    var onText = streamFn ? function(t){
+      gotText = gotText || !!String(t).trim();
+      if(aiPending) aiPending.partial = String(t);
+      streamFn(t);
+      if(Date.now() - lastSave > (document.visibilityState==='hidden' ? 300 : 1000)){ lastSave = Date.now(); draftAutosave(); }
+    } : null;
     if(onText) onText.stop = streamFn.stop;
     if(targetTextarea && targetTextarea.id){
       aiPending = { fieldId: targetTextarea.id, statusId: statusEl && statusEl.id || '', original: original, partial: '', label: 'texte en cours de génération' };
@@ -5082,7 +5091,8 @@
     var fields = autosaveCollectFields($('overlayRoot'));
     if(aiPending){
       var ta = document.getElementById(aiPending.fieldId);
-      if(ta) aiPending.partial = String(ta.value||'').replace(/\s*▍$/, '');
+      var shown = ta ? String(ta.value||'').replace(/\s*▍$/, '') : '';
+      if(shown.length > String(aiPending.partial||'').length && shown !== aiPending.original) aiPending.partial = shown;
       if(!stack.length && ta) fields['#'+aiPending.fieldId] = {v: aiPending.partial};
     }
     var snap = { ts: Date.now(), view: state.view, stack: stack, fields: fields,
@@ -5158,7 +5168,9 @@
       if(ai){
         var ta = document.getElementById(ai.fieldId), stEl = ai.statusId ? document.getElementById(ai.statusId) : null;
         if(ta && ai.partial) ta.value = ai.partial;
-        if(stEl) aiShowInterrupted(stEl, ta, ai.original, null);
+        var again = null;
+        if(stEl){ var row = stEl.previousElementSibling; again = row && row.querySelector ? row.querySelector('button.btn.ai') : null; }
+        if(stEl) aiShowInterrupted(stEl, ta, ai.original, again);
         else toast('Texte en cours de génération récupéré. Relancez le bouton IA pour le terminer.');
       }
       draftAutosave();
