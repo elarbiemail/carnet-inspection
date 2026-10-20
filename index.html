@@ -1942,11 +1942,12 @@
     }, function(){ return Promise.reject({code:'network'}); });
   }
   function wait(ms){ return new Promise(function(resolve){ setTimeout(resolve, ms); }); }
-  function geminiGenerateCloud(prompt, attempt, imagePart){
+  function geminiGenerateCloud(prompt, attempt, imagePart, onText, onReason){
     attempt = attempt || 1;
-    return geminiGenerateOnce(prompt, imagePart).catch(function(err){
+    var run = (onText && !imagePart) ? geminiStreamOnce(prompt, onText, onReason) : geminiGenerateOnce(prompt, imagePart);
+    return run.catch(function(err){
       if(err && err.code==='overloaded' && attempt < 3){
-        return wait(attempt * 1500).then(function(){ return geminiGenerateCloud(prompt, attempt + 1, imagePart); });
+        return wait(attempt * 1500).then(function(){ return geminiGenerateCloud(prompt, attempt + 1, imagePart, onText, onReason); });
       }
       return Promise.reject(err);
     });
@@ -1979,7 +1980,93 @@
       }
       return pv==='server' ? serverGenerate(prompt, onText, onReason) : localGenerate(prompt, onText, onReason);
     }
-    return geminiGenerateCloud(prompt, attempt, imagePart);
+    return geminiGenerateCloud(prompt, attempt, imagePart, onText, onReason);
+  }
+  /* Gemini en flux (streamGenerateContent, réponse SSE) : le texte arrive par morceaux et s'affiche
+     au fur et à mesure dans le champ, comme avec l'IA locale. Mêmes codes d'erreur que
+     geminiGenerateOnce (le corps d'erreur est un JSON classique). */
+  function geminiStreamOnce(prompt, onText, onReason){
+    var key = geminiApiKey();
+    if(!key) return Promise.reject({code:'not_configured'});
+    var think = aiReasoningOn() && !geminiThinkingUnsupported;
+    var url = 'https://generativelanguage.googleapis.com/v1beta/models/'+GEMINI_MODEL+':streamGenerateContent?alt=sse';
+    var body = think
+      ? { contents: [{ parts: [{ text: prompt }] }], generationConfig: { thinkingConfig: { thinkingLevel: 'high', includeThoughts: true } } }
+      : { contents: [{ parts: [{ text: prompt }] }] };
+    var text = '', reasoning = '', nTok = 0, tStart = Date.now(), tFirst = 0, blocked = false;
+    aiLastMeta.reasoningUsed = think;
+    return fetch(url, { method:'POST', headers:{'Content-Type':'application/json', 'x-goog-api-key': key}, body: JSON.stringify(body) }).then(function(res){
+      if(!res.ok){
+        return res.json().catch(function(){ return {}; }).then(function(data){
+          var gErr = (data && (data.error || (data[0] && data[0].error))) || {};
+          var gMsg = gErr.message || res.statusText || '';
+          if(think && res.status===400 && /think/i.test(gMsg)){ geminiThinkingUnsupported = true; return 'retry'; }
+          var code;
+          if(res.status===503 || gErr.status==='UNAVAILABLE' || /overloaded|high demand/i.test(gMsg)) code = 'overloaded';
+          else if(res.status===429) code = 'rate_limited';
+          else if(gErr.status==='FAILED_PRECONDITION' || /location is not supported/i.test(gMsg)) code = 'location_restricted';
+          else if(res.status===400 || res.status===403) code = 'invalid_key';
+          else if(res.status===404) code = 'not_found';
+          else code = 'tool_error';
+          return Promise.reject({code: code, message: gMsg});
+        });
+      }
+      if(!res.body || !res.body.getReader) return res.text().then(function(t){ text = t; });
+      var reader = res.body.getReader(), dec = new TextDecoder(), buf = '';
+      function handle(line){
+        line = line.trim();
+        if(line.indexOf('data:')!==0) return;
+        try{
+          var j = JSON.parse(line.slice(5).trim());
+          if(j.promptFeedback && j.promptFeedback.blockReason) blocked = true;
+          var cand = j.candidates && j.candidates[0];
+          if(cand && cand.finishReason==='SAFETY') blocked = true;
+          ((cand && cand.content && cand.content.parts) || []).forEach(function(pt){
+            if(!pt.text) return;
+            nTok++; if(!tFirst) tFirst = Date.now();
+            if(pt.thought){ reasoning += pt.text; if(onReason) onReason(reasoning); }
+            else { text += pt.text; if(onText) onText(text); }
+          });
+        }catch(e){}
+      }
+      function pump(){
+        return reader.read().then(function(r){
+          if(r.done){ if(buf) handle(buf); return; }
+          buf += dec.decode(r.value, {stream:true});
+          var lines = buf.split('\n'); buf = lines.pop();
+          lines.forEach(handle);
+          return pump();
+        });
+      }
+      return pump();
+    }, function(){ return Promise.reject({code:'network'}); }).then(function(r){
+      if(r === 'retry') return geminiStreamOnce(prompt, onText, onReason);
+      if(blocked && !text.trim()) return Promise.reject({code:'blocked'});
+      aiNoteSpeed(tStart, tFirst, nTok);
+      aiLastMeta.reasoning = reasoning.trim();
+      if(!text.trim()) return Promise.reject({code:'empty_completion'});
+      return text.trim();
+    });
+  }
+  /* Affichage progressif dans le champ à remplir : le texte reçu s'écrit au fil de l'eau, suivi d'un
+     curseur ▍, et le champ défile pour garder les derniers mots visibles. */
+  function aiStreamInto(textarea){
+    if(!textarea) return null;
+    var pending = null, raf = 0, stopped = false;
+    function flush(){
+      raf = 0;
+      if(stopped || pending === null) return;
+      var atEnd = textarea.scrollTop + textarea.clientHeight >= textarea.scrollHeight - 30;
+      textarea.value = pending + (/\s$/.test(pending) ? '' : ' ') + '▍';
+      if(atEnd || document.activeElement !== textarea) textarea.scrollTop = textarea.scrollHeight;
+    }
+    var fn = function(t){
+      if(stopped) return;
+      pending = t;
+      if(!raf) raf = (window.requestAnimationFrame || function(f){ return setTimeout(f, 16); })(flush);
+    };
+    fn.stop = function(){ stopped = true; };
+    return fn;
   }
   /* Bandeau d'état des boutons IA : chronomètre en direct pendant la génération, puis durée totale,
      moteur utilisé et (mode raisonnement) le raisonnement du modèle, repliable. */
@@ -2452,18 +2539,19 @@
     if(!aiUsable() || (aiEffectiveProvider()==='local' && !localModelReady())){ toast(geminiErrorMessage({code:'not_configured'})); return; }
     if(btn) btn.disabled = true;
     var original = targetTextarea ? targetTextarea.value : '';
-    var local = aiEffectiveProvider()!=='gemini';
     var st = aiStatusStart(statusEl);
-    /* IA locale : le texte s'affiche au fil de l'eau dans le champ ; en cas d'erreur on remet le
-       contenu d'origine (notes de l'inspecteur) pour ne rien perdre. */
-    var onText = (local && targetTextarea) ? function(t){ targetTextarea.value = t; } : null;
+    /* Quel que soit le moteur, le texte s'affiche au fil de l'eau dans le champ ; en cas d'erreur on
+       remet le contenu d'origine (notes de l'inspecteur) pour ne rien perdre. */
+    var onText = aiStreamInto(targetTextarea);
     geminiGenerate(prompt, 1, null, onText, st.onReason).then(function(text){
       st.stop();
-      if(targetTextarea) targetTextarea.value = text;
+      if(onText) onText.stop();
+      if(targetTextarea){ targetTextarea.value = text; targetTextarea.scrollTop = 0; }
       aiStatusDone(statusEl);
       if(btn) btn.disabled = false;
     }).catch(function(err){
       st.stop();
+      if(onText) onText.stop();
       if(targetTextarea && onText) targetTextarea.value = original;
       if(statusEl){ statusEl.hidden = false; statusEl.className = 'banner err'; statusEl.textContent = geminiErrorMessage(err); }
       if(btn) btn.disabled = false;
