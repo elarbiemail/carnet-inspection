@@ -1852,7 +1852,12 @@
         : "Ajoutez votre clé API Gemini dans Réglages → Assistant IA pour activer l'assistant de rédaction.";
       case 'local_no_image': return "L'IA locale ne lit pas les images : l'import d'une fiche par photo/PDF utilise Gemini. Ajoutez une clé Gemini dans Réglages → Assistant IA pour cet import (le reste de l'assistant continue de fonctionner en local).";
       case 'local_memory': return "Mémoire insuffisante sur cet appareil pour ce modèle. Fermez les autres applications ou choisissez un modèle plus léger dans Réglages → Assistant IA.";
-      case 'local_network': return "Le téléchargement du modèle a échoué (connexion interrompue ou trop lente). Reconnectez-vous en Wifi puis relancez le téléchargement dans Réglages → Assistant IA : il reprendra là où il s'est arrêté si possible.";
+      case 'local_network': return "Le téléchargement du modèle s'est interrompu (connexion coupée ou trop lente). Vérifiez le Wifi puis touchez « Reprendre le téléchargement » : il repartira de là où il s'est arrêté." + (err&&err.message?' (détail : '+err.message+')':'');
+      case 'local_paused': return "Téléchargement en pause : l'écran s'est éteint ou vous avez quitté l'application. Il reprend automatiquement dès que vous revenez sur cet écran (sinon, touchez « Reprendre le téléchargement »). Rien de ce qui a déjà été téléchargé n'est perdu.";
+      case 'local_engine_network': return "Le moteur IA local n'a pas pu être chargé (première utilisation : une connexion internet est nécessaire une fois pour récupérer le moteur, environ 9 Mo).";
+      case 'local_bad_file': return "Ce fichier ne correspond à aucun des modèles proposés. Choisissez le fichier .gguf téléchargé avec le lien « Télécharger avec Chrome ».";
+      case 'local_incomplete_file': return "Le fichier du modèle est incomplet (téléchargement inachevé). Attendez la fin du téléchargement dans Chrome, puis importez-le à nouveau.";
+      case 'local_storage_full': return "Espace de stockage insuffisant sur le téléphone pour enregistrer le modèle. Libérez de la place ou choisissez un modèle plus léger.";
       case 'local_load_failed': return "Impossible de démarrer l'IA locale" + (err&&err.message?' : « '+err.message+' »':'') + ". Mettez Chrome à jour, ou choisissez un modèle plus léger dans Réglages → Assistant IA.";
       case 'invalid_key': return "Clé API Gemini refusée par Google" + (err&&err.message?' : « '+err.message+' »':'') + ". Si vous venez de créer une clé toute neuve sur aistudio.google.com/apikey et qu'elle est refusée quand même, ce n'est probablement plus un problème de clé « ancien format » : vérifiez que vous avez bien copié la clé en entier (sans espace ni retour à la ligne), qu'elle correspond bien au compte Google que vous utilisez, et régénérez-en une nouvelle si le doute persiste.";
       case 'location_restricted': return "Gemini a refusé la demande avec le message « User location is not supported » (localisation non prise en charge). Ceci n'est PAS lié à la clé — en créer une nouvelle ne change rien. Cause la plus fréquente : un VPN, un proxy, ou le réseau de l'établissement/opérateur qui achemine la connexion via un pays où Gemini n'est pas disponible. Désactivez tout VPN/économiseur de données puis réessayez en Wifi ou en 4G/5G directe.";
@@ -1949,21 +1954,24 @@
   /* ================= IA locale (sur l'appareil, dans le navigateur) =================
      Moteur llama.cpp compilé en WebAssembly (bibliothèque wllama, chargée depuis le CDN jsdelivr au
      premier usage — même moteur que l'application PocketPal). Le modèle (fichier GGUF public sur
-     Hugging Face) est téléchargé UNE SEULE FOIS puis conservé dans le stockage privé du navigateur
-     (OPFS) : ensuite la génération fonctionne hors ligne, et ni les observations ni le rapport ne
+     Hugging Face) est téléchargé UNE SEULE FOIS (avec reprise après coupure, voir plus bas) puis
+     conservé dans le stockage privé du navigateur (OPFS) : ensuite la génération fonctionne hors ligne, et ni les observations ni le rapport ne
      quittent le téléphone. Utilise la carte graphique (WebGPU) quand le navigateur la propose, sinon
      le processeur. Le choix du moteur et l'état du modèle sont propres à chaque appareil (stockés
      dans localStorage, PAS dans state.config qui est synchronisé avec Drive) : on peut garder Gemini
      sur le PC et l'IA locale sur le téléphone. Modèles limités à < 2 Go (limite d'un fichier unique
      dans wllama). */
   var LOCAL_AI_MODELS = [
-    {id:'qwen25-3b', label:'Qwen 2.5 3B — meilleure rédaction', size:'1,9 Go', ram:'6 Go de RAM ou plus', repo:'bartowski/Qwen2.5-3B-Instruct-GGUF', file:'Qwen2.5-3B-Instruct-Q4_K_M.gguf'},
-    {id:'qwen25-1.5b', label:'Qwen 2.5 1.5B — plus rapide', size:'1 Go', ram:'4 Go de RAM ou plus', repo:'bartowski/Qwen2.5-1.5B-Instruct-GGUF', file:'Qwen2.5-1.5B-Instruct-Q4_K_M.gguf'},
-    {id:'gemma3-1b', label:'Gemma 3 1B — très léger', size:'0,8 Go', ram:'3 Go de RAM ou plus', repo:'ggml-org/gemma-3-1b-it-GGUF', file:'gemma-3-1b-it-Q4_K_M.gguf'}
+    {id:'qwen25-3b', label:'Qwen 2.5 3B — meilleure rédaction', size:'1,9 Go', bytes:1929903264, ram:'6 Go de RAM ou plus', repo:'bartowski/Qwen2.5-3B-Instruct-GGUF', file:'Qwen2.5-3B-Instruct-Q4_K_M.gguf'},
+    {id:'qwen25-1.5b', label:'Qwen 2.5 1.5B — plus rapide', size:'1 Go', bytes:986048768, ram:'4 Go de RAM ou plus', repo:'bartowski/Qwen2.5-1.5B-Instruct-GGUF', file:'Qwen2.5-1.5B-Instruct-Q4_K_M.gguf'},
+    {id:'gemma3-1b', label:'Gemma 3 1B — très léger', size:'0,8 Go', bytes:806058240, ram:'3 Go de RAM ou plus', repo:'ggml-org/gemma-3-1b-it-GGUF', file:'gemma-3-1b-it-Q4_K_M.gguf'}
   ];
   var WLLAMA_VERSION = '3.8.1';
+  var WLLAMA_BASE = 'https://cdn.jsdelivr.net/npm/@wllama/wllama@'+WLLAMA_VERSION+'/';
   var LOCAL_AI_KEY = 'carnet-inspection-local-ai';
-  var localAi = { instance:null, loadedId:null, loading:null, phase:'', pct:0, error:'' };
+  var LOCAL_AI_DIR = 'carnet-ia-modeles';
+  var LOCAL_AI_CHUNK = 16 * 1024 * 1024;
+  var localAi = { instance:null, loadedId:null, loading:null, downloading:null, interrupted:false, phase:'', pct:0, error:'', wakeLock:null };
   function localAiPrefs(){
     try{ return Object.assign({provider:'gemini', modelId:LOCAL_AI_MODELS[0].id, ready:{}}, JSON.parse(localStorage.getItem(LOCAL_AI_KEY)||'{}')); }
     catch(e){ return {provider:'gemini', modelId:LOCAL_AI_MODELS[0].id, ready:{}}; }
@@ -1983,6 +1991,7 @@
   function aiReady(){ return aiProvider()==='local' ? localModelReady() : !!geminiApiKey(); }
   function aiEngineLabel(){ return aiProvider()==='local' ? "l'IA locale" : 'Gemini'; }
   function localModelUrl(m){ return 'https://huggingface.co/'+m.repo+'/resolve/main/'+m.file; }
+  function fmtMo(n){ return Math.round(n/1048576)+' Mo'; }
   /* Affiche l'avancement (téléchargement/chargement) dans Réglages → Assistant IA sans redessiner tout
      l'écran : on met à jour directement l'élément #localAiProgress s'il est affiché. */
   function localAiShowProgress(){
@@ -1992,36 +2001,185 @@
     el.className = 'banner '+(localAi.error ? 'err' : 'info');
     el.textContent = localAi.error || (localAi.phase + (localAi.pct ? ' — '+localAi.pct+' %' : ''));
   }
+  /* --- stockage du modèle : morceaux de 16 Mo dans l'espace privé du navigateur (OPFS) ---
+     Le modèle est écrit dans un dossier à nous (et non dans le cache interne de wllama) pour pouvoir
+     REPRENDRE un téléchargement interrompu : Chrome suspend la page quand l'écran s'éteint, ce qui
+     coupe la connexion. On télécharge donc par tranches de 16 Mo (requêtes HTTP « Range »), chacune
+     enregistrée dans son propre fichier part-0000, part-0001… dès réception : une reprise saute les
+     tranches déjà complètes au lieu de tout recommencer, et aucune tranche n'a besoin d'être recopiée
+     (un seul gros fichier complété morceau par morceau serait recopié en entier à chaque ajout). Au
+     chargement, les tranches sont simplement mises bout à bout (Blob). Le même découpage sert pour un
+     modèle importé depuis le téléphone (fichier .gguf téléchargé avec Chrome, qui continue, lui,
+     écran éteint). */
+  function localModelDir(m, create){
+    if(!navigator.storage || !navigator.storage.getDirectory) return Promise.reject({code:'local_load_failed', message:'stockage du navigateur indisponible'});
+    return navigator.storage.getDirectory().then(function(root){ return root.getDirectoryHandle(LOCAL_AI_DIR, {create:true}); })
+      .then(function(dir){ return dir.getDirectoryHandle(m.id, {create:!!create}); });
+  }
+  function localPartCount(m){ return Math.ceil(m.bytes / LOCAL_AI_CHUNK); }
+  function localPartName(i){ return 'part-'+('000'+i).slice(-4); }
+  function localPartLen(m, i){ return Math.min(LOCAL_AI_CHUNK, m.bytes - i*LOCAL_AI_CHUNK); }
+  /* Liste des tranches complètes déjà présentes : tableau de File (ou null pour une tranche absente
+     ou incomplète). */
+  function localModelParts(m){
+    return localModelDir(m, false).then(function(dir){
+      var n = localPartCount(m), out = [], i = 0;
+      function next(){
+        if(i >= n) return out;
+        var idx = i++;
+        return dir.getFileHandle(localPartName(idx)).then(function(h){ return h.getFile(); }).then(function(f){
+          out.push(f.size === localPartLen(m, idx) ? f : null);
+        }, function(){ out.push(null); }).then(next);
+      }
+      return next();
+    }, function(){ var out = []; for(var i=0;i<localPartCount(m);i++) out.push(null); return out; });
+  }
+  function localModelFileSize(m){
+    return localModelParts(m).then(function(parts){ return parts.reduce(function(a,f){ return a + (f ? f.size : 0); }, 0); });
+  }
+  function writeLocalPart(dir, i, buf){
+    return dir.getFileHandle(localPartName(i), {create:true}).then(function(h){ return h.createWritable(); })
+      .then(function(w){ return w.write(buf).then(function(){ return w.close(); }); });
+  }
+  function isQuotaError(e){ return /quota/i.test(String(e && (e.name || e.message || e))); }
+  function localAiKeepAwake(on){
+    try{
+      if(on && !localAi.wakeLock && navigator.wakeLock){
+        navigator.wakeLock.request('screen').then(function(l){ localAi.wakeLock = l; l.addEventListener('release', function(){ localAi.wakeLock = null; }); }).catch(function(){});
+      } else if(!on && localAi.wakeLock){ localAi.wakeLock.release().catch(function(){}); localAi.wakeLock = null; }
+    }catch(e){}
+  }
+  /* Quand l'utilisateur revient sur l'application (écran rallumé) : on réactive le maintien de
+     l'écran et on relance automatiquement un téléchargement qui a été coupé. */
+  document.addEventListener('visibilitychange', function(){
+    if(document.visibilityState!=='visible') return;
+    if(localAi.downloading) localAiKeepAwake(true);
+    else if(localAi.interrupted && aiProvider()==='local' && !localModelReady()){
+      localAi.interrupted = false;
+      downloadLocalModel().then(function(){ render(); }, function(){});
+    }
+  });
+  function markLocalModelReady(m, ready){
+    var r = localAiPrefs().ready;
+    if(ready) r[m.id] = true; else delete r[m.id];
+    localAiPrefsSet({ ready: r });
+  }
+  function downloadLocalModel(){
+    var m = localAiModel();
+    if(localAi.downloading) return localAi.downloading;
+    var url = localModelUrl(m), failures = 0, dir, parts, done = 0;
+    localAi.error = ''; localAi.interrupted = false;
+    localAiKeepAwake(true);
+    function show(){
+      localAi.pct = Math.floor(done / m.bytes * 100);
+      localAi.phase = 'Téléchargement du modèle : '+fmtMo(done)+' / '+fmtMo(m.bytes)+' (gardez l\'application ouverte ; en cas de coupure, il reprendra où il s\'est arrêté)';
+      localAiShowProgress();
+    }
+    function step(i){
+      while(i < parts.length && parts[i]) i++;
+      if(i >= parts.length) return Promise.resolve();
+      var start = i * LOCAL_AI_CHUNK, end = start + localPartLen(m, i) - 1;
+      /* Délai maximal par tranche : une connexion mobile qui « gèle » sans erreur est abandonnée
+         puis relancée, au lieu de bloquer le téléchargement indéfiniment. */
+      var ctrl = window.AbortController ? new AbortController() : null;
+      var timer = ctrl ? setTimeout(function(){ ctrl.abort(); }, 90000) : null;
+      return fetch(url, { headers: { Range: 'bytes='+start+'-'+end }, signal: ctrl ? ctrl.signal : undefined }).then(function(res){
+        if(res.status !== 206){
+          if(res.ok) return Promise.reject({code:'local_load_failed', message:'le serveur ne permet pas la reprise (HTTP '+res.status+')'});
+          return Promise.reject({code:'local_network', message:'HTTP '+res.status});
+        }
+        return res.arrayBuffer();
+      }).then(function(buf){
+        if(timer) clearTimeout(timer);
+        if(buf.byteLength !== end - start + 1) return Promise.reject({code:'local_network', message:'tranche incomplète'});
+        return writeLocalPart(dir, i, buf);
+      }).then(function(){
+        parts[i] = true; done += end - start + 1; failures = 0; show();
+        return step(i + 1);
+      }, function(err){
+        if(timer) clearTimeout(timer);
+        if(err && err.code==='local_load_failed') return Promise.reject(err);
+        if(isQuotaError(err)) return Promise.reject({code:'local_storage_full'});
+        /* Coupure réseau : si la page est masquée (écran éteint), on attend le retour de
+           l'utilisateur (voir visibilitychange) ; sinon on réessaie quelques fois. */
+        if(document.visibilityState!=='visible') return Promise.reject({code:'local_paused'});
+        if(++failures > 4) return Promise.reject({code:'local_network', message: err && err.message});
+        return wait(2000 * failures).then(function(){ return step(i); });
+      });
+    }
+    localAi.downloading = localModelDir(m, true).then(function(d){ dir = d; return localModelParts(m); }).then(function(p){
+      parts = p; done = p.reduce(function(a,f){ return a + (f ? f.size : 0); }, 0); show();
+      return step(0);
+    }).then(function(){
+      localAi.downloading = null; localAiKeepAwake(false);
+      localAi.phase = ''; localAi.pct = 0; localAiShowProgress();
+      markLocalModelReady(m, true);
+    }, function(err){
+      localAi.downloading = null; localAiKeepAwake(false);
+      localAi.phase = ''; localAi.pct = 0;
+      if(err && err.code==='local_paused') localAi.interrupted = true;
+      localAi.error = geminiErrorMessage(err && err.code ? err : {code:'local_network', message: err && err.message});
+      localAiShowProgress();
+      return Promise.reject(err);
+    });
+    return localAi.downloading;
+  }
+  /* Import d'un fichier .gguf déjà présent sur le téléphone (téléchargé avec Chrome) : recopié dans
+     l'espace privé du navigateur, par blocs, avec contrôle de la taille attendue. */
+  function importLocalModelFile(file){
+    var m = LOCAL_AI_MODELS.filter(function(x){ return x.file===file.name || x.bytes===file.size; })[0];
+    if(!m) return Promise.reject({code:'local_bad_file'});
+    if(file.size !== m.bytes) return Promise.reject({code:'local_incomplete_file'});
+    localAiPrefsSet({ modelId: m.id });
+    localAi.error = ''; localAiKeepAwake(true);
+    return localModelDir(m, true).then(function(dir){
+      var n = localPartCount(m), i = 0;
+      function next(){
+        if(i >= n) return;
+        var idx = i++, start = idx * LOCAL_AI_CHUNK;
+        return file.slice(start, start + localPartLen(m, idx)).arrayBuffer().then(function(buf){ return writeLocalPart(dir, idx, buf); }).then(function(){
+          localAi.pct = Math.floor(i / n * 100);
+          localAi.phase = 'Import du modèle dans l\'application : '+fmtMo(Math.min(i*LOCAL_AI_CHUNK, m.bytes))+' / '+fmtMo(m.bytes);
+          localAiShowProgress();
+          return next();
+        });
+      }
+      return next();
+    }).then(function(){
+      localAiKeepAwake(false); localAi.phase = ''; localAi.pct = 0; localAiShowProgress();
+      markLocalModelReady(m, true);
+    }, function(e){
+      localAiKeepAwake(false); localAi.phase = ''; localAi.pct = 0;
+      var err = isQuotaError(e) ? {code:'local_storage_full'} : (e && e.code ? e : {code:'local_load_failed', message: e && e.message});
+      localAi.error = geminiErrorMessage(err); localAiShowProgress();
+      return Promise.reject(err);
+    });
+  }
   function ensureLocalModel(){
     var m = localAiModel();
     if(localAi.instance && localAi.loadedId===m.id) return Promise.resolve(localAi.instance);
     if(localAi.loading) return localAi.loading;
-    localAi.error = ''; localAi.phase = 'Chargement du moteur IA local…'; localAi.pct = 0; localAiShowProgress();
-    var base = 'https://cdn.jsdelivr.net/npm/@wllama/wllama@'+WLLAMA_VERSION+'/';
+    if(!localModelReady()) return Promise.reject({code:'not_configured'});
+    localAi.error = ''; localAi.phase = 'Chargement du modèle en mémoire…'; localAi.pct = 0; localAiShowProgress();
     localAi.loading = (localAi.instance ? localAi.instance.exit().catch(function(){}) : Promise.resolve()).then(function(){
       localAi.instance = null; localAi.loadedId = null;
-      return import(base+'esm/index.js');
-    }).then(function(mod){
-      var w = new mod.Wllama({ default: base+'src/wasm/wllama.wasm' }, { allowOffline: true, suppressNativeLog: true, logger: mod.LoggerWithoutDebug || console });
-      localAi.phase = localModelReady() ? 'Chargement du modèle en mémoire…' : 'Téléchargement du modèle ('+m.size+', une seule fois)…';
-      localAiShowProgress();
-      return w.loadModelFromUrl(localModelUrl(m), {
-        n_ctx: 4096,
-        progressCallback: function(ev){
-          if(ev && ev.total){ localAi.pct = Math.min(100, Math.round(ev.loaded / ev.total * 100)); localAiShowProgress(); }
-        }
-      }).then(function(){ return w; });
+      return Promise.all([ import(WLLAMA_BASE+'esm/index.js'), localModelParts(m) ]);
+    }).then(function(r){
+      var mod = r[0], parts = r[1];
+      if(parts.some(function(f){ return !f; })){ markLocalModelReady(m, false); return Promise.reject({code:'local_incomplete_file'}); }
+      var file = new Blob(parts);
+      var w = new mod.Wllama({ default: WLLAMA_BASE+'src/wasm/wllama.wasm' }, { suppressNativeLog: true, logger: mod.LoggerWithoutDebug || console });
+      return w.loadModel([file], { n_ctx: 4096 }).then(function(){ return w; });
     }).then(function(w){
       localAi.instance = w; localAi.loadedId = m.id; localAi.loading = null;
       localAi.phase = ''; localAi.pct = 0; localAiShowProgress();
-      var ready = localAiPrefs().ready; ready[m.id] = true;
-      localAiPrefsSet({ ready: ready });
       return w;
     }).catch(function(e){
       localAi.loading = null; localAi.phase = ''; localAi.pct = 0;
       var msg = (e && (e.message || e.code)) ? String(e.message || e.code) : String(e||'');
-      var err = /memory|allocation|OOM|RangeError/i.test(msg) ? {code:'local_memory', message:msg}
-        : /fetch|network|Failed to|offline/i.test(msg) ? {code:'local_network', message:msg}
+      var err = (e && e.code && /^local_|not_configured/.test(e.code)) ? e
+        : /memory|allocation|OOM|RangeError/i.test(msg) ? {code:'local_memory', message:msg}
+        : /fetch|network|Failed to|offline/i.test(msg) ? {code:'local_engine_network', message:msg}
         : {code:'local_load_failed', message:msg};
       localAi.error = geminiErrorMessage(err); localAiShowProgress();
       return Promise.reject(err);
@@ -2029,7 +2187,6 @@
     return localAi.loading;
   }
   function localGenerate(prompt, onText){
-    if(!localModelReady() && !localAi.instance) return Promise.reject({code:'not_configured'});
     return ensureLocalModel().then(function(w){
       var acc = '';
       /* Un seul message « user » (pas de rôle system) : Gemma refuse le rôle system dans son
@@ -2054,15 +2211,10 @@
     var m = localAiModel();
     var p = localAi.instance ? localAi.instance.exit().catch(function(){}) : Promise.resolve();
     return p.then(function(){
-      localAi.instance = null; localAi.loadedId = null;
-      return import('https://cdn.jsdelivr.net/npm/@wllama/wllama@'+WLLAMA_VERSION+'/esm/index.js');
-    }).then(function(mod){
-      var cm = new mod.CacheManager();
-      return cm.delete(localModelUrl(m)).catch(function(){});
-    }).catch(function(){}).then(function(){
-      var ready = localAiPrefs().ready; delete ready[m.id];
-      localAiPrefsSet({ ready: ready });
-    });
+      localAi.instance = null; localAi.loadedId = null; localAi.interrupted = false; localAi.error = '';
+      return navigator.storage.getDirectory().then(function(root){ return root.getDirectoryHandle(LOCAL_AI_DIR); })
+        .then(function(dir){ return dir.removeEntry(m.id, {recursive:true}); });
+    }).catch(function(){}).then(function(){ markLocalModelReady(m, false); });
   }
   /* Structure fixe du rapport d'inspection, éditable dans Réglages → Assistant IA (synchronisée
      avec Drive comme le reste de la configuration) : reprise telle quelle dans la consigne envoyée à
@@ -4738,7 +4890,13 @@
         LOCAL_AI_MODELS.map(function(m){ return '<option value="'+m.id+'"'+(m.id===lm.id?' selected':'')+'>'+esc(m.label+' ('+m.size+', '+m.ram+')')+(localAiPrefs().ready[m.id]?' ✓':'')+'</option>'; }).join('')+
         '</select></div>'+
         '<div class="btn-row">'+(ready ? '<button class="btn danger" id="btnDeleteLocalModel" type="button">Supprimer le modèle</button><button class="btn ghost" id="btnTestLocalModel" type="button">Tester</button>'
-          : '<button class="btn primary" id="btnDownloadLocalModel" type="button">Télécharger le modèle ('+esc(lm.size)+')</button>')+'</div>'+
+          : '<button class="btn primary" id="btnDownloadLocalModel" type="button"'+(localAi.downloading?' disabled':'')+'>Télécharger le modèle ('+esc(lm.size)+')</button>')+'</div>'+
+        (ready ? '' : '<p style="font-size:11px;color:var(--ink-faint);margin-top:6px;">Gardez l\'application ouverte pendant le téléchargement (l\'écran reste allumé automatiquement). S\'il est coupé, il reprend là où il s\'est arrêté dès que vous revenez ici.</p>'+
+          '<details style="margin:8px 0;font-size:12px;color:var(--ink-faint);"><summary style="cursor:pointer;font-weight:600;color:var(--ink);">Autre méthode : télécharger avec Chrome (continue écran éteint)</summary>'+
+          '<ol style="margin:8px 0 0 18px;padding:0;line-height:1.6;"><li><a href="'+esc(localModelUrl(lm))+'" target="_blank" rel="noopener">Télécharger '+esc(lm.file)+'</a> : Chrome l\'enregistre dans « Téléchargements », même écran éteint.</li>'+
+          '<li>Une fois le téléchargement terminé, revenez ici et touchez « Importer le fichier téléchargé ».</li></ol>'+
+          '<div class="btn-row" style="margin-top:8px;"><button class="btn ghost sm" id="btnImportLocalModel" type="button">Importer le fichier téléchargé (.gguf)</button></div>'+
+          '<input type="file" id="fileLocalModelInput" accept=".gguf,application/octet-stream" hidden></details>')+
         '<div class="banner info" id="localAiProgress" hidden style="margin-top:8px;"></div>'+
         (ready ? '<p style="font-size:11px;color:var(--ink-faint);margin-top:8px;">Assistant actif — modèle local : '+esc(lm.label)+'.</p>' : '');
     }
@@ -5665,11 +5823,27 @@
       localAiPrefsSet({ provider: b.getAttribute('data-v') }); render();
     }; });
     var selModel = $('localModelSelect'); if(selModel) selModel.onchange = function(){ localAiPrefsSet({ modelId: selModel.value }); render(); };
-    var btnDlModel = $('btnDownloadLocalModel'); if(btnDlModel) btnDlModel.onclick = function(){
-      btnDlModel.disabled = true;
-      ensureLocalModel().then(function(){ toast('Modèle prêt : l\'IA locale est active sur cet appareil.'); render(); })
-        .catch(function(){ btnDlModel.disabled = false; });
-    };
+    var btnDlModel = $('btnDownloadLocalModel'); if(btnDlModel){
+      localModelFileSize(localAiModel()).then(function(n){
+        if(n > 0 && !localAi.downloading && document.body.contains(btnDlModel)) btnDlModel.textContent = 'Reprendre le téléchargement ('+fmtMo(n)+' / '+fmtMo(localAiModel().bytes)+')';
+      });
+      btnDlModel.onclick = function(){
+        btnDlModel.disabled = true;
+        downloadLocalModel().then(function(){ toast('Modèle téléchargé : l\'IA locale est active sur cet appareil.'); render(); })
+          .catch(function(){ btnDlModel.disabled = false; btnDlModel.textContent = 'Reprendre le téléchargement'; });
+      };
+    }
+    var btnImpModel = $('btnImportLocalModel'), fileImpModel = $('fileLocalModelInput');
+    if(btnImpModel && fileImpModel){
+      btnImpModel.onclick = function(){ fileImpModel.click(); };
+      fileImpModel.onchange = function(){
+        var f = fileImpModel.files && fileImpModel.files[0];
+        if(!f) return;
+        btnImpModel.disabled = true;
+        importLocalModelFile(f).then(function(){ toast('Modèle importé : l\'IA locale est active sur cet appareil. Vous pouvez supprimer le fichier de vos Téléchargements.'); render(); })
+          .catch(function(err){ btnImpModel.disabled = false; localAi.error = geminiErrorMessage(err); localAiShowProgress(); });
+      };
+    }
     var btnDelModel = $('btnDeleteLocalModel'); if(btnDelModel) btnDelModel.onclick = function(){
       if(!confirm('Supprimer le modèle de cet appareil ? Il faudra le retélécharger pour réutiliser l\'IA locale.')) return;
       deleteLocalModel().then(function(){ toast('Modèle supprimé de cet appareil.'); render(); });

@@ -7,7 +7,7 @@
    un chargement instantané. Les appels réseau vers Google Drive/Sheets (googleapis.com,
    accounts.google.com) et vers les polices Google Fonts ne sont volontairement PAS interceptés : ils
    passent toujours par le réseau. */
-var CACHE_NAME = 'carnet-inspection-v21';
+var CACHE_NAME = 'carnet-inspection-v22';
 var APP_SHELL = [
   './',
   './index.html',
@@ -29,7 +29,7 @@ self.addEventListener('install', function(event){
 self.addEventListener('activate', function(event){
   event.waitUntil(
     caches.keys().then(function(keys){
-      return Promise.all(keys.filter(function(k){ return k!==CACHE_NAME; }).map(function(k){ return caches.delete(k); }));
+      return Promise.all(keys.filter(function(k){ return k!==CACHE_NAME && k.indexOf('-ia')<0; }).map(function(k){ return caches.delete(k); }));
     }).then(function(){ return self.clients.claim(); })
   );
 });
@@ -38,6 +38,19 @@ self.addEventListener('fetch', function(event){
   var req = event.request;
   var url = req.url;
   if(req.method !== 'GET') return;
+  /* Moteur de l'IA locale (wllama, version figée sur jsdelivr) : mis en cache au premier usage pour
+     que la rédaction fonctionne ensuite hors connexion. Le modèle lui-même n'est pas concerné : il est
+     stocké par l'application dans l'espace privé du navigateur (OPFS). */
+  if(url.indexOf('https://cdn.jsdelivr.net/npm/@wllama/') === 0){
+    event.respondWith(
+      caches.open(CACHE_NAME + '-ia').then(function(cache){
+        return cache.match(req).then(function(hit){
+          return hit || fetch(req).then(function(res){ if(res && res.status===200) cache.put(req, res.clone()); return res; });
+        });
+      })
+    );
+    return;
+  }
   if(url.indexOf(self.location.origin) !== 0) return; // laisser passer tout appel externe (Google, polices…)
 
   var isAppDoc = req.mode === 'navigate' || url.endsWith('/index.html') || url.endsWith('/');

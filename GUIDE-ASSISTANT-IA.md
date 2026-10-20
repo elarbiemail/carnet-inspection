@@ -119,6 +119,17 @@ rédaction fonctionne hors connexion.
    fait une seule fois, le modèle reste ensuite sur l'appareil. Le bouton
    **« Tester »** vérifie que tout fonctionne.
 
+   L'écran reste allumé automatiquement pendant le téléchargement. S'il est
+   coupé (écran éteint, application quittée, réseau perdu), **rien n'est
+   perdu** : le téléchargement reprend là où il s'est arrêté dès que vous
+   revenez sur cet écran, ou en touchant « Reprendre le téléchargement ».
+
+   **Autre méthode** (si la connexion est très instable) : ouvrez « Autre
+   méthode : télécharger avec Chrome », touchez le lien du fichier — Chrome
+   le télécharge dans « Téléchargements », même écran éteint — puis revenez
+   et touchez **« Importer le fichier téléchargé (.gguf) »**. Vous pourrez
+   ensuite supprimer le fichier de vos Téléchargements.
+
 Ce réglage est **propre à chaque appareil** : vous pouvez garder Gemini sur
 le PC et l'IA locale sur le téléphone. L'import d'une fiche par photo/PDF
 reste assuré par Gemini (le modèle local ne lit pas les images).
