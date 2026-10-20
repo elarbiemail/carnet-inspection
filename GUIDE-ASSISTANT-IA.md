@@ -101,3 +101,35 @@ laquelle de ces causes s'applique :
 **Puis-je changer de clé plus tard ?** Oui, à tout moment, dans
 **Paramètres → Assistant IA** — collez la nouvelle clé et touchez
 Enregistrer, elle remplace l'ancienne.
+
+## Option : IA locale, sans internet ni clé (sur le téléphone)
+
+Au lieu de Gemini, l'assistant peut tourner **entièrement sur l'appareil**,
+dans le navigateur (même moteur llama.cpp que l'application PocketPal) :
+les observations et les rapports ne quittent jamais le téléphone, et la
+rédaction fonctionne hors connexion.
+
+1. Ouvrez **Paramètres → Assistant IA** et touchez **« IA locale (sur
+   l'appareil) »**.
+2. Choisissez un modèle selon la mémoire du téléphone :
+   - **Qwen 2.5 3B** (1,9 Go, 6 Go de RAM ou plus) — meilleure rédaction ;
+   - **Qwen 2.5 1.5B** (1 Go) — plus rapide ;
+   - **Gemma 3 1B** (0,8 Go) — pour les téléphones modestes.
+3. Touchez **« Télécharger le modèle »**, en Wifi : le téléchargement se
+   fait une seule fois, le modèle reste ensuite sur l'appareil. Le bouton
+   **« Tester »** vérifie que tout fonctionne.
+
+Ce réglage est **propre à chaque appareil** : vous pouvez garder Gemini sur
+le PC et l'IA locale sur le téléphone. L'import d'une fiche par photo/PDF
+reste assuré par Gemini (le modèle local ne lit pas les images).
+
+**Structure du rapport d'inspection.** Dans le même écran, la zone
+« Structure du rapport d'inspection » contient la consigne fixe que suit
+l'IA. Dans un rapport d'inspection, saisissez ou dictez vos notes
+d'observation dans le champ **Constats**, puis touchez **« Rédiger/compléter
+avec l'IA »** : le rapport est rédigé selon cette structure, à partir de vos
+seules notes, et s'affiche au fur et à mesure.
+
+L'IA locale est plus lente que Gemini (de quelques dizaines de secondes à
+environ une minute selon le téléphone) et ses textes demandent une relecture
+attentive. Pour libérer l'espace, touchez **« Supprimer le modèle »**.

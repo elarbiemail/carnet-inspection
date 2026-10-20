@@ -1456,7 +1456,7 @@
   function initCapabilities(){
     loadLocalAll();
     state.dbReady = true; state.downloadsReady = true; state.assetsReady = true;
-    state.sampleReady = !!geminiApiKey();
+    state.sampleReady = aiReady();
     render();
   }
 
@@ -1612,7 +1612,7 @@
   }
   function configSet(patch){
     state.config = Object.assign({}, state.config, patch);
-    state.sampleReady = !!geminiApiKey();
+    state.sampleReady = aiReady();
     saveLocal('config'); render();
     return Promise.resolve();
   }
@@ -1847,7 +1847,13 @@
   function geminiErrorMessage(err){
     var code = err && err.code;
     switch(code){
-      case 'not_configured': return "Ajoutez votre clé API Gemini dans Réglages → Assistant IA pour activer l'assistant de rédaction.";
+      case 'not_configured': return aiProvider()==='local'
+        ? "Téléchargez d'abord le modèle dans Réglages → Assistant IA (IA locale) pour activer l'assistant de rédaction."
+        : "Ajoutez votre clé API Gemini dans Réglages → Assistant IA pour activer l'assistant de rédaction.";
+      case 'local_no_image': return "L'IA locale ne lit pas les images : l'import d'une fiche par photo/PDF utilise Gemini. Ajoutez une clé Gemini dans Réglages → Assistant IA pour cet import (le reste de l'assistant continue de fonctionner en local).";
+      case 'local_memory': return "Mémoire insuffisante sur cet appareil pour ce modèle. Fermez les autres applications ou choisissez un modèle plus léger dans Réglages → Assistant IA.";
+      case 'local_network': return "Le téléchargement du modèle a échoué (connexion interrompue ou trop lente). Reconnectez-vous en Wifi puis relancez le téléchargement dans Réglages → Assistant IA : il reprendra là où il s'est arrêté si possible.";
+      case 'local_load_failed': return "Impossible de démarrer l'IA locale" + (err&&err.message?' : « '+err.message+' »':'') + ". Mettez Chrome à jour, ou choisissez un modèle plus léger dans Réglages → Assistant IA.";
       case 'invalid_key': return "Clé API Gemini refusée par Google" + (err&&err.message?' : « '+err.message+' »':'') + ". Si vous venez de créer une clé toute neuve sur aistudio.google.com/apikey et qu'elle est refusée quand même, ce n'est probablement plus un problème de clé « ancien format » : vérifiez que vous avez bien copié la clé en entier (sans espace ni retour à la ligne), qu'elle correspond bien au compte Google que vous utilisez, et régénérez-en une nouvelle si le doute persiste.";
       case 'location_restricted': return "Gemini a refusé la demande avec le message « User location is not supported » (localisation non prise en charge). Ceci n'est PAS lié à la clé — en créer une nouvelle ne change rien. Cause la plus fréquente : un VPN, un proxy, ou le réseau de l'établissement/opérateur qui achemine la connexion via un pays où Gemini n'est pas disponible. Désactivez tout VPN/économiseur de données puis réessayez en Wifi ou en 4G/5G directe.";
       case 'overloaded': return "Le modèle Gemini est momentanément surchargé (forte demande chez Google en ce moment) — l'application a déjà réessayé automatiquement plusieurs fois sans succès. Ce n'est ni un problème de clé ni de localisation : patientez quelques minutes puis retouchez le bouton.";
@@ -1914,28 +1920,174 @@
     }, function(){ return Promise.reject({code:'network'}); });
   }
   function wait(ms){ return new Promise(function(resolve){ setTimeout(resolve, ms); }); }
-  function geminiGenerate(prompt, attempt, imagePart){
+  function geminiGenerateCloud(prompt, attempt, imagePart){
     attempt = attempt || 1;
     return geminiGenerateOnce(prompt, imagePart).catch(function(err){
       if(err && err.code==='overloaded' && attempt < 3){
-        return wait(attempt * 1500).then(function(){ return geminiGenerate(prompt, attempt + 1, imagePart); });
+        return wait(attempt * 1500).then(function(){ return geminiGenerateCloud(prompt, attempt + 1, imagePart); });
       }
       return Promise.reject(err);
     });
   }
+  /* Point d'entrée unique de toutes les générations IA de l'app : selon le moteur choisi sur CET
+     appareil (Réglages → Assistant IA), le texte est produit soit par Gemini (en ligne, clé
+     personnelle), soit par l'IA locale qui tourne entièrement dans le navigateur (voir plus bas). Les
+     demandes avec image (import d'une fiche par photo/PDF) restent confiées à Gemini, le modèle local
+     étant textuel : si aucune clé Gemini n'est enregistrée, un message explicite l'indique.
+     onText (facultatif) reçoit le texte au fur et à mesure (IA locale uniquement). */
+  function geminiGenerate(prompt, attempt, imagePart, onText){
+    if(aiProvider()==='local'){
+      if(imagePart){
+        if(geminiApiKey()) return geminiGenerateCloud(prompt, attempt, imagePart);
+        return Promise.reject({code:'local_no_image'});
+      }
+      return localGenerate(prompt, onText);
+    }
+    return geminiGenerateCloud(prompt, attempt, imagePart);
+  }
+
+  /* ================= IA locale (sur l'appareil, dans le navigateur) =================
+     Moteur llama.cpp compilé en WebAssembly (bibliothèque wllama, chargée depuis le CDN jsdelivr au
+     premier usage — même moteur que l'application PocketPal). Le modèle (fichier GGUF public sur
+     Hugging Face) est téléchargé UNE SEULE FOIS puis conservé dans le stockage privé du navigateur
+     (OPFS) : ensuite la génération fonctionne hors ligne, et ni les observations ni le rapport ne
+     quittent le téléphone. Utilise la carte graphique (WebGPU) quand le navigateur la propose, sinon
+     le processeur. Le choix du moteur et l'état du modèle sont propres à chaque appareil (stockés
+     dans localStorage, PAS dans state.config qui est synchronisé avec Drive) : on peut garder Gemini
+     sur le PC et l'IA locale sur le téléphone. Modèles limités à < 2 Go (limite d'un fichier unique
+     dans wllama). */
+  var LOCAL_AI_MODELS = [
+    {id:'qwen25-3b', label:'Qwen 2.5 3B — meilleure rédaction', size:'1,9 Go', ram:'6 Go de RAM ou plus', repo:'bartowski/Qwen2.5-3B-Instruct-GGUF', file:'Qwen2.5-3B-Instruct-Q4_K_M.gguf'},
+    {id:'qwen25-1.5b', label:'Qwen 2.5 1.5B — plus rapide', size:'1 Go', ram:'4 Go de RAM ou plus', repo:'bartowski/Qwen2.5-1.5B-Instruct-GGUF', file:'Qwen2.5-1.5B-Instruct-Q4_K_M.gguf'},
+    {id:'gemma3-1b', label:'Gemma 3 1B — très léger', size:'0,8 Go', ram:'3 Go de RAM ou plus', repo:'ggml-org/gemma-3-1b-it-GGUF', file:'gemma-3-1b-it-Q4_K_M.gguf'}
+  ];
+  var WLLAMA_VERSION = '3.8.1';
+  var LOCAL_AI_KEY = 'carnet-inspection-local-ai';
+  var localAi = { instance:null, loadedId:null, loading:null, phase:'', pct:0, error:'' };
+  function localAiPrefs(){
+    try{ return Object.assign({provider:'gemini', modelId:LOCAL_AI_MODELS[0].id, ready:{}}, JSON.parse(localStorage.getItem(LOCAL_AI_KEY)||'{}')); }
+    catch(e){ return {provider:'gemini', modelId:LOCAL_AI_MODELS[0].id, ready:{}}; }
+  }
+  function localAiPrefsSet(patch){
+    var p = Object.assign(localAiPrefs(), patch);
+    try{ localStorage.setItem(LOCAL_AI_KEY, JSON.stringify(p)); }catch(e){}
+    state.sampleReady = aiReady();
+    return p;
+  }
+  function aiProvider(){ return localAiPrefs().provider==='local' ? 'local' : 'gemini'; }
+  function localAiModel(){
+    var id = localAiPrefs().modelId;
+    return LOCAL_AI_MODELS.filter(function(m){ return m.id===id; })[0] || LOCAL_AI_MODELS[0];
+  }
+  function localModelReady(){ return !!localAiPrefs().ready[localAiModel().id]; }
+  function aiReady(){ return aiProvider()==='local' ? localModelReady() : !!geminiApiKey(); }
+  function aiEngineLabel(){ return aiProvider()==='local' ? "l'IA locale" : 'Gemini'; }
+  function localModelUrl(m){ return 'https://huggingface.co/'+m.repo+'/resolve/main/'+m.file; }
+  /* Affiche l'avancement (téléchargement/chargement) dans Réglages → Assistant IA sans redessiner tout
+     l'écran : on met à jour directement l'élément #localAiProgress s'il est affiché. */
+  function localAiShowProgress(){
+    var el = document.getElementById('localAiProgress');
+    if(!el) return;
+    el.hidden = !localAi.phase && !localAi.error;
+    el.className = 'banner '+(localAi.error ? 'err' : 'info');
+    el.textContent = localAi.error || (localAi.phase + (localAi.pct ? ' — '+localAi.pct+' %' : ''));
+  }
+  function ensureLocalModel(){
+    var m = localAiModel();
+    if(localAi.instance && localAi.loadedId===m.id) return Promise.resolve(localAi.instance);
+    if(localAi.loading) return localAi.loading;
+    localAi.error = ''; localAi.phase = 'Chargement du moteur IA local…'; localAi.pct = 0; localAiShowProgress();
+    var base = 'https://cdn.jsdelivr.net/npm/@wllama/wllama@'+WLLAMA_VERSION+'/';
+    localAi.loading = (localAi.instance ? localAi.instance.exit().catch(function(){}) : Promise.resolve()).then(function(){
+      localAi.instance = null; localAi.loadedId = null;
+      return import(base+'esm/index.js');
+    }).then(function(mod){
+      var w = new mod.Wllama({ default: base+'src/wasm/wllama.wasm' }, { allowOffline: true, suppressNativeLog: true, logger: mod.LoggerWithoutDebug || console });
+      localAi.phase = localModelReady() ? 'Chargement du modèle en mémoire…' : 'Téléchargement du modèle ('+m.size+', une seule fois)…';
+      localAiShowProgress();
+      return w.loadModelFromUrl(localModelUrl(m), {
+        n_ctx: 4096,
+        progressCallback: function(ev){
+          if(ev && ev.total){ localAi.pct = Math.min(100, Math.round(ev.loaded / ev.total * 100)); localAiShowProgress(); }
+        }
+      }).then(function(){ return w; });
+    }).then(function(w){
+      localAi.instance = w; localAi.loadedId = m.id; localAi.loading = null;
+      localAi.phase = ''; localAi.pct = 0; localAiShowProgress();
+      var ready = localAiPrefs().ready; ready[m.id] = true;
+      localAiPrefsSet({ ready: ready });
+      return w;
+    }).catch(function(e){
+      localAi.loading = null; localAi.phase = ''; localAi.pct = 0;
+      var msg = (e && (e.message || e.code)) ? String(e.message || e.code) : String(e||'');
+      var err = /memory|allocation|OOM|RangeError/i.test(msg) ? {code:'local_memory', message:msg}
+        : /fetch|network|Failed to|offline/i.test(msg) ? {code:'local_network', message:msg}
+        : {code:'local_load_failed', message:msg};
+      localAi.error = geminiErrorMessage(err); localAiShowProgress();
+      return Promise.reject(err);
+    });
+    return localAi.loading;
+  }
+  function localGenerate(prompt, onText){
+    if(!localModelReady() && !localAi.instance) return Promise.reject({code:'not_configured'});
+    return ensureLocalModel().then(function(w){
+      var acc = '';
+      /* Un seul message « user » (pas de rôle system) : Gemma refuse le rôle system dans son
+         gabarit de conversation, et les autres modèles s'en passent très bien. */
+      return w.createChatCompletion({
+        messages: [{ role:'user', content: prompt }],
+        max_tokens: 1400, temperature: 0.3, top_p: 0.9,
+        stream: true,
+        onData: function(chunk){
+          var c = chunk && chunk.choices && chunk.choices[0];
+          var t = c && c.delta && c.delta.content;
+          if(t){ acc += t; if(onText) onText(acc); }
+        }
+      }).then(function(){
+        acc = acc.trim();
+        if(!acc) return Promise.reject({code:'empty_completion'});
+        return acc;
+      });
+    });
+  }
+  function deleteLocalModel(){
+    var m = localAiModel();
+    var p = localAi.instance ? localAi.instance.exit().catch(function(){}) : Promise.resolve();
+    return p.then(function(){
+      localAi.instance = null; localAi.loadedId = null;
+      return import('https://cdn.jsdelivr.net/npm/@wllama/wllama@'+WLLAMA_VERSION+'/esm/index.js');
+    }).then(function(mod){
+      var cm = new mod.CacheManager();
+      return cm.delete(localModelUrl(m)).catch(function(){});
+    }).catch(function(){}).then(function(){
+      var ready = localAiPrefs().ready; delete ready[m.id];
+      localAiPrefsSet({ ready: ready });
+    });
+  }
+  /* Structure fixe du rapport d'inspection, éditable dans Réglages → Assistant IA (synchronisée
+     avec Drive comme le reste de la configuration) : reprise telle quelle dans la consigne envoyée à
+     l'IA (Gemini ou locale) par le bouton IA du champ « Constats ». */
+  var DEFAULT_RAPPORT_STRUCTURE = "Rédige le rapport en cinq paragraphes de prose suivie, sans titres ni puces :\n1. Contexte de la visite (date, établissement, classe, séance observée).\n2. Déroulement de la séance, tel qu'il a été observé.\n3. Points forts de la pratique de l'enseignant(e).\n4. Points à améliorer, formulés avec mesure.\n5. Conclusion et appréciation d'ensemble.\nStyle : français administratif soutenu, connecteurs variés, ton bienveillant mais fondé uniquement sur les faits observés.";
+  function rapportStructure(){ return (state.config && state.config.rapportStructure) || DEFAULT_RAPPORT_STRUCTURE; }
   /* Exécute un prompt IA et pose le résultat dans le champ texte visé : mêmes conventions que le
      reste de l'app (ex. runBilanGen) — le champ ciblé (targetTextarea) est une référence DOM directe,
      lue seulement à l'enregistrement (syncDocGenericFields), donc aucun render() n'est déclenché ici
      pour ne pas écraser la valeur qu'on vient d'y poser. */
   function runAiPrompt(btn, statusEl, targetTextarea, prompt){
-    if(!geminiApiKey()){ toast(geminiErrorMessage({code:'not_configured'})); return; }
+    if(!aiReady()){ toast(geminiErrorMessage({code:'not_configured'})); return; }
     if(btn) btn.disabled = true;
-    if(statusEl){ statusEl.hidden = false; statusEl.className = 'banner info'; statusEl.textContent = 'Génération en cours avec Gemini…'; }
-    geminiGenerate(prompt).then(function(text){
+    var original = targetTextarea ? targetTextarea.value : '';
+    var local = aiProvider()==='local';
+    if(statusEl){ statusEl.hidden = false; statusEl.className = 'banner info'; statusEl.textContent = 'Génération en cours avec '+aiEngineLabel()+(local?' (sur l\'appareil, cela peut prendre une minute)…':'…'); }
+    /* IA locale : le texte s'affiche au fil de l'eau dans le champ ; en cas d'erreur on remet le
+       contenu d'origine (notes de l'inspecteur) pour ne rien perdre. */
+    var onText = (local && targetTextarea) ? function(t){ targetTextarea.value = t; } : null;
+    geminiGenerate(prompt, 1, null, onText).then(function(text){
       if(targetTextarea) targetTextarea.value = text;
       if(statusEl) statusEl.hidden = true;
       if(btn) btn.disabled = false;
     }).catch(function(err){
+      if(targetTextarea && onText) targetTextarea.value = original;
       if(statusEl){ statusEl.hidden = false; statusEl.className = 'banner err'; statusEl.textContent = geminiErrorMessage(err); }
       if(btn) btn.disabled = false;
     });
@@ -1977,9 +2129,9 @@
      volontairement vide : l'IA ne peut pas connaître de vraies contraintes de calendrier, c'est à
      l'inspecteur(trice) de la compléter. */
   function runAiActionsPlan(btn, statusEl, prompt){
-    if(!geminiApiKey()){ toast(geminiErrorMessage({code:'not_configured'})); return; }
+    if(!aiReady()){ toast(geminiErrorMessage({code:'not_configured'})); return; }
     if(btn) btn.disabled = true;
-    if(statusEl){ statusEl.hidden = false; statusEl.className = 'banner info'; statusEl.textContent = 'Génération en cours avec Gemini…'; }
+    if(statusEl){ statusEl.hidden = false; statusEl.className = 'banner info'; statusEl.textContent = 'Génération en cours avec '+aiEngineLabel()+'…'; }
     geminiGenerate(prompt).then(function(text){
       var items = parseAiActionsJson(text);
       if(!items.length) return Promise.reject({code:'empty_completion'});
@@ -2231,7 +2383,7 @@
       '<p style="font-size:11.5px;color:var(--ink-faint);margin:2px 0 10px;">Prenez en photo (ou téléversez le PDF/l\'image de) la fiche personnelle d\'un(e) enseignant(e) : l\'IA en extrait les informations et pré-remplit sa fiche.</p>'+
       (hasKey
         ? '<div class="btn-row"><button class="btn ghost sm" id="btnImportEnsFiche" type="button">'+ICONS.cam+' Importer une fiche (IA)</button></div>'
-        : '<p style="font-size:11px;color:var(--ink-faint);">Ajoutez une clé Gemini dans Réglages → Assistant IA pour activer cet import.</p>');
+        : '<p style="font-size:11px;color:var(--ink-faint);">Ajoutez une clé Gemini dans Réglages → Assistant IA pour activer cet import (l\'IA locale ne lit pas les images).</p>');
 
     html += '<div class="side-divider" style="margin:16px 0;"></div><div class="section-label">Lien à distance</div>';
     if(!ff.formUrl){
@@ -4574,7 +4726,28 @@
      recommandations…) réapparaissent automatiquement. */
   function iaTabHtml(){
     var key = state.config.geminiApiKey || '';
-    var html = '<p style="font-size:11.5px;color:var(--ink-faint);margin-bottom:10px;">Collez votre propre clé API Google Gemini (gratuite, personnelle) pour activer l\'assistant de rédaction IA — synthèses, comptes-rendus, rapports, lettres, recommandations, descriptions de tâches, zones de texte personnalisées — ainsi que la traduction français ↔ arabe, directement dans les formulaires concernés. Chaque génération appelle directement les serveurs Google depuis votre navigateur : la clé n\'est jamais envoyée à Claude ni à Anthropic, et reste enregistrée uniquement sur cet appareil (et dans votre propre Drive si vous synchronisez).</p>';
+    var prov = aiProvider();
+    var html = '<div class="section-label">Moteur de rédaction sur cet appareil</div>'+
+      '<div class="seg" id="aiProviderSeg" style="margin:4px 0 8px;">'+
+        '<button type="button" data-v="gemini" aria-pressed="'+(prov==='gemini')+'">Gemini (en ligne)</button>'+
+        '<button type="button" data-v="local" aria-pressed="'+(prov==='local')+'">IA locale (sur l\'appareil)</button></div>';
+    if(prov==='local'){
+      var lm = localAiModel(), ready = localModelReady();
+      html += '<p style="font-size:11.5px;color:var(--ink-faint);margin-bottom:10px;">L\'IA locale tourne entièrement dans le navigateur de cet appareil : vos observations et vos rapports ne quittent jamais le téléphone, et la rédaction fonctionne hors connexion une fois le modèle téléchargé (une seule fois, de préférence en Wifi). Elle est plus lente que Gemini (environ une minute pour un rapport) et son texte demande une relecture attentive. Ce choix est propre à cet appareil : vos autres appareils gardent leur propre réglage.</p>'+
+        '<div class="field"><label for="localModelSelect">Modèle</label><select id="localModelSelect">'+
+        LOCAL_AI_MODELS.map(function(m){ return '<option value="'+m.id+'"'+(m.id===lm.id?' selected':'')+'>'+esc(m.label+' ('+m.size+', '+m.ram+')')+(localAiPrefs().ready[m.id]?' ✓':'')+'</option>'; }).join('')+
+        '</select></div>'+
+        '<div class="btn-row">'+(ready ? '<button class="btn danger" id="btnDeleteLocalModel" type="button">Supprimer le modèle</button><button class="btn ghost" id="btnTestLocalModel" type="button">Tester</button>'
+          : '<button class="btn primary" id="btnDownloadLocalModel" type="button">Télécharger le modèle ('+esc(lm.size)+')</button>')+'</div>'+
+        '<div class="banner info" id="localAiProgress" hidden style="margin-top:8px;"></div>'+
+        (ready ? '<p style="font-size:11px;color:var(--ink-faint);margin-top:8px;">Assistant actif — modèle local : '+esc(lm.label)+'.</p>' : '');
+    }
+    html += '<div class="side-divider" style="margin:16px 0;"></div><div class="section-label">Structure du rapport d\'inspection</div>'+
+      '<p style="font-size:11.5px;color:var(--ink-faint);margin:2px 0 8px;">Consigne fixe suivie par l\'IA quand vous touchez « Rédiger/compléter avec l\'IA » dans le champ Constats d\'un rapport d\'inspection, après y avoir saisi ou dicté vos notes d\'observation.</p>'+
+      '<div class="field"><textarea id="rapportStructureInput" rows="8">'+esc(rapportStructure())+'</textarea></div>'+
+      '<div class="btn-row"><button class="btn ghost sm" id="btnResetRapportStructure" type="button">Structure par défaut</button><button class="btn primary sm" id="btnSaveRapportStructure" type="button">Enregistrer</button></div>';
+    html += '<div class="side-divider" style="margin:16px 0;"></div><div class="section-label">Clé Gemini'+(prov==='local'?' (facultative : import des fiches par photo/PDF)':'')+'</div>';
+    html += '<p style="font-size:11.5px;color:var(--ink-faint);margin-bottom:10px;">Collez votre propre clé API Google Gemini (gratuite, personnelle) pour activer l\'assistant de rédaction IA — synthèses, comptes-rendus, rapports, lettres, recommandations, descriptions de tâches, zones de texte personnalisées — ainsi que la traduction français ↔ arabe, directement dans les formulaires concernés. Chaque génération appelle directement les serveurs Google depuis votre navigateur : la clé n\'est jamais envoyée à Claude ni à Anthropic, et reste enregistrée uniquement sur cet appareil (et dans votre propre Drive si vous synchronisez).</p>';
     if(state.geminiKeyError) html += '<div class="banner err" style="margin-bottom:10px;">'+ICONS.warn+'<div>'+esc(state.geminiKeyError)+'</div></div>';
     html += '<div class="field"><label for="geminiKeyInput">Clé API Google Gemini</label>'+
       '<input type="text" id="geminiKeyInput" value="'+esc(key)+'" placeholder="AIzaSy… ou AQ.…" autocomplete="off" autocapitalize="off" spellcheck="false"></div>';
@@ -4587,7 +4760,7 @@
         '<li>Copiez la clé générée en entier (elle commence par <code>AIza…</code> ou, pour les clés les plus récentes, par <code>AQ.…</code>) et collez-la ci-dessus, puis touchez « Enregistrer ».</li>'+
       '</ol><p style="margin-top:8px;">Le niveau gratuit de Gemini couvre largement un usage personnel courant. Cette clé est propre à votre compte Google : gardez-la confidentielle, ne la partagez pas.</p>'+
       '<p style="margin-top:8px;"><b>Message « Clé refusée » malgré une clé toute neuve ?</b> Regardez le message exact affiché après « Générer avec l\'IA » : s\'il mentionne « <i>user location is not supported</i> » (localisation), ce n\'est pas la clé qui pose problème mais un VPN, un proxy ou le réseau de l\'établissement — désactivez-le et réessayez en Wifi/4G directe. Dans les autres cas, vérifiez que la clé est collée en entier, sans espace, et qu\'elle provient bien du compte Google que vous utilisez ici.</p></details>';
-    if(key) html += '<p style="font-size:11px;color:var(--ink-faint);">Assistant actif — modèle utilisé : Gemini Flash (le modèle rapide le plus récent disponible sur votre compte).</p>';
+    if(key && prov==='gemini') html += '<p style="font-size:11px;color:var(--ink-faint);">Assistant actif — modèle utilisé : Gemini Flash (le modèle rapide le plus récent disponible sur votre compte).</p>';
     return html;
   }
   /* Éditeur du référentiel régions/DP (Réglages → Régions / DP) : académies régionales et directions
@@ -5487,6 +5660,37 @@
       };
     }
 
+    /* -- assistant IA : moteur (Gemini / IA locale), modèle local, structure du rapport -- */
+    var segProv = $('aiProviderSeg'); if(segProv) segProv.querySelectorAll('button').forEach(function(b){ b.onclick = function(){
+      localAiPrefsSet({ provider: b.getAttribute('data-v') }); render();
+    }; });
+    var selModel = $('localModelSelect'); if(selModel) selModel.onchange = function(){ localAiPrefsSet({ modelId: selModel.value }); render(); };
+    var btnDlModel = $('btnDownloadLocalModel'); if(btnDlModel) btnDlModel.onclick = function(){
+      btnDlModel.disabled = true;
+      ensureLocalModel().then(function(){ toast('Modèle prêt : l\'IA locale est active sur cet appareil.'); render(); })
+        .catch(function(){ btnDlModel.disabled = false; });
+    };
+    var btnDelModel = $('btnDeleteLocalModel'); if(btnDelModel) btnDelModel.onclick = function(){
+      if(!confirm('Supprimer le modèle de cet appareil ? Il faudra le retélécharger pour réutiliser l\'IA locale.')) return;
+      deleteLocalModel().then(function(){ toast('Modèle supprimé de cet appareil.'); render(); });
+    };
+    var btnTestModel = $('btnTestLocalModel'); if(btnTestModel) btnTestModel.onclick = function(){
+      btnTestModel.disabled = true;
+      var started = Date.now();
+      localGenerate('Réponds en une phrase, en français : à quoi sert une visite d\'inspection pédagogique ?').then(function(t){
+        btnTestModel.disabled = false;
+        localAi.error = ''; localAi.phase = '✓ '+t+' ('+Math.round((Date.now()-started)/1000)+' s)'; localAi.pct = 0; localAiShowProgress(); localAi.phase = '';
+      }).catch(function(err){ btnTestModel.disabled = false; localAi.error = geminiErrorMessage(err); localAiShowProgress(); });
+    };
+    if($('localAiProgress')) localAiShowProgress();
+    var btnSaveStruct = $('btnSaveRapportStructure'); if(btnSaveStruct) btnSaveStruct.onclick = function(){
+      var v = ($('rapportStructureInput').value||'').trim();
+      configSet({ rapportStructure: (v && v!==DEFAULT_RAPPORT_STRUCTURE) ? v : null }).then(function(){ toast('Structure du rapport enregistrée.'); });
+    };
+    var btnResetStruct = $('btnResetRapportStructure'); if(btnResetStruct) btnResetStruct.onclick = function(){
+      configSet({ rapportStructure: null }).then(function(){ toast('Structure par défaut rétablie.'); });
+    };
+
     /* -- assistant IA (clé API Gemini) -- */
     var btnSaveGeminiKey = $('btnSaveGeminiKey');
     if(btnSaveGeminiKey) btnSaveGeminiKey.onclick = function(){
@@ -5960,7 +6164,7 @@
     var aiConstats = $('btnAiConstats'); if(aiConstats) aiConstats.onclick = function(){
       syncDocGenericFields();
       var d = state.draftDoc;
-      aiDraft(aiConstats, $('aiConstatsStatus'), $('dConstats'), "Tu es un inspecteur pédagogique au Maroc. Rédige les constats d'une inspection de classe (français, ton factuel et professionnel, 5-8 lignes), pour l'enseignant(e) "+(d.enseignantNom||'—')+", classe "+(d.classe||'—')+", matière "+(d.matiere||'—')+", appréciation générale : "+(d.appreciation||'—')+".");
+      aiDraft(aiConstats, $('aiConstatsStatus'), $('dConstats'), "Tu es un inspecteur pédagogique au Maroc. Rédige le rapport d'une visite d'inspection de classe, en français, à partir des notes d'observation de l'inspecteur(trice). Enseignant(e) : "+(d.enseignantNom||'—')+" ; établissement : "+(d.lieu||'—')+" ; classe : "+(d.classe||'—')+" ; matière : "+(d.matiere||'—')+" ; date : "+(d.date?fmtDate(d.date):'—')+" ; appréciation générale : "+(d.appreciation||'—')+".\n\nStructure obligatoire :\n"+rapportStructure()+"\n\nN'invente aucun fait absent des notes. Renvoie uniquement le texte du rapport.");
     };
     var aiRecom = $('btnAiRecom'); if(aiRecom) aiRecom.onclick = function(){
       syncDocGenericFields();
