@@ -1876,8 +1876,14 @@
      currently experiencing high demand… »), réessaie automatiquement 2 fois avec un court délai avant
      d'abandonner : c'est l'erreur transitoire la plus fréquente en pratique (bien plus que les vraies
      erreurs de clé), et Google indique elle-même qu'il s'agit de pics passagers. */
+  /* Mode raisonnement (Réglages → Assistant IA) : le modèle « réfléchit » davantage avant de
+     répondre (thinkingLevel « high ») et renvoie un résumé de son raisonnement (parties marquées
+     thought:true), affiché sous le bouton IA. Si le modèle désigné par gemini-flash-latest refuse ce
+     paramètre, on le retire une fois pour toutes pendant la session et on refait la demande. */
+  var geminiThinkingUnsupported = false;
   function geminiGenerateOnce(prompt, imagePart){
     var key = geminiApiKey();
+    var think = aiReasoningOn() && !geminiThinkingUnsupported;
     if(!key) return Promise.reject({code:'not_configured'});
     /* Depuis 2026, Google recommande (et, pour les nouvelles clés « auth key » émises par AI Studio,
        impose de fait) de transmettre la clé via l'en-tête x-goog-api-key plutôt que via le paramètre
@@ -1890,12 +1896,18 @@
     return fetch(url, {
       method: 'POST',
       headers: {'Content-Type': 'application/json', 'x-goog-api-key': key},
-      body: JSON.stringify({ contents: [{ parts: parts }] })
+      body: JSON.stringify(think
+        ? { contents: [{ parts: parts }], generationConfig: { thinkingConfig: { thinkingLevel: 'high', includeThoughts: true } } }
+        : { contents: [{ parts: parts }] })
     }).then(function(res){
       return res.json().catch(function(){ return {}; }).then(function(data){
         if(!res.ok){
           var gErr = data.error || {};
           var gMsg = gErr.message || res.statusText || '';
+          if(think && res.status===400 && /think/i.test(gMsg)){
+            geminiThinkingUnsupported = true;
+            return geminiGenerateOnce(prompt, imagePart);
+          }
           /* Ne pas confondre plusieurs erreurs Google très différentes qui peuvent toutes arriver avec
              un statut HTTP 400/403/503 : une clé réellement invalide (INVALID_ARGUMENT / API_KEY_INVALID
              — se corrige en régénérant une clé), un refus lié à la localisation détectée de la requête
@@ -1918,7 +1930,10 @@
         }
         var cand = data.candidates && data.candidates[0];
         if(cand && cand.finishReason==='SAFETY') return Promise.reject({code:'blocked'});
-        var text = (cand && cand.content && cand.content.parts) ? cand.content.parts.map(function(p){ return p.text||''; }).join('') : '';
+        var gparts = (cand && cand.content && cand.content.parts) || [];
+        var text = gparts.filter(function(p){ return !p.thought; }).map(function(p){ return p.text||''; }).join('');
+        aiLastMeta.reasoning = gparts.filter(function(p){ return p.thought; }).map(function(p){ return p.text||''; }).join('\n').trim();
+        aiLastMeta.reasoningUsed = think;
         if(!text.trim()) return Promise.reject({code:'empty_completion'});
         return text.trim();
       });
@@ -1940,15 +1955,54 @@
      demandes avec image (import d'une fiche par photo/PDF) restent confiées à Gemini, le modèle local
      étant textuel : si aucune clé Gemini n'est enregistrée, un message explicite l'indique.
      onText (facultatif) reçoit le texte au fur et à mesure (IA locale uniquement). */
-  function geminiGenerate(prompt, attempt, imagePart, onText){
+  /* Informations sur la dernière génération (moteur, durée, raisonnement), affichées sous le bouton
+     IA par runAiPrompt / runAiActionsPlan. */
+  var aiLastMeta = { engine:'', ms:0, reasoning:'', reasoningUsed:false };
+  function aiReasoningOn(){ return localAiPrefs().reasoning === true; }
+  function geminiGenerate(prompt, attempt, imagePart, onText, onReason){
+    var t0 = Date.now();
+    aiLastMeta = { engine:'', ms:0, reasoning:'', reasoningUsed:false };
+    return geminiGenerateRoute(prompt, attempt, imagePart, onText, onReason).then(function(text){
+      aiLastMeta.ms = Date.now() - t0;
+      return text;
+    });
+  }
+  function geminiGenerateRoute(prompt, attempt, imagePart, onText, onReason){
+    aiLastMeta.engine = (aiProvider()==='local' && !imagePart) ? localAiModel().label.split(' — ')[0] : 'Gemini';
     if(aiProvider()==='local'){
       if(imagePart){
         if(geminiApiKey()) return geminiGenerateCloud(prompt, attempt, imagePart);
         return Promise.reject({code:'local_no_image'});
       }
-      return localGenerate(prompt, onText);
+      return localGenerate(prompt, onText, onReason);
     }
     return geminiGenerateCloud(prompt, attempt, imagePart);
+  }
+  /* Bandeau d'état des boutons IA : chronomètre en direct pendant la génération, puis durée totale,
+     moteur utilisé et (mode raisonnement) le raisonnement du modèle, repliable. */
+  function fmtAiDuration(ms){
+    var sec = Math.max(0, Math.round(ms/1000));
+    return sec < 60 ? sec+' s' : Math.floor(sec/60)+' min '+('0'+(sec%60)).slice(-2)+' s';
+  }
+  function aiStatusStart(statusEl){
+    var t0 = Date.now(), local = aiProvider()==='local', st = { reasonLen:0, timer:null };
+    var label = 'Génération en cours avec '+aiEngineLabel()+(aiReasoningOn()?' (mode raisonnement)':'');
+    function tick(){
+      if(!statusEl) return;
+      statusEl.hidden = false; statusEl.className = 'banner info';
+      statusEl.textContent = label+' — '+fmtAiDuration(Date.now()-t0)+(st.reasonLen ? ' · réflexion : '+st.reasonLen+' mots' : '')+(local && !st.reasonLen ? ' (sur l\'appareil, cela peut prendre une minute)' : '')+'…';
+    }
+    tick(); st.timer = setInterval(tick, 1000);
+    st.onReason = function(r){ st.reasonLen = (String(r).match(/\S+/g)||[]).length; };
+    st.stop = function(){ clearInterval(st.timer); };
+    return st;
+  }
+  function aiStatusDone(statusEl){
+    if(!statusEl) return;
+    var m = aiLastMeta;
+    statusEl.hidden = false; statusEl.className = 'banner info';
+    statusEl.innerHTML = '<div style="flex:1;min-width:0;">✓ Généré en <b>'+esc(fmtAiDuration(m.ms))+'</b> avec '+esc(m.engine||aiEngineLabel())+(m.reasoningUsed?' · mode raisonnement':'')+
+      (m.reasoning ? '<details style="margin-top:6px;"><summary style="cursor:pointer;font-weight:600;">Voir le raisonnement du modèle</summary><div style="white-space:pre-wrap;margin-top:6px;font-size:12px;max-height:220px;overflow:auto;">'+esc(m.reasoning)+'</div></details>' : '')+'</div>';
   }
 
   /* ================= IA locale (sur l'appareil, dans le navigateur) =================
@@ -1964,7 +2018,11 @@
   var LOCAL_AI_MODELS = [
     {id:'qwen25-3b', label:'Qwen 2.5 3B — meilleure rédaction', size:'1,9 Go', bytes:1929903264, ram:'6 Go de RAM ou plus', repo:'bartowski/Qwen2.5-3B-Instruct-GGUF', file:'Qwen2.5-3B-Instruct-Q4_K_M.gguf'},
     {id:'qwen25-1.5b', label:'Qwen 2.5 1.5B — plus rapide', size:'1 Go', bytes:986048768, ram:'4 Go de RAM ou plus', repo:'bartowski/Qwen2.5-1.5B-Instruct-GGUF', file:'Qwen2.5-1.5B-Instruct-Q4_K_M.gguf'},
-    {id:'gemma3-1b', label:'Gemma 3 1B — très léger', size:'0,8 Go', bytes:806058240, ram:'3 Go de RAM ou plus', repo:'ggml-org/gemma-3-1b-it-GGUF', file:'gemma-3-1b-it-Q4_K_M.gguf'}
+    {id:'gemma3-1b', label:'Gemma 3 1B — très léger', size:'0,8 Go', bytes:806058240, ram:'3 Go de RAM ou plus', repo:'ggml-org/gemma-3-1b-it-GGUF', file:'gemma-3-1b-it-Q4_K_M.gguf'},
+    /* Modèles « à raisonnement » (Qwen 3) : le mode raisonnement s'active/désactive à chaque demande
+       (enable_thinking du gabarit de conversation Qwen 3). */
+    {id:'qwen3-1.7b', label:'Qwen 3 1.7B — mode raisonnement', size:'1,1 Go', bytes:1107409472, ram:'4 Go de RAM ou plus', repo:'unsloth/Qwen3-1.7B-GGUF', file:'Qwen3-1.7B-Q4_K_M.gguf', reasoning:true},
+    {id:'qwen3-4b', label:'Qwen 3 4B — mode raisonnement, plus précis', size:'1,9 Go', bytes:1886997792, ram:'6 Go de RAM ou plus', repo:'unsloth/Qwen3-4B-GGUF', file:'Qwen3-4B-Q3_K_S.gguf', reasoning:true}
   ];
   var WLLAMA_VERSION = '3.8.1';
   var WLLAMA_BASE = 'https://cdn.jsdelivr.net/npm/@wllama/wllama@'+WLLAMA_VERSION+'/';
@@ -2169,7 +2227,7 @@
       if(parts.some(function(f){ return !f; })){ markLocalModelReady(m, false); return Promise.reject({code:'local_incomplete_file'}); }
       var file = new Blob(parts);
       var w = new mod.Wllama({ default: WLLAMA_BASE+'src/wasm/wllama.wasm' }, { suppressNativeLog: true, logger: mod.LoggerWithoutDebug || console });
-      return w.loadModel([file], { n_ctx: 4096 }).then(function(){ return w; });
+      return w.loadModel([file], { n_ctx: m.reasoning ? 6144 : 4096 }).then(function(){ return w; });
     }).then(function(w){
       localAi.instance = w; localAi.loadedId = m.id; localAi.loading = null;
       localAi.phase = ''; localAi.pct = 0; localAiShowProgress();
@@ -2186,24 +2244,48 @@
     });
     return localAi.loading;
   }
-  function localGenerate(prompt, onText){
+  /* Sépare le raisonnement (balises <think>…</think> des modèles Qwen 3, ou champ reasoning_content
+     renvoyé séparément par le moteur) du texte de la réponse, y compris pendant la génération (balise
+     encore ouverte). */
+  function splitThink(raw){
+    var reasoning = '', text = String(raw||'');
+    var re = /<think>([\s\S]*?)(<\/think>|$)/g, mm;
+    while((mm = re.exec(text))){ reasoning += mm[1]; }
+    text = text.replace(/<think>[\s\S]*?(<\/think>|$)/g, '');
+    return { reasoning: reasoning.trim(), text: text.replace(/^\s+/, '') };
+  }
+  function localGenerate(prompt, onText, onReason){
     return ensureLocalModel().then(function(w){
-      var acc = '';
-      /* Un seul message « user » (pas de rôle system) : Gemma refuse le rôle system dans son
-         gabarit de conversation, et les autres modèles s'en passent très bien. */
-      return w.createChatCompletion({
+      var m = localAiModel();
+      var think = !!m.reasoning && aiReasoningOn();
+      var raw = '', reasonSep = '';
+      var opts = {
+        /* Un seul message « user » (pas de rôle system) : Gemma refuse le rôle system dans son
+           gabarit de conversation, et les autres modèles s'en passent très bien. */
         messages: [{ role:'user', content: prompt }],
-        max_tokens: 1400, temperature: 0.3, top_p: 0.9,
+        max_tokens: think ? 3500 : 1400,
+        temperature: think ? 0.6 : 0.3, top_p: think ? 0.95 : 0.9,
         stream: true,
         onData: function(chunk){
           var c = chunk && chunk.choices && chunk.choices[0];
-          var t = c && c.delta && c.delta.content;
-          if(t){ acc += t; if(onText) onText(acc); }
+          var d = (c && c.delta) || {};
+          if(d.reasoning_content){ reasonSep += d.reasoning_content; if(onReason) onReason(reasonSep); }
+          if(d.content){
+            raw += d.content;
+            var sp = splitThink(raw);
+            if(sp.reasoning && onReason) onReason(reasonSep + sp.reasoning);
+            if(onText) onText(sp.text);
+          }
         }
-      }).then(function(){
-        acc = acc.trim();
-        if(!acc) return Promise.reject({code:'empty_completion'});
-        return acc;
+      };
+      if(m.reasoning) opts.chat_template_kwargs = { enable_thinking: think };
+      aiLastMeta.reasoningUsed = think;
+      return w.createChatCompletion(opts).then(function(){
+        var sp = splitThink(raw);
+        aiLastMeta.reasoning = (reasonSep + (reasonSep && sp.reasoning ? '\n' : '') + sp.reasoning).trim();
+        var out = sp.text.trim();
+        if(!out) return Promise.reject({code:'empty_completion'});
+        return out;
       });
     });
   }
@@ -2230,15 +2312,17 @@
     if(btn) btn.disabled = true;
     var original = targetTextarea ? targetTextarea.value : '';
     var local = aiProvider()==='local';
-    if(statusEl){ statusEl.hidden = false; statusEl.className = 'banner info'; statusEl.textContent = 'Génération en cours avec '+aiEngineLabel()+(local?' (sur l\'appareil, cela peut prendre une minute)…':'…'); }
+    var st = aiStatusStart(statusEl);
     /* IA locale : le texte s'affiche au fil de l'eau dans le champ ; en cas d'erreur on remet le
        contenu d'origine (notes de l'inspecteur) pour ne rien perdre. */
     var onText = (local && targetTextarea) ? function(t){ targetTextarea.value = t; } : null;
-    geminiGenerate(prompt, 1, null, onText).then(function(text){
+    geminiGenerate(prompt, 1, null, onText, st.onReason).then(function(text){
+      st.stop();
       if(targetTextarea) targetTextarea.value = text;
-      if(statusEl) statusEl.hidden = true;
+      aiStatusDone(statusEl);
       if(btn) btn.disabled = false;
     }).catch(function(err){
+      st.stop();
       if(targetTextarea && onText) targetTextarea.value = original;
       if(statusEl){ statusEl.hidden = false; statusEl.className = 'banner err'; statusEl.textContent = geminiErrorMessage(err); }
       if(btn) btn.disabled = false;
@@ -2283,13 +2367,17 @@
   function runAiActionsPlan(btn, statusEl, prompt){
     if(!aiReady()){ toast(geminiErrorMessage({code:'not_configured'})); return; }
     if(btn) btn.disabled = true;
-    if(statusEl){ statusEl.hidden = false; statusEl.className = 'banner info'; statusEl.textContent = 'Génération en cours avec '+aiEngineLabel()+'…'; }
-    geminiGenerate(prompt).then(function(text){
+    var st = aiStatusStart(statusEl);
+    geminiGenerate(prompt, 1, null, null, st.onReason).then(function(text){
+      st.stop();
       var items = parseAiActionsJson(text);
       if(!items.length) return Promise.reject({code:'empty_completion'});
       state.draftDoc.actions = items;
+      var ms = aiLastMeta.ms;
       render();
+      toast('Plan d\'action généré en '+fmtAiDuration(ms)+'.');
     }).catch(function(err){
+      st.stop();
       if(statusEl){ statusEl.hidden = false; statusEl.className = 'banner err'; statusEl.textContent = geminiErrorMessage(err); }
       if(btn) btn.disabled = false;
     });
@@ -5000,7 +5088,13 @@
     var html = '<div class="section-label">Moteur de rédaction sur cet appareil</div>'+
       '<div class="seg" id="aiProviderSeg" style="margin:4px 0 8px;">'+
         '<button type="button" data-v="gemini" aria-pressed="'+(prov==='gemini')+'">Gemini (en ligne)</button>'+
-        '<button type="button" data-v="local" aria-pressed="'+(prov==='local')+'">IA locale (sur l\'appareil)</button></div>';
+        '<button type="button" data-v="local" aria-pressed="'+(prov==='local')+'">IA locale (sur l\'appareil)</button></div>'+
+      '<div class="section-label" style="margin-top:12px;">Mode raisonnement</div>'+
+      '<div class="seg" id="aiReasonSeg" style="margin:4px 0 6px;">'+
+        '<button type="button" data-v="0" aria-pressed="'+(!aiReasoningOn())+'">Désactivé</button>'+
+        '<button type="button" data-v="1" aria-pressed="'+aiReasoningOn()+'">Activé</button></div>'+
+      '<p style="font-size:11.5px;color:var(--ink-faint);margin-bottom:6px;">Le modèle réfléchit avant de rédiger (analyse des observations, cohérence avec la structure demandée) : textes plus rigoureux, mais génération plus longue. Son raisonnement peut être consulté sous le bouton IA, avec le temps de réponse.'+
+        (prov==='local' && aiReasoningOn() && !localAiModel().reasoning ? ' <b>Le modèle local choisi ne raisonne pas : choisissez un modèle « Qwen 3 » ci-dessous.</b>' : '')+'</p>';
     if(prov==='local'){
       var lm = localAiModel(), ready = localModelReady();
       html += '<p style="font-size:11.5px;color:var(--ink-faint);margin-bottom:10px;">L\'IA locale tourne entièrement dans le navigateur de cet appareil : vos observations et vos rapports ne quittent jamais le téléphone, et la rédaction fonctionne hors connexion une fois le modèle téléchargé (une seule fois, de préférence en Wifi). Elle est plus lente que Gemini (environ une minute pour un rapport) et son texte demande une relecture attentive. Ce choix est propre à cet appareil : vos autres appareils gardent leur propre réglage.</p>'+
@@ -5947,6 +6041,9 @@
     }
 
     /* -- assistant IA : moteur (Gemini / IA locale), modèle local, structure du rapport -- */
+    var segReason = $('aiReasonSeg'); if(segReason) segReason.querySelectorAll('button').forEach(function(b){ b.onclick = function(){
+      localAiPrefsSet({ reasoning: b.getAttribute('data-v')==='1' }); render();
+    }; });
     var segProv = $('aiProviderSeg'); if(segProv) segProv.querySelectorAll('button').forEach(function(b){ b.onclick = function(){
       localAiPrefsSet({ provider: b.getAttribute('data-v') }); render();
     }; });

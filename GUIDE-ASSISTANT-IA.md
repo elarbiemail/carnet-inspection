@@ -144,3 +144,18 @@ seules notes, et s'affiche au fur et à mesure.
 L'IA locale est plus lente que Gemini (de quelques dizaines de secondes à
 environ une minute selon le téléphone) et ses textes demandent une relecture
 attentive. Pour libérer l'espace, touchez **« Supprimer le modèle »**.
+
+## Temps de réponse et mode raisonnement
+
+Pendant chaque génération, un chronomètre s'affiche sous le bouton IA ; à la
+fin, le bandeau indique la durée totale et le moteur utilisé.
+
+**Mode raisonnement** (Paramètres → Assistant IA) : le modèle analyse d'abord
+vos observations et la structure demandée avant de rédiger. Les textes sont
+plus rigoureux, mais la génération est plus longue. Touchez « Voir le
+raisonnement du modèle » sous le bouton IA pour lire sa réflexion.
+
+- Avec **Gemini**, il suffit de l'activer.
+- Avec l'**IA locale**, il faut un modèle **Qwen 3** (1.7B, 1,1 Go, ou 4B,
+  1,9 Go) ; les autres modèles rédigent sans raisonnement. Sur téléphone,
+  comptez plusieurs minutes par rapport en mode raisonnement.
