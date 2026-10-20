@@ -2092,6 +2092,7 @@
     var m = aiLastMeta;
     statusEl.hidden = false; statusEl.className = 'banner info';
     statusEl.innerHTML = '<div style="flex:1;min-width:0;">✓ Généré en <b>'+esc(fmtAiDuration(m.ms))+'</b> avec '+esc(m.engine||aiEngineLabel())+(m.reasoningUsed?' · mode raisonnement':'')+
+      (m.words ? ' · '+m.words+' mots'+(aiCurrentWords ? ' (visé : ≈ '+aiCurrentWords+')' : '') : '')+
       (m.firstMs ? ' · 1<sup>er</sup> mot après '+esc(fmtAiDuration(m.firstMs))+(m.tps ? ', ≈ '+m.tps+' jetons/s' : '') : '')+
       (m.reasoning ? '<details style="margin-top:6px;"><summary style="cursor:pointer;font-weight:600;">Voir le raisonnement du modèle</summary><div style="white-space:pre-wrap;margin-top:6px;font-size:12px;max-height:220px;overflow:auto;">'+esc(m.reasoning)+'</div></details>' : '')+'</div>';
   }
@@ -2404,7 +2405,7 @@
         /* Un seul message « user » (pas de rôle system) : Gemma refuse le rôle system dans son
            gabarit de conversation, et les autres modèles s'en passent très bien. */
         messages: [{ role:'user', content: prompt }],
-        max_tokens: think ? 3500 : 1400,
+        max_tokens: (think ? 2100 : 0) + Math.max(1400, Math.round((aiCurrentWords||0) * 2.2) + 200),
         temperature: think ? 0.6 : 0.3, top_p: think ? 0.95 : 0.9,
         stream: true,
         onData: function(chunk){
@@ -2449,7 +2450,7 @@
     var think = aiReasoningOn();
     var body = { model: localAiPrefs().serverModel || 'local', stream: true,
       messages: [{ role:'user', content: prompt }],
-      max_tokens: think ? 3500 : 1400, temperature: think ? 0.6 : 0.3, top_p: think ? 0.95 : 0.9,
+      max_tokens: (think ? 2100 : 0) + Math.max(1400, Math.round((aiCurrentWords||0) * 2.2) + 200), temperature: think ? 0.6 : 0.3, top_p: think ? 0.95 : 0.9,
       chat_template_kwargs: { enable_thinking: think } };
     var raw = '', reasonSep = '', nTok = 0, tStart = Date.now(), tFirst = 0;
     aiLastMeta.reasoningUsed = think;
@@ -2535,25 +2536,81 @@
      reste de l'app (ex. runBilanGen) — le champ ciblé (targetTextarea) est une référence DOM directe,
      lue seulement à l'enregistrement (syncDocGenericFields), donc aucun render() n'est déclenché ici
      pour ne pas écraser la valeur qu'on vient d'y poser. */
+  /* Longueur souhaitée (nombre de mots approximatif) : petit sélecteur ajouté à côté de chaque bouton
+     IA de rédaction (voir decorateAiButtons, appelé à chaque rendu). Le choix est mémorisé par bouton
+     sur cet appareil ; « Automatique » laisse la longueur indiquée par le bouton lui-même. */
+  var AI_WORDS_KEY = 'ci_ai_mots';
+  var AI_WORDS_OPTIONS = [0, 50, 100, 150, 200, 300, 400, 600, 800, 1200];
+  var AI_WORDS_SKIP = {btnAiActions:1, btnAiPlanActions:1};
+  var aiCurrentWords = 0;
+  function aiWordsPrefs(){ try{ return JSON.parse(localStorage.getItem(AI_WORDS_KEY)||'{}'); }catch(e){ return {}; } }
+  function aiWordsKeyFor(btn){ return (btn && (btn.id || btn.getAttribute('data-aizone') || btn.getAttribute('data-i'))) || 'defaut'; }
+  function aiWordsFor(btn){
+    if(!btn || !btn.classList || !btn.classList.contains('ai')) return 0;
+    var sel = btn && btn.parentNode ? btn.parentNode.querySelector('select.ai-words') : null;
+    if(sel) return parseInt(sel.value, 10) || 0;
+    return parseInt(aiWordsPrefs()[aiWordsKeyFor(btn)], 10) || 0;
+  }
+  function decorateAiButtons(){
+    var prefs = null;
+    document.querySelectorAll('button.btn.ai').forEach(function(b){
+      if(AI_WORDS_SKIP[b.id] || !b.parentNode || b.parentNode.querySelector('select.ai-words')) return;
+      prefs = prefs || aiWordsPrefs();
+      var key = aiWordsKeyFor(b), cur = parseInt(prefs[key], 10) || 0;
+      var sel = document.createElement('select');
+      sel.className = 'ai-words'; sel.setAttribute('aria-label', 'Nombre de mots approximatif');
+      sel.style.cssText = 'border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:6px 8px;font-size:12px;max-width:150px;';
+      sel.innerHTML = AI_WORDS_OPTIONS.map(function(n){ return '<option value="'+n+'"'+(n===cur?' selected':'')+'>'+(n ? '≈ '+n+' mots' : 'Longueur auto')+'</option>'; }).join('');
+      sel.onchange = function(){ var pr = aiWordsPrefs(); pr[key] = parseInt(sel.value, 10) || 0; try{ localStorage.setItem(AI_WORDS_KEY, JSON.stringify(pr)); }catch(e){} };
+      b.insertAdjacentElement('afterend', sel);
+    });
+  }
+  function aiWithLength(prompt, words){
+    if(!words) return prompt;
+    return prompt + "\n\nLongueur visée : environ "+words+" mots (entre "+Math.round(words*0.85)+" et "+Math.round(words*1.15)+" mots). Cette consigne de longueur remplace toute autre indication de longueur donnée plus haut.";
+  }
   function runAiPrompt(btn, statusEl, targetTextarea, prompt){
+    aiCurrentWords = aiWordsFor(btn);
+    prompt = aiWithLength(prompt, aiCurrentWords);
     if(!aiUsable() || (aiEffectiveProvider()==='local' && !localModelReady())){ toast(geminiErrorMessage({code:'not_configured'})); return; }
     if(btn) btn.disabled = true;
     var original = targetTextarea ? targetTextarea.value : '';
     var st = aiStatusStart(statusEl);
-    /* Quel que soit le moteur, le texte s'affiche au fil de l'eau dans le champ ; en cas d'erreur on
-       remet le contenu d'origine (notes de l'inspecteur) pour ne rien perdre. */
-    var onText = aiStreamInto(targetTextarea);
+    /* Quel que soit le moteur, le texte s'affiche au fil de l'eau dans le champ. Pendant la
+       génération : écran maintenu allumé, et brouillon de secours enregistré régulièrement (voir
+       draftAutosave) avec les notes d'origine, pour ne rien perdre si l'on quitte l'application. */
+    var streamFn = aiStreamInto(targetTextarea), lastSave = 0, gotText = false;
+    var onText = streamFn ? function(t){ gotText = gotText || !!String(t).trim(); streamFn(t); if(Date.now() - lastSave > 1500){ lastSave = Date.now(); setTimeout(draftAutosave, 50); } } : null;
+    if(onText) onText.stop = streamFn.stop;
+    if(targetTextarea && targetTextarea.id){
+      aiPending = { fieldId: targetTextarea.id, statusId: statusEl && statusEl.id || '', original: original, partial: '', label: 'texte en cours de génération' };
+      draftAutosave();
+    }
+    localAiKeepAwake(true);
     geminiGenerate(prompt, 1, null, onText, st.onReason).then(function(text){
       st.stop();
       if(onText) onText.stop();
+      aiLastMeta.words = (String(text).match(/\S+/g)||[]).length;
       if(targetTextarea){ targetTextarea.value = text; targetTextarea.scrollTop = 0; }
+      aiPending = null; localAiKeepAwake(false); draftAutosave(); draftAutosaveClearIfIdle();
       aiStatusDone(statusEl);
       if(btn) btn.disabled = false;
     }).catch(function(err){
       st.stop();
       if(onText) onText.stop();
-      if(targetTextarea && onText) targetTextarea.value = original;
-      if(statusEl){ statusEl.hidden = false; statusEl.className = 'banner err'; statusEl.textContent = geminiErrorMessage(err); }
+      /* Page en train de se fermer (ou masquée) : on garde le brouillon de secours tel quel (texte
+         partiel + notes d'origine) pour le proposer à la réouverture. */
+      if(pageClosing || document.visibilityState==='hidden'){ draftAutosave(); if(btn) btn.disabled = false; return; }
+      aiPending = null; localAiKeepAwake(false);
+      var partial = targetTextarea ? String(targetTextarea.value||'').replace(/\s*▍$/, '') : '';
+      if(targetTextarea && gotText && partial.trim()){
+        targetTextarea.value = partial;
+        if(statusEl) aiShowInterrupted(statusEl, targetTextarea, original, btn, err);
+      } else {
+        if(targetTextarea && onText) targetTextarea.value = original;
+        if(statusEl){ statusEl.hidden = false; statusEl.className = 'banner err'; statusEl.textContent = geminiErrorMessage(err); }
+      }
+      draftAutosave(); draftAutosaveClearIfIdle();
       if(btn) btn.disabled = false;
     });
   }
@@ -2594,6 +2651,7 @@
      volontairement vide : l'IA ne peut pas connaître de vraies contraintes de calendrier, c'est à
      l'inspecteur(trice) de la compléter. */
   function runAiActionsPlan(btn, statusEl, prompt){
+    aiCurrentWords = 0;
     if(!aiUsable() || (aiEffectiveProvider()==='local' && !localModelReady())){ toast(geminiErrorMessage({code:'not_configured'})); return; }
     if(btn) btn.disabled = true;
     var st = aiStatusStart(statusEl);
@@ -4488,6 +4546,7 @@
     else if(state.view==='bilan') renderBilanView();
     else renderDocsView();
     renderModals();
+    decorateAiButtons();
   }
 
   function renderTopbar(){
@@ -4979,11 +5038,158 @@
       '<button class="icon-btn" data-dl="'+f.id+'" title="Télécharger" aria-label="Télécharger">'+ICONS.dl+'</button></div></div>';
   }
 
+  /* ================= enregistrement temporaire (brouillon de secours) =================
+     Si l'on quitte l'application pendant une saisie ou une génération IA (appel, autre application,
+     écran éteint), Android peut fermer la page : le formulaire ouvert et le texte déjà écrit étaient
+     alors perdus. On enregistre donc en continu, sur l'appareil (localStorage), un brouillon de
+     secours : la pile des fenêtres d'édition ouvertes (tâche, document, enseignant, établissement,
+     zone), leurs objets brouillons et la valeur de chaque champ affiché — ainsi que, pendant une
+     génération IA, le texte déjà reçu et les notes d'origine. À la réouverture, l'application propose
+     de reprendre ce travail là où il en était. Le brouillon est effacé dès que les fenêtres d'édition
+     sont fermées (enregistrement ou abandon volontaire). */
+  var AUTOSAVE_KEY = 'ci_autosave_brouillon';
+  var AUTOSAVE_TYPES = {taskdetail:1, task:1, docedit:1, enseignant:1, etablissement:1, zone:1};
+  var aiPending = null; // {fieldId, statusId, original, partial, label} pendant une génération
+  function autosaveFieldKey(el){
+    if(el.id) return '#'+el.id;
+    var parts = [];
+    for(var i=0;i<el.attributes.length;i++){ var a = el.attributes[i]; if(a.name.indexOf('data-')===0) parts.push(a.name+'='+a.value); }
+    return parts.length ? el.tagName.toLowerCase()+'['+parts.sort().join('|')+']' : '';
+  }
+  function autosaveCollectFields(root){
+    var out = {};
+    if(!root) return out;
+    root.querySelectorAll('input, textarea, select').forEach(function(el){
+      if(el.type==='file' || el.type==='password') return;
+      var k = autosaveFieldKey(el); if(!k) return;
+      out[k] = (el.type==='checkbox' || el.type==='radio') ? {c: el.checked} : {v: el.value};
+    });
+    return out;
+  }
+  function autosaveEditorStack(){
+    var st = [];
+    for(var i=0;i<state.modalStack.length;i++){
+      var m = state.modalStack[i];
+      if(!AUTOSAVE_TYPES[m.type]) break;
+      try{ st.push(JSON.parse(JSON.stringify(m))); }catch(e){ break; }
+    }
+    return st;
+  }
+  function draftAutosave(){
+    if(!state.autosaveChecked || state.autosaveOffer) return;
+    var stack = autosaveEditorStack();
+    if(!stack.length && !aiPending) return;
+    var fields = autosaveCollectFields($('overlayRoot'));
+    if(aiPending){
+      var ta = document.getElementById(aiPending.fieldId);
+      if(ta) aiPending.partial = String(ta.value||'').replace(/\s*▍$/, '');
+      if(!stack.length && ta) fields['#'+aiPending.fieldId] = {v: aiPending.partial};
+    }
+    var snap = { ts: Date.now(), view: state.view, stack: stack, fields: fields,
+      draftTask: state.draftTask || null, draftDoc: state.draftDoc || null, draftRecord: state.draftRecord || null,
+      ai: aiPending ? JSON.parse(JSON.stringify(aiPending)) : null };
+    try{ localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(snap)); }catch(e){}
+  }
+  function draftAutosaveClearIfIdle(){
+    if(!state.autosaveChecked || state.autosaveOffer || aiPending) return;
+    if(autosaveEditorStack().length) return;
+    try{ localStorage.removeItem(AUTOSAVE_KEY); }catch(e){}
+  }
+  var autosaveTimer = 0;
+  function draftAutosaveSoon(){ clearTimeout(autosaveTimer); autosaveTimer = setTimeout(draftAutosave, 800); }
+  function autosaveLabel(snap){
+    var top = snap.stack[snap.stack.length-1];
+    if(!top) return snap.ai && snap.ai.label ? snap.ai.label : 'texte en cours de rédaction';
+    if(top.type==='docedit') return (DOC_TYPE_INFO[top.docType] ? DOC_TYPE_INFO[top.docType].label : 'document');
+    if(top.type==='task'){ var t = snap.draftTask; return 'tâche'+(t && t.titre ? ' « '+t.titre+' »' : ''); }
+    if(top.type==='enseignant') return 'fiche enseignant'+(snap.draftRecord && snap.draftRecord.nom ? ' « '+snap.draftRecord.nom+' »' : '');
+    if(top.type==='etablissement') return 'fiche établissement';
+    if(top.type==='zone') return 'zone';
+    return 'formulaire';
+  }
+  function autosaveOfferCheck(){
+    state.autosaveChecked = true;
+    var snap = null;
+    try{ snap = JSON.parse(localStorage.getItem(AUTOSAVE_KEY)||'null'); }catch(e){}
+    if(!snap || !snap.ts || Date.now() - snap.ts > 7*24*3600*1000 || (!(snap.stack||[]).length && !snap.ai)){
+      try{ localStorage.removeItem(AUTOSAVE_KEY); }catch(e){}
+      return;
+    }
+    state.autosaveOffer = snap;
+    pushModal({type:'autosaveOffer'});
+  }
+  function autosaveOfferHtml(idx){
+    var snap = state.autosaveOffer; if(!snap) return '';
+    var d = new Date(snap.ts);
+    var when = fmtDate(d.toISOString())+' à '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+    return '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
+      '<div class="sheet-head"><h2>Travail non enregistré</h2></div>'+
+      '<p style="font-size:13px;line-height:1.55;margin:0 0 12px;">L\'application a été fermée pendant que vous travailliez sur : <b>'+esc(autosaveLabel(snap))+'</b> (le '+esc(when)+').'+
+      (snap.ai ? ' Une génération IA était en cours : le texte déjà écrit a été conservé.' : '')+'</p>'+
+      '<div class="btn-row"><button class="btn ghost" id="btnAutosaveDrop" type="button">Ignorer</button><button class="btn primary" id="btnAutosaveRestore" type="button">Reprendre</button></div></div></div>';
+  }
+  function autosaveApplyFields(fields){
+    var root = document;
+    Object.keys(fields||{}).forEach(function(k){
+      var el = null;
+      try{ el = k.charAt(0)==='#' ? document.getElementById(k.slice(1)) : null; }catch(e){}
+      if(!el && k.charAt(0)!=='#'){
+        var m = k.match(/^([a-z]+)\[(.*)\]$/); if(!m) return;
+        var sel = m[1] + m[2].split('|').map(function(p){ var i = p.indexOf('='); return '['+p.slice(0,i)+'="'+p.slice(i+1).replace(/"/g,'\\"')+'"]'; }).join('');
+        try{ el = root.querySelector('#overlayRoot '+sel); }catch(e){ el = null; }
+      }
+      if(!el) return;
+      var f = fields[k];
+      if('c' in f) el.checked = f.c; else el.value = f.v;
+    });
+  }
+  function autosaveRestore(){
+    var snap = state.autosaveOffer; if(!snap) return;
+    state.autosaveOffer = null;
+    state.modalStack = (snap.stack||[]).slice();
+    if(snap.draftTask) state.draftTask = snap.draftTask;
+    if(snap.draftDoc) state.draftDoc = snap.draftDoc;
+    if(snap.draftRecord) state.draftRecord = snap.draftRecord;
+    if(snap.view) state.view = snap.view;
+    render();
+    setTimeout(function(){
+      autosaveApplyFields(snap.fields);
+      var ai = snap.ai;
+      if(ai){
+        var ta = document.getElementById(ai.fieldId), stEl = ai.statusId ? document.getElementById(ai.statusId) : null;
+        if(ta && ai.partial) ta.value = ai.partial;
+        if(stEl) aiShowInterrupted(stEl, ta, ai.original, null);
+        else toast('Texte en cours de génération récupéré. Relancez le bouton IA pour le terminer.');
+      }
+      draftAutosave();
+    }, 0);
+  }
+  /* Génération interrompue (connexion coupée, application quittée…) : le texte déjà reçu est gardé
+     dans le champ, avec deux choix — remettre les notes d'origine, ou relancer la génération. */
+  function aiShowInterrupted(statusEl, textarea, original, retryBtn, err){
+    statusEl.hidden = false; statusEl.className = 'banner err';
+    var why = (err && err.code && err.code!=='tool_error') ? ' ('+esc(geminiErrorMessage(err))+')' : '';
+    statusEl.innerHTML = '<div style="flex:1;min-width:0;">La génération a été interrompue'+why+' : le texte déjà écrit a été conservé.'+
+      '<div class="btn-row" style="margin-top:8px;justify-content:flex-start;">'+
+      (original!=null ? '<button class="btn ghost sm" type="button" data-ai-restore="1">Remettre mes notes d\'origine</button>' : '')+
+      (retryBtn ? '<button class="btn ghost sm" type="button" data-ai-retry="1">Relancer</button>' : '')+'</div></div>';
+    var rb = statusEl.querySelector('[data-ai-restore]'); if(rb) rb.onclick = function(){ if(textarea) textarea.value = original; statusEl.hidden = true; draftAutosave(); };
+    var rt = statusEl.querySelector('[data-ai-retry]'); if(rt) rt.onclick = function(){ if(textarea && original!=null) textarea.value = original; statusEl.hidden = true; retryBtn.click(); };
+  }
+  var pageClosing = false;
+  window.addEventListener('beforeunload', function(){ pageClosing = true; draftAutosave(); });
+  document.addEventListener('visibilitychange', function(){ if(document.visibilityState==='hidden') draftAutosave(); });
+  window.addEventListener('pagehide', function(){ pageClosing = true; draftAutosave(); });
+  document.addEventListener('input', function(e){ if(e.target && e.target.closest && (e.target.closest('#overlayRoot') || (aiPending && e.target.id===aiPending.fieldId))) draftAutosaveSoon(); }, true);
+  document.addEventListener('change', function(e){ if(e.target && e.target.closest && e.target.closest('#overlayRoot')) draftAutosaveSoon(); }, true);
+
   /* ================= MODALS ================= */
   function renderModals(){
     var root = $('overlayRoot');
+    draftAutosaveClearIfIdle();
     if(!state.modalStack.length){ root.innerHTML=''; return; }
     root.innerHTML = state.modalStack.map(function(m, idx){
+      if(m.type==='autosaveOffer') return autosaveOfferHtml(idx);
       if(m.type==='task') return taskModalHtml(idx);
       if(m.type==='taskdetail') return taskDetailModalHtml(idx, m);
       if(m.type==='settings') return settingsModalHtml(idx, m);
@@ -5955,6 +6161,8 @@
 
   /* ================= wire modal events ================= */
   function wireModalEvents(){
+    var bRes = $('btnAutosaveRestore'); if(bRes) bRes.onclick = autosaveRestore;
+    var bDrop = $('btnAutosaveDrop'); if(bDrop) bDrop.onclick = function(){ state.autosaveOffer = null; try{ localStorage.removeItem(AUTOSAVE_KEY); }catch(e){} closeTopModal(); };
     document.querySelectorAll('[data-close-modal]').forEach(function(el){ el.onclick = function(){ closeTopModal(); }; });
     document.querySelectorAll('.overlay').forEach(function(el){ el.addEventListener('click', function(ev){ if(ev.target===el) closeTopModal(); }); });
 
@@ -7132,6 +7340,7 @@
     initCapabilities();
     if(!state.config.googleClientId && !state.config.driveSetupSeen){ pushModal({type:'driveSetup'}); }
     render();
+    autosaveOfferCheck();
     /* Toujours après le premier rendu (données locales déjà affichées, hors-ligne d'abord) : tente
        une synchronisation silencieuse en arrière-plan si cet appareil a déjà été connecté. */
     autoSyncOnLaunch();
