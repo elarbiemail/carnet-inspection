@@ -431,6 +431,7 @@
     .p-page[dir="rtl"] .p-meta{ flex-direction:row-reverse; }
   }
 </style>
+<link rel="stylesheet" href="taches-animations.css">
 <link rel="stylesheet" href="theme-futuriste.css">
 </head>
 <body>
@@ -5450,6 +5451,32 @@
     printHTML(html);
   }
 
+  /* ================= animations d'entrée (voir taches-animations.css) =================
+     Le rendu redessine tout l'écran à chaque changement de données (synchronisation, enregistrement…) :
+     pour ne pas rejouer les animations à chaque fois, elles ne sont déclenchées que lorsqu'on ARRIVE
+     sur un écran, un filtre ou une fenêtre (clé différente de la précédente) — cartes en cascade,
+     fondu de l'écran, glissement de la fenêtre qui s'ouvre. */
+  var animState = { viewKey:'', modalCount:0 };
+  function animateEntrance(){
+    var key = state.view+'|'+(state.filter||'')+'|'+(state.ensEtabFilter||'')+'|'+(state.subEtab||'');
+    if(key !== animState.viewKey){
+      animState.viewKey = key;
+      var host = $('view'+state.view.charAt(0).toUpperCase()+state.view.slice(1));
+      if(host){
+        host.classList.remove('view-enter'); void host.offsetWidth; host.classList.add('view-enter');
+        var items = host.querySelectorAll('.task-card, .rec-row, .carousel-card, .stat, .doc-row, .setup-card');
+        Array.prototype.forEach.call(items, function(el, i){ if(i < 24){ el.style.setProperty('--i', i); el.classList.add('anim-in'); } });
+      }
+    }
+    var n = state.modalStack.length;
+    if(n > animState.modalCount){
+      var ovs = document.querySelectorAll('#overlayRoot .overlay');
+      var top = ovs[ovs.length-1];
+      if(top){ top.classList.add('modal-enter'); }
+    }
+    animState.modalCount = n;
+  }
+
   /* ================= RENDER ================= */
   function render(){
     renderTopbar();
@@ -5466,6 +5493,7 @@
     else renderDocsView();
     renderModals();
     decorateAiButtons();
+    animateEntrance();
   }
 
   function renderTopbar(){
@@ -5670,12 +5698,16 @@
     var enNom = t.enseignantNom || ensName(t.enseignantId);
     var etNom = t.etablissementNom || etabName(t.etablissementId);
     var meta = [enNom, etNom, (!enNom && !etNom ? t.lieu : '')].filter(Boolean).join(' · ');
-    return '<article class="task-card'+(t.statut==='cloturee'?' done':'')+'" style="--prio:'+PRIO_VAR[t.priorite]+'" data-id="'+t.id+'">'+
+    /* Attributs lus par taches-animations.css pour différencier visuellement les tâches : type
+       (couleur et icône), statut, priorité, retard et échéance proche (aujourd'hui / demain). */
+    var soon = (function(){ if(!t.echeance || late || t.statut==='cloturee') return ''; var d = new Date(t.echeance.length<=10 ? t.echeance+'T12:00:00' : t.echeance), n = new Date(); var diff = Math.round((new Date(d.getFullYear(),d.getMonth(),d.getDate()) - new Date(n.getFullYear(),n.getMonth(),n.getDate()))/86400000); return diff===0 ? 'today' : diff===1 ? 'tomorrow' : ''; })();
+    return '<article class="task-card'+(t.statut==='cloturee'?' done':'')+'" style="--prio:'+PRIO_VAR[t.priorite]+'" data-id="'+t.id+'" data-type="'+esc(t.taskType||'autre')+'" data-statut="'+esc(t.statut||'')+'" data-prio="'+esc(t.priorite||'')+'"'+(late?' data-late="1"':'')+(soon?' data-soon="'+soon+'"':'')+'>'+
+      '<span class="tc-prio" aria-hidden="true"></span>'+
       '<div class="task-meta"><span class="type-badge '+taskBadgeClass(t.taskType)+'">'+esc(TT_LABEL[t.taskType]||'Autre')+'</span></div>'+
       '<div class="task-title'+(t.statut==='cloturee'?' strike':'')+'">'+esc(t.titre)+'</div>'+
       (meta ? '<div class="task-meta">'+esc(meta)+'</div>' : '')+
       '<div class="task-foot"><span class="pill wf-'+t.statut+'">'+WF_LABEL[t.statut]+'</span>'+
-      (t.echeance ? '<span class="due-chip'+(late?' late':(vacConflict?' vacance':''))+'">'+(late?'En retard · ':(vacConflict?'⚠ Vacances · ':''))+fmtDate(t.echeance)+'</span>' : '<span></span>')+'</div>'+
+      (t.echeance ? '<span class="due-chip'+(late?' late':(vacConflict?' vacance':''))+'">'+(late?'En retard · ':(vacConflict?'⚠ Vacances · ':(soon==='today'?'Aujourd\'hui · ':(soon==='tomorrow'?'Demain · ':''))))+fmtDate(t.echeance)+'</span>' : '<span></span>')+'</div>'+
       '</article>';
   }
 

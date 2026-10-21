@@ -1,0 +1,143 @@
+/* =====================================================================
+   Carnet d'Inspection — différenciation des tâches, animations, transitions
+   S'applique aux deux thèmes (Classique et Futuriste). Les attributs
+   data-type / data-statut / data-prio / data-late / data-soon sont posés
+   sur chaque carte de tâche par taskCardHtml() ; les classes d'entrée
+   (view-enter, anim-in, modal-enter) par animateEntrance().
+   Aucun effet sur l'impression ; mouvements réduits si le téléphone le
+   demande (prefers-reduced-motion).
+   ===================================================================== */
+
+@media screen {
+
+/* ---------- couleur propre à chaque type de tâche ---------- */
+.task-card{ --tt:#8B94A0; --tt-icon:none; }
+.task-card[data-type="inspection"]            { --tt:#E5486A; }
+.task-card[data-type="visite_conseil"]        { --tt:#14B8A6; }
+.task-card[data-type="reunion_pedagogique"]   { --tt:#4F7CFF; }
+.task-card[data-type="cours_experimental"]    { --tt:#8B5CF6; }
+.task-card[data-type="formation"]             { --tt:#F59E0B; }
+.task-card[data-type="reunion_distance"]      { --tt:#0EA5E9; }
+.task-card[data-type="reunion_administrative"]{ --tt:#64748B; }
+.task-card[data-type="recherche_action"]      { --tt:#22C55E; }
+.task-card[data-type="observation_examen"]    { --tt:#EC4899; }
+.task-card[data-type="conception_examen"]     { --tt:#F97316; }
+.task-card[data-type="autre"]                 { --tt:#8B94A0; }
+
+/* icônes (masques SVG) par type */
+.task-card[data-type="inspection"]{ --tt-icon:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E"); }
+.task-card[data-type="visite_conseil"]{ --tt-icon:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M15.5 8.5l-2 5-5 2 2-5z'/%3E%3C/svg%3E"); }
+.task-card[data-type="reunion_pedagogique"], .task-card[data-type="reunion_administrative"]{ --tt-icon:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='9' cy='8' r='3'/%3E%3Cpath d='M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6'/%3E%3Cpath d='M16 5a3 3 0 0 1 0 6M21 20c0-2.8-1.8-5-4-5.7'/%3E%3C/svg%3E"); }
+.task-card[data-type="cours_experimental"]{ --tt-icon:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M9 3h6M10 3v6L4.5 18.5A1.7 1.7 0 0 0 6 21h12a1.7 1.7 0 0 0 1.5-2.5L14 9V3'/%3E%3Cpath d='M7 15h10'/%3E%3C/svg%3E"); }
+.task-card[data-type="formation"]{ --tt-icon:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M2 9l10-5 10 5-10 5z'/%3E%3Cpath d='M6 11v5c0 1.7 2.7 3 6 3s6-1.3 6-3v-5'/%3E%3C/svg%3E"); }
+.task-card[data-type="reunion_distance"]{ --tt-icon:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Crect x='2' y='6' width='14' height='12' rx='2'/%3E%3Cpath d='M16 10l6-3v10l-6-3'/%3E%3C/svg%3E"); }
+.task-card[data-type="recherche_action"]{ --tt-icon:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M21 21l-5-5'/%3E%3C/svg%3E"); }
+.task-card[data-type="observation_examen"], .task-card[data-type="conception_examen"]{ --tt-icon:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Crect x='5' y='4' width='14' height='17' rx='2'/%3E%3Cpath d='M9 4V2h6v2M9 11h6M9 15h4'/%3E%3C/svg%3E"); }
+.task-card[data-type="autre"]{ --tt-icon:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='5' cy='12' r='1.5'/%3E%3Ccircle cx='12' cy='12' r='1.5'/%3E%3Ccircle cx='19' cy='12' r='1.5'/%3E%3C/svg%3E"); }
+
+/* carte teintée par son type : bande latérale, badge et filigrane */
+.task-card{
+  background-image:linear-gradient(110deg, color-mix(in srgb, var(--tt) 9%, transparent) 0%, transparent 46%);
+  transition:transform .2s ease, box-shadow .2s ease, border-color .2s ease, opacity .2s ease;
+  overflow:hidden;
+}
+.task-card::before{ background:var(--tt) !important; width:4px !important; }
+.task-card::after{
+  content:""; position:absolute; right:-14px; bottom:-14px; width:84px; height:84px; pointer-events:none;
+  background:var(--tt); opacity:.07;
+  -webkit-mask:var(--tt-icon) center/contain no-repeat; mask:var(--tt-icon) center/contain no-repeat;
+}
+.task-card .type-badge{
+  display:inline-flex; align-items:center; gap:5px;
+  background:color-mix(in srgb, var(--tt) 14%, transparent) !important; color:var(--tt) !important;
+  box-shadow:0 0 0 1px color-mix(in srgb, var(--tt) 35%, transparent) inset;
+}
+.task-card .type-badge::before{
+  content:""; width:12px; height:12px; flex-shrink:0; background:currentColor;
+  -webkit-mask:var(--tt-icon) center/contain no-repeat; mask:var(--tt-icon) center/contain no-repeat;
+}
+
+/* priorité : 1, 2 ou 3 pastilles en haut à droite */
+.task-card .tc-prio{ position:absolute; top:12px; right:12px; display:flex; gap:3px; }
+.task-card .tc-prio::before, .task-card .tc-prio::after{ content:""; }
+.task-card[data-prio="basse"] .tc-prio{ width:7px; height:7px; border-radius:50%; background:var(--ink-faint); opacity:.5; }
+.task-card[data-prio="moyenne"] .tc-prio{ width:18px; height:7px; border-radius:4px; background:linear-gradient(90deg, var(--warn) 0 7px, transparent 7px 11px, var(--warn) 11px 18px); }
+.task-card[data-prio="haute"] .tc-prio{ width:29px; height:7px; border-radius:4px; background:linear-gradient(90deg, var(--danger) 0 7px, transparent 7px 11px, var(--danger) 11px 18px, transparent 18px 22px, var(--danger) 22px 29px); }
+
+/* statuts */
+.task-card[data-statut="realisee"] .task-title::after,
+.task-card[data-statut="rapport"] .task-title::after{
+  content:""; display:inline-block; width:8px; height:8px; margin-left:7px; border-radius:50%; vertical-align:middle;
+  background:var(--violet); box-shadow:0 0 0 3px color-mix(in srgb, var(--violet) 22%, transparent);
+}
+.task-card[data-statut="cloturee"]{ opacity:.6; filter:saturate(.55); }
+.task-card[data-statut="cloturee"] .task-title::before{ content:"✓ "; color:var(--done); font-weight:700; }
+
+/* échéances : en retard (pulsation), aujourd'hui, demain */
+.task-card[data-late]{ border-color:color-mix(in srgb, var(--danger) 55%, var(--line)) !important; animation:tc-alert 2.4s ease-in-out infinite; }
+.task-card[data-soon="today"]{ border-color:color-mix(in srgb, var(--accent) 65%, var(--line)) !important; box-shadow:0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent), 0 8px 26px color-mix(in srgb, var(--accent) 18%, transparent) !important; }
+.task-card[data-soon="today"] .due-chip, .task-card[data-soon="tomorrow"] .due-chip{ color:var(--accent); font-weight:700; }
+.task-card[data-soon="tomorrow"]{ border-style:dashed !important; border-color:color-mix(in srgb, var(--accent) 45%, var(--line)) !important; }
+@keyframes tc-alert{
+  0%,100%{ box-shadow:0 0 0 0 color-mix(in srgb, var(--danger) 0%, transparent), var(--shadow); }
+  50%{ box-shadow:0 0 0 4px color-mix(in srgb, var(--danger) 22%, transparent), var(--shadow); }
+}
+
+/* interaction */
+.task-card:active, .rec-row:active, .carousel-card:active, .doc-row:active{ transform:scale(.985); }
+@media (hover:hover){ .task-card:hover{ transform:translateY(-2px); } }
+
+/* ---------- entrées : écran, cartes en cascade, fenêtres ---------- */
+.view-enter{ animation:view-in .28s ease-out both; }
+@keyframes view-in{ from{ opacity:0; transform:translateY(6px); } to{ opacity:1; transform:none; } }
+.anim-in{ animation:card-in .42s cubic-bezier(.2,.8,.2,1) both; animation-delay:calc(var(--i, 0) * 35ms); }
+@keyframes card-in{ from{ opacity:0; transform:translateY(14px) scale(.985); } to{ opacity:1; transform:none; } }
+.task-card.anim-in[data-late]{ animation:card-in .42s cubic-bezier(.2,.8,.2,1) both, tc-alert 2.4s ease-in-out .5s infinite; animation-delay:calc(var(--i, 0) * 35ms), .5s; }
+
+.overlay.modal-enter{ animation:ov-in .22s ease-out both; }
+.overlay.modal-enter .sheet{ animation:sheet-in .34s cubic-bezier(.2,.9,.25,1) both; }
+@keyframes ov-in{ from{ opacity:0; } to{ opacity:1; } }
+@keyframes sheet-in{ from{ transform:translateY(34px); opacity:.4; } to{ transform:none; opacity:1; } }
+@media (min-width:560px){ @keyframes sheet-in{ from{ transform:translateY(16px) scale(.97); opacity:0; } to{ transform:none; opacity:1; } } }
+
+/* ---------- transitions des contrôles ---------- */
+.btn, .chip, .seg button, .period-seg button, .step, .pill, .icon-btn, .bt-item, .side-nav button, .addline, .pickbtn{
+  transition:background-color .18s ease, color .18s ease, border-color .18s ease, box-shadow .2s ease, transform .12s ease, filter .18s ease;
+}
+.btn:active, .chip:active, .seg button:active, .pill:active, .step:active, .bt-item:active{ transform:scale(.96); }
+.seg button[aria-pressed="true"], .chip[aria-pressed="true"], .step.current{ animation:pop .25s ease-out; }
+@keyframes pop{ 0%{ transform:scale(.94); } 60%{ transform:scale(1.03); } 100%{ transform:none; } }
+.bottom-tabs .bt-item{ position:relative; }
+.bottom-tabs .bt-item[aria-current="true"]::before{
+  content:""; position:absolute; top:0; left:28%; right:28%; height:3px; border-radius:0 0 3px 3px;
+  background:var(--accent); animation:tab-in .3s ease-out both;
+}
+@keyframes tab-in{ from{ transform:scaleX(0); opacity:0; } to{ transform:scaleX(1); opacity:1; } }
+.field input, .field textarea, .field select{ transition:border-color .15s ease, box-shadow .15s ease, background-color .15s ease; }
+.toast{ animation:toast-in .3s cubic-bezier(.2,.9,.25,1) both, toast-out .35s ease-in 2.85s both; }
+@keyframes toast-in{ from{ opacity:0; transform:translateY(16px) scale(.96); } to{ opacity:1; transform:none; } }
+@keyframes toast-out{ to{ opacity:0; transform:translateY(8px); } }
+.banner{ animation:fade-in .25s ease-out both; }
+@keyframes fade-in{ from{ opacity:0; } to{ opacity:1; } }
+.bar-fill{ animation:bar-grow .8s cubic-bezier(.2,.8,.2,1) both; transform-origin:left center; }
+[dir="rtl"] .bar-fill{ transform-origin:right center; }
+@keyframes bar-grow{ from{ transform:scaleX(0); } to{ transform:scaleX(1); } }
+.icon-btn.spin svg{ animation:spin .9s linear infinite; }
+.fab{ transition:transform .2s ease, box-shadow .2s ease; }
+.fab:active{ transform:scale(.92) rotate(90deg); }
+
+/* ---------- thème futuriste : versions lumineuses ---------- */
+html[data-skin="futur"] .task-card::before{ box-shadow:0 0 14px var(--tt) !important; }
+html[data-skin="futur"] .task-card{ background:linear-gradient(110deg, color-mix(in srgb, var(--tt) 16%, transparent) 0%, transparent 50%), linear-gradient(160deg, rgba(27,38,66,.78), rgba(13,20,38,.78)) !important; }
+html[data-skin="futur"] .task-card::after{ opacity:.12; }
+html[data-skin="futur"] .task-card .type-badge{ text-shadow:0 0 10px color-mix(in srgb, var(--tt) 60%, transparent); }
+html[data-skin="futur"] .task-card:hover{ border-color:color-mix(in srgb, var(--tt) 60%, transparent) !important; box-shadow:0 0 0 1px color-mix(in srgb, var(--tt) 30%, transparent) inset, 0 14px 36px rgba(0,0,0,.5), 0 0 26px color-mix(in srgb, var(--tt) 22%, transparent) !important; }
+html[data-skin="futur"] .task-card[data-prio="haute"] .tc-prio{ filter:drop-shadow(0 0 4px var(--danger)); }
+
+@media (prefers-reduced-motion:reduce){
+  .view-enter, .anim-in, .overlay.modal-enter, .overlay.modal-enter .sheet, .toast, .banner, .bar-fill,
+  .seg button[aria-pressed="true"], .chip[aria-pressed="true"], .step.current, .bottom-tabs .bt-item[aria-current="true"]::before,
+  .task-card[data-late]{ animation:none !important; }
+  .task-card, .btn, .chip, .seg button{ transition:none !important; }
+}
+}
