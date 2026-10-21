@@ -18,9 +18,28 @@
 <script>
   /* Apparence choisie sur cet appareil (Paramètres → Apparence), appliquée avant l'affichage pour
      éviter un flash : « futur » (thème futuriste, par défaut) ou « classique ». */
-  (function(){ var k = 'futur'; try{ k = localStorage.getItem('ci_skin') || 'futur'; }catch(e){}
-    document.documentElement.setAttribute('data-skin', k);
-    if(k==='futur'){ var m = document.querySelector('meta[name="theme-color"]'); if(m) m.setAttribute('content', '#070B16'); } })();
+  window.SKIN_META = { futur:'#070B16', classique:'#2F6F62', oasis:'#F3ECDF', majorelle:'#4A3FD1', aurore:'#FBF6FB', nuit:'#0E131D', sahara:'#1B1510', contraste:'#FFFFFF' };
+  window.applyLook = function(k, look){
+    var h = document.documentElement;
+    if(!window.SKIN_META[k]) k = 'futur';
+    h.setAttribute('data-skin', k);
+    look = look || {};
+    if(k==='classique' && (look.mode==='light' || look.mode==='dark')) h.setAttribute('data-theme', look.mode); else h.removeAttribute('data-theme');
+    ['textsize','density','corners','motion'].forEach(function(a){ if(look[a]) h.setAttribute('data-'+a, look[a]); else h.removeAttribute('data-'+a); });
+    if(look.accent){
+      h.style.setProperty('--accent', look.accent);
+      h.style.setProperty('--accent-soft', 'color-mix(in srgb, '+look.accent+' 16%, transparent)');
+      var c = look.accent.replace('#',''); var r = parseInt(c.substr(0,2),16), g = parseInt(c.substr(2,2),16), b = parseInt(c.substr(4,2),16);
+      h.style.setProperty('--accent-ink', (0.299*r+0.587*g+0.114*b) > 150 ? '#111111' : '#FFFFFF');
+      h.style.setProperty('--glow-a', look.accent);
+    } else { ['--accent','--accent-soft','--accent-ink','--glow-a'].forEach(function(v){ h.style.removeProperty(v); }); }
+    if(look.uifont){ h.style.setProperty('--font-ui', look.uifont); h.style.setProperty('--font-display', look.uifont); }
+    else { h.style.removeProperty('--font-ui'); h.style.removeProperty('--font-display'); }
+    var m = document.querySelector('meta[name="theme-color"]');
+    if(m) m.setAttribute('content', look.accent && k!=='futur' ? look.accent : window.SKIN_META[k]);
+  };
+  (function(){ var k = 'futur', look = {}; try{ k = localStorage.getItem('ci_skin') || 'futur'; look = JSON.parse(localStorage.getItem('ci_look') || '{}') || {}; }catch(e){}
+    window.applyLook(k, look); })();
 </script>
 <style>
   :root{
@@ -433,6 +452,7 @@
 </style>
 <link rel="stylesheet" href="taches-animations.css">
 <link rel="stylesheet" href="theme-futuriste.css">
+<link rel="stylesheet" href="themes-apparence.css">
 </head>
 <body>
 
@@ -3074,13 +3094,14 @@
     switch(code){
       case 'too_large': return "Fichier trop volumineux (max. 1,5 Mo — réduisez la taille de l'image).";
       case 'unsupported_type': return "Type de fichier non pris en charge.";
+      case 'font_too_large': return "Police trop volumineuse (max. 3 Mo).";
       case 'quota_or_state': return "Espace de stockage de l'application atteint.";
       default: return "Erreur d'envoi du fichier" + (code?' ('+code+')':'') + ".";
     }
   }
-  function uploadAsset(file){
+  function uploadAsset(file, limit){
     if(!file) return Promise.reject({code:'unsupported_type'});
-    if(file.size > ASSET_SIZE_LIMIT) return Promise.reject({code:'too_large'});
+    if(file.size > (limit || ASSET_SIZE_LIMIT)) return Promise.reject({code:'too_large'});
     return new Promise(function(resolve, reject){
       var reader = new FileReader();
       reader.onload = function(){
@@ -4276,14 +4297,14 @@
       base.destinataire = 'المدير الإقليمي';
       base.objet = TT_AR[task.taskType] || task.titre; base.lieu = task.lieu||task.etablissementNom||'';
       base.invites = invites.slice();
-      var lieuAr = task.lieu || task.etablissementNom || '';
+      var lieuAr = task.lieu || (task.etablissementNom || task.etablissementId ? etabNameLang('ar', task.etablissementId, task.etablissementNom||'') : '');
       var quandAr = dateLongueAr(task.echeance) + (task.heureDebut ? ' على الساعة '+task.heureDebut : '');
-      var etabsInv = []; invites.forEach(function(iv){ var n = (iv.etablissementNom||'').trim(); if(n && etabsInv.indexOf(n)<0) etabsInv.push(n); });
+      var etabsInv = []; invites.forEach(function(iv){ var er = findEns(iv.enseignantId, iv.nom); var n = (iv.etablissementNom||'').trim(); if(n) n = etabNameLang('ar', er && er.etablissementId, n); if(n && etabsInv.indexOf(n)<0) etabsInv.push(n); });
       base.corps = invites.length
-        ? 'يشرفني أن أطلب منكم دعوة السيدات والسادة الأساتذة'+(etabsInv.length ? ' بـ'+etabsInv.map(bidiIso).join('، ') : '')+' الواردة أسماؤهم في اللائحة أسفله لحضور '+(TT_AR[task.taskType]||'لقاء تربوي')+(task.titre ? ' في موضوع: '+bidiIso(task.titre) : '')+' يوم '+quandAr+(lieuAr ? ' بمقر '+bidiIso(lieuAr) : '')+'.'
-        : 'يشرفني أن أخبركم بأنني سأقوم بـ'+(TT_AR[task.taskType]||'زيارة تربوية')+(task.enseignantNom ? ' لفائدة الأستاذ(ة) '+bidiIso(task.enseignantNom) : '')+(task.etablissementNom ? ' بمؤسسة '+bidiIso(task.etablissementNom) : '')+' يوم '+quandAr+'.';
+        ? 'يشرفني أن أطلب منكم دعوة السيدات والسادة الأساتذة'+(etabsInv.length ? ' '+(/[\u0600-\u06FF]/.test(etabsInv[0]) ? 'ب' : 'بـ')+etabsInv.map(bidiIso).join('، ') : '')+' الواردة أسماؤهم في اللائحة أسفله لحضور '+(TT_AR[task.taskType]||'لقاء تربوي')+(task.titre ? ' في موضوع: '+bidiIso(task.titre) : '')+' يوم '+quandAr+(lieuAr ? ' بمقر '+bidiIso(lieuAr) : '')+'.'
+        : 'يشرفني أن أخبركم بأنني سأقوم ب'+(TT_AR[task.taskType]||'زيارة تربوية')+(task.enseignantNom ? ' لفائدة الأستاذ(ة) '+bidiIso(ensNameLang('ar', task.enseignantId, task.enseignantNom)) : '')+(task.etablissementNom ? ' بمؤسسة '+bidiIso(etabNameLang('ar', task.etablissementId, task.etablissementNom)) : '')+' يوم '+quandAr+'.';
     } else if(type==='rapport_inspection'){
-      base.enseignantNom = task.enseignantNom||''; base.lieu = task.lieu||task.etablissementNom||''; base.classe=''; base.matiere='';
+      base.enseignantNom = task.enseignantNom ? ensNameLang('fr', task.enseignantId, task.enseignantNom) : ''; base.lieu = task.lieu||(task.etablissementNom ? etabNameLang('fr', task.etablissementId, task.etablissementNom) : ''); base.classe=''; base.matiere='';
       base.appreciation = task.noteGlobale || ''; base.constats=''; base.recommandations='';
       var ensR = task.enseignantId ? state.enseignants.find(function(x){ return x.id===task.enseignantId; }) : null;
       base.ppr = ensR ? (ensR.ppr||'') : ''; base.cadre = ensR ? (ensR.cadre||'') : '';
@@ -4447,6 +4468,690 @@
     var list = Object.keys(keys);
     return Promise.all(list.map(offLoadImage)).then(function(res){ var out = {}; list.forEach(function(k,i){ if(res[i]) out[k] = res[i]; }); return out; });
   }
+  /* ================= noms bilingues (arabe / français) =================
+     Chaque établissement et chaque enseignant(e) peut avoir un nom en arabe (nomAr) et un nom en
+     caractères latins (nomFr), en plus du nom principal (nom). Quand l'une des deux versions manque,
+     elle est déduite automatiquement : traduction des mots usuels (Lycée → الثانوية التأهيلية,
+     Collège → الثانوية الإعدادية…), dictionnaire des prénoms et noms marocains courants, puis
+     translittération lettre à lettre en dernier recours. L'assistant IA peut proposer une version plus
+     juste (bouton dans la fiche, ou « Compléter les noms » pour toute la liste) ; le résultat est
+     enregistré dans la fiche et reste modifiable. Les documents en arabe utilisent la version arabe,
+     les documents en français la version latine. */
+  var AR_RE = /[؀-ۿݐ-ݿﭐ-﷿ﹰ-﻿]/;
+  function isArabicText(t){ return AR_RE.test(String(t||'')); }
+  var NAME_DICT = [
+    ['Mohammed','محمد'],['Mohamed','محمد'],['Mhamed','امحمد'],['Ahmed','أحمد'],['Abdellah','عبد الله'],['Abdallah','عبد الله'],['Abdelaziz','عبد العزيز'],['Abderrahim','عبد الرحيم'],['Abderrahmane','عبد الرحمان'],
+    ['Abdelkader','عبد القادر'],['Abdelhak','عبد الحق'],['Abdeslam','عبد السلام'],['Abdelilah','عبد الإله'],['Abdelhamid','عبد الحميد'],['Abdelmajid','عبد المجيد'],['Abdelkrim','عبد الكريم'],['Abdelali','عبد العالي'],
+    ['Abdelghani','عبد الغني'],['Abdellatif','عبد اللطيف'],['Abdelmalek','عبد المالك'],['Abdennour','عبد النور'],['Abdessamad','عبد الصمد'],['Abdeljalil','عبد الجليل'],['Abdelouahed','عبد الواحد'],['Abdelfattah','عبد الفتاح'],
+    ['Driss','إدريس'],['Idriss','إدريس'],['Brahim','إبراهيم'],['Ibrahim','إبراهيم'],['Ali','علي'],['Hamid','حميد'],['Khalid','خالد'],['Omar','عمر'],['Hassan','حسن'],['Hassane','حسن'],['Hicham','هشام'],['Rachid','رشيد'],
+    ['Karim','كريم'],['Said','سعيد'],['Saïd','سعيد'],['Youssef','يوسف'],['Youssouf','يوسف'],['Mustapha','مصطفى'],['Mostafa','مصطفى'],['Aziz','عزيز'],['Yassine','ياسين'],['Anas','أنس'],['Ayoub','أيوب'],['Hamza','حمزة'],
+    ['Ismail','إسماعيل'],['Jamal','جمال'],['Kamal','كمال'],['Larbi','العربي'],['Mehdi','المهدي'],['Mounir','منير'],['Nabil','نبيل'],['Noureddine','نور الدين'],['Redouane','رضوان'],['Ridouane','رضوان'],['Samir','سمير'],
+    ['Tarik','طارق'],['Tariq','طارق'],['Yahya','يحيى'],['Younes','يونس'],['Zakaria','زكرياء'],['Adil','عادل'],['Bouchaib','بوشعيب'],['Lahcen','لحسن'],['Lhoussaine','لحسين'],['Houssine','حسين'],['Mbarek','امبارك'],
+    ['Fouad','فؤاد'],['Hakim','حكيم'],['Mourad','مراد'],['Othmane','عثمان'],['Soufiane','سفيان'],['Badr','بدر'],['Bilal','بلال'],['Taoufik','توفيق'],['Jawad','جواد'],['Hafid','حفيظ'],['Aissa','عيسى'],['Moussa','موسى'],
+    ['Abdelouahab','عبد الوهاب'],['Mohcine','محسن'],['Mohsine','محسن'],['Najib','نجيب'],['Rida','رضى'],['Reda','رضى'],['Saad','سعد'],['Walid','وليد'],['Zouhair','زهير'],['Amine','أمين'],['Ilyas','إلياس'],['Oussama','أسامة'],
+    ['Fatima','فاطمة'],['Fatiha','فتيحة'],['Khadija','خديجة'],['Soumia','سمية'],['Soumaya','سمية'],['Nadia','نادية'],['Naima','نعيمة'],['Latifa','لطيفة'],['Malika','مليكة'],['Amina','أمينة'],['Asmae','أسماء'],['Asmaa','أسماء'],
+    ['Hanane','حنان'],['Samira','سميرة'],['Saida','سعيدة'],['Zineb','زينب'],['Meryem','مريم'],['Maryam','مريم'],['Hafsa','حفصة'],['Imane','إيمان'],['Ilham','إلهام'],['Loubna','لبنى'],['Siham','سهام'],['Rajae','رجاء'],
+    ['Bouchra','بشرى'],['Houda','هدى'],['Karima','كريمة'],['Hayat','حياة'],['Laila','ليلى'],['Leila','ليلى'],['Salma','سلمى'],['Sanae','سناء'],['Nawal','نوال'],['Khaoula','خولة'],['Wafae','وفاء'],['Wafaa','وفاء'],
+    ['Hasna','حسناء'],['Ghizlane','غزلان'],['Kawtar','كوثر'],['Kaoutar','كوثر'],['Majda','ماجدة'],['Rachida','رشيدة'],['Zahra','الزهراء'],['Najat','نجاة'],['Hind','هند'],['Btissam','ابتسام'],['Ibtissam','ابتسام'],['Mariam','مريم'],
+    ['Nezha','نزهة'],['Souad','سعاد'],['Aicha','عائشة'],['Aïcha','عائشة'],['Habiba','حبيبة'],['Jamila','جميلة'],['Nora','نورة'],['Noura','نورة'],['Sara','سارة'],['Sarah','سارة'],['Yasmine','ياسمين'],['Chaimae','شيماء'],
+    ['Sidi','سيدي'],['Moulay','مولاي'],['Lalla','للا'],['Allal','علال'],['Ibn','ابن'],['Ben','بن'],['Bent','بنت'],['Abou','أبو'],['Bou','بو'],
+    ['Bennani','بناني'],['Alaoui','العلوي'],['Idrissi','الإدريسي'],['Tazi','التازي'],['Berrada','برادة'],['Bennis','بنيس'],['Chraibi','الشرايبي'],['Ouazzani','الوزاني'],['Sefrioui','الصفريوي'],['Fassi','الفاسي'],['Amrani','العمراني'],
+    ['Lyoussi','اليوسي'],['Adlouni','العدلوني'],['Yaagoubi','اليعقوبي'],['Yacoubi','اليعقوبي'],['Hassani','الحسني'],['Filali','الفيلالي'],['Kettani','الكتاني'],['Benjelloun','بنجلون'],['Benkirane','بنكيران'],['Lahlou','لحلو'],
+    ['Bensaid','بنسعيد'],['Ziani','الزياني'],['Moussaoui','الموساوي'],['Mansouri','المنصوري'],['Naciri','الناصري'],['Rifi','الريفي'],['Soussi','السوسي'],['Zemmouri','الزموري'],['Benali','بنعلي'],['Benmoussa','بنموسى'],
+    ['Battouta','بطوطة'],['Sina','سينا'],['Khaldoun','خلدون'],['Rochd','رشد'],['Farabi','الفارابي'],['Khawarizmi','الخوارزمي'],['Khattabi','الخطابي'],['Ziad','زياد'],['Tachfine','تاشفين'],['Toumert','تومرت'],['Zohr','زهر'],
+    ['Massira','المسيرة'],['Annahda','النهضة'],['Nahda','النهضة'],['Qods','القدس'],['Quds','القدس'],['Amal','الأمل'],['Wahda','الوحدة'],['Fath','الفتح'],['Annour','النور'],['Nour','النور'],['Khayr','الخير'],['Kheir','الخير'],
+    ['Mostakbal','المستقبل'],['Moustakbal','المستقبل'],['Andalous','الأندلس'],['Atlas','الأطلس'],['Ennakhil','النخيل'],['Zitoune','الزيتون'],['Zaitoune','الزيتون'],['Yasmine','الياسمين'],['Irfane','العرفان'],['Massjid','المسجد'],
+    ['Sefrou','صفرو'],['Bhalil','البهاليل'],['Imouzzer','إيموزار'],['Kandar','كندر'],['Ribat','رباط'],['Fes','فاس'],['Fès','فاس'],['Meknes','مكناس'],['Meknès','مكناس'],['Rabat','الرباط'],['Taza','تازة'],['Boulemane','بولمان'],
+    ['Missour','ميسور'],['Outat','أوطاط'],['Tazouta','تازوطة'],['Aghbalou','أغبالو'],['Ahl','أهل'],['Oued','واد'],['Ain','عين'],['Aïn','عين'],['Bir','بئر'],['Dar','دار'],['Douar','دوار'],['Hay','حي'],['Lalla','للا'],
+    ['Hassan II','الحسن الثاني'],['Mohammed V','محمد الخامس'],['Mohammed VI','محمد السادس'],['Moulay Idriss','مولاي إدريس'],['Moulay Ismail','مولاي إسماعيل'],['Moulay Rachid','مولاي رشيد'],['Moulay Youssef','مولاي يوسف'],
+    ['Al Mansour Eddahbi','المنصور الذهبي'],['Abdelkrim Al Khattabi','عبد الكريم الخطابي'],['Tarik Ibn Ziad','طارق بن زياد'],['Youssef Ibn Tachfine','يوسف بن تاشفين'],['Ibn Sina','ابن سينا'],['Ibn Khaldoun','ابن خلدون'],
+    ['Ibn Rochd','ابن رشد'],['Ibn Battouta','ابن بطوطة'],['Ibn Toumert','ابن تومرت'],['Ibn Zohr','ابن زهر'],['Al Farabi','الفارابي'],['Al Khawarizmi','الخوارزمي'],['Al Massira','المسيرة'],['Al Qods','القدس'],['Allal El Fassi','علال الفاسي'],
+    ['Sidi Lahcen Lyoussi','سيدي لحسن اليوسي'],['Lahcen Lyoussi','لحسن اليوسي'],['El Arbi','العربي']
+  ];
+  var ETAB_WORDS = [ // français → arabe (le premier qui correspond, en début de nom)
+    [/^(lyc[ée]e\s+qualifiant|lyc[ée]e)\b/i, 'الثانوية التأهيلية', 'Lycée'],
+    [/^(coll[èe]ge|lyc[ée]e\s+coll[ée]gial)\b/i, 'الثانوية الإعدادية', 'Collège'],
+    [/^(groupe\s+scolaire|g\.?\s*s\.?)\b/i, 'مجموعة مدارس', 'Groupe scolaire'],
+    [/^(complexe\s+scolaire)\b/i, 'المركب التربوي', 'Complexe scolaire'],
+    [/^([ée]cole\s+primaire|[ée]cole|e\.?\s*p\.?)\b/i, 'مدرسة', 'École'],
+    [/^(centre\s+de\s+formation)\b/i, 'مركز التكوين', 'Centre de formation'],
+    [/^(internat)\b/i, 'داخلية', 'Internat'],
+    [/^(cpge|classes?\s+pr[ée]paratoires?)\b/i, 'الأقسام التحضيرية', 'CPGE']
+  ];
+  var ETAB_WORDS_AR = [ // arabe → français
+    [/^(الثانوية\s+التأهيلية|ثانوية\s+تأهيلية|ثانوية)\s*/, 'Lycée'],
+    [/^(الثانوية\s+الإعدادية|ثانوية\s+إعدادية|إعدادية|الإعدادية)\s*/, 'Collège'],
+    [/^(مجموعة\s+مدارس|م\.\s*م\.?)\s*/, 'Groupe scolaire'],
+    [/^(المركب\s+التربوي)\s*/, 'Complexe scolaire'],
+    [/^(مدرسة|المدرسة|م\.)\s*/, 'École']
+  ];
+  var nameDictFr = null, nameDictAr = null;
+  function nameDicts(){
+    if(nameDictFr) return;
+    nameDictFr = {}; nameDictAr = {};
+    NAME_DICT.forEach(function(p){ var k = p[0].toLowerCase(); if(!nameDictFr[k]) nameDictFr[k] = p[1]; if(!nameDictAr[p[1]]) nameDictAr[p[1]] = p[0]; });
+  }
+  /* Translittération latin → arabe (orthographe française des noms marocains). */
+  function translitWordToAr(w){
+    var src = w.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    if(!src) return '';
+    var map = [['ch','ش'],['sh','ش'],['kh','خ'],['gh','غ'],['dj','ج'],['th','ت'],['ou','و'],['oo','و'],['aa','ع'],['ss','س'],['tt','ت'],['ll','ل'],['mm','م'],['nn','ن'],['rr','ر'],['bb','ب'],['dd','د'],['ff','ف'],['kk','ك'],['zz','ز'],['pp','ب'],
+      ['b','ب'],['c','ك'],['d','د'],['f','ف'],['g','ك'],['h','ه'],['j','ج'],['k','ك'],['l','ل'],['m','م'],['n','ن'],['p','ب'],['q','ق'],['r','ر'],['s','س'],['t','ت'],['v','ف'],['w','و'],['x','كس'],['y','ي'],['z','ز']];
+    var out = '', i = 0;
+    while(i < src.length){
+      var rest = src.slice(i), c = src[i], first = i===0, last = false, hit = null;
+      if('aeiouy'.indexOf(c) >= 0 && !(c==='o' && src[i+1]==='u') && !(c==='y')){
+        var isLast = (i === src.length-1);
+        if(c==='a' && src[i+1]==='a'){ out += first ? 'ع' : 'ع'; i += 2; continue; }
+        if(first) out += (c==='i' || c==='e') ? 'إ' : 'ا';
+        if(c==='i') out += (first ? '' : 'ي');
+        else if(c==='o' || c==='u') out += 'و';
+        else if(c==='a' && isLast && src.length > 3) out += 'ة';
+        else if(c==='a' && isLast) out += 'ا';
+        else if(c==='e' && isLast) {}
+        i++; continue;
+      }
+      for(var k=0;k<map.length;k++){ if(rest.indexOf(map[k][0])===0){ hit = map[k]; break; } }
+      if(hit){ out += hit[1]; i += hit[0].length; } else { out += c; i++; }
+    }
+    return out;
+  }
+  /* Translittération arabe → latin. */
+  function translitWordToFr(w){
+    var m = { 'ا':'a','أ':'a','إ':'i','آ':'a','ب':'b','ت':'t','ث':'t','ج':'j','ح':'h','خ':'kh','د':'d','ذ':'d','ر':'r','ز':'z','س':'s','ش':'ch','ص':'s','ض':'d','ط':'t','ظ':'d','ع':'a','غ':'gh','ف':'f','ق':'k','ك':'k','ل':'l','م':'m','ن':'n','ه':'h','ة':'a','و':'ou','ي':'i','ى':'a','ء':'','ؤ':'ou','ئ':'i','گ':'g','ڭ':'g','ﻻ':'la' };
+    var pref = '';
+    if(/^ال/.test(w) && w.length > 3){ pref = 'El '; w = w.slice(2); }
+    var out = '', chars = Array.from(w);
+    chars.forEach(function(ch, i){
+      var v = m[ch]; if(v==null) v = /[ً-ْـ]/.test(ch) ? '' : ch;
+      // voyelle de liaison entre deux consonnes
+      var prev = out.slice(-1);
+      if(v && i>0 && /[bcdfghjklmnpqrstvwxz]$/.test(out) && /^[bcdfghjklmnpqrstvwxz]/.test(v) && !(prev==='c' && v[0]==='h')) out += 'a';
+      if(v==='s' && /[aeiou]$/.test(out) && i < chars.length-1) v = 'ss';
+      out += v;
+    });
+    out = out.replace(/^ou/, 'Ou');
+    out = out.charAt(0).toUpperCase() + out.slice(1);
+    return pref + out;
+  }
+  function capWords(t){ return t.replace(/\S+/g, function(w){ return w.charAt(0).toUpperCase() + w.slice(1); }); }
+  function phraseToAr(t){
+    nameDicts();
+    var words = t.trim().split(/\s+/), out = [];
+    for(var i=0;i<words.length;){
+      var done = false;
+      for(var n=Math.min(4, words.length-i); n>=1 && !done; n--){
+        var key = words.slice(i, i+n).join(' ').toLowerCase().replace(/[-’']/g, ' ').replace(/\s+/g, ' ');
+        if(nameDictFr[key]){ out.push(nameDictFr[key]); i += n; done = true; }
+      }
+      if(done) continue;
+      var w = words[i], lw = w.toLowerCase();
+      var mEl = /^(el|al|ell?|es|er|en|ed|ez|et|ech)[-’']?(.+)$/i.exec(w);
+      if((lw==='el' || lw==='al') && words[i+1]){ var nx = words[i+1], dk = nameDictFr[nx.toLowerCase()]; out.push(dk ? (/^ال/.test(dk) ? dk : 'ال'+dk) : 'ال'+translitWordToAr(nx)); i += 2; continue; }
+      if(mEl && /[-’']/.test(w)){ var dk2 = nameDictFr[mEl[2].toLowerCase()]; out.push(dk2 ? (/^ال/.test(dk2) ? dk2 : 'ال'+dk2) : 'ال'+translitWordToAr(mEl[2])); i++; continue; }
+      if(/^\d+$/.test(w) || /^[IVX]+$/.test(w)){ out.push(w); i++; continue; }
+      var mAss = /^e([nsrdzt])\1(.+)$/i.exec(w); // Ennour, Essalam, Eddahbi… (article assimilé)
+      if(mAss){ var stem = mAss[1]+mAss[2], ds = nameDictFr[stem.toLowerCase()]; out.push(ds ? (/^ال/.test(ds) ? ds : 'ال'+ds) : 'ال'+translitWordToAr(stem)); i++; continue; }
+      out.push(translitWordToAr(w)); i++;
+    }
+    return out.join(' ');
+  }
+  function phraseToFr(t, kind){
+    nameDicts();
+    var words = t.trim().split(/\s+/), out = [];
+    for(var i=0;i<words.length;){
+      var done = false;
+      for(var n=Math.min(4, words.length-i); n>=1 && !done; n--){
+        var key = words.slice(i, i+n).join(' ');
+        if(nameDictAr[key]){ out.push((kind==='etab' && /^ال/.test(key) && !/^(Al|El)\b/.test(nameDictAr[key]) && n===1) ? 'Al '+nameDictAr[key] : nameDictAr[key]); i += n; done = true; }
+        else if(n===1 && /^ال/.test(key) && nameDictAr[key.slice(2)]){ out.push('El '+nameDictAr[key.slice(2)]); i++; done = true; }
+      }
+      if(done) continue;
+      out.push(/^\d+$/.test(words[i]) ? words[i] : translitWordToFr(words[i])); i++;
+    }
+    return out.join(' ');
+  }
+  /* Version automatique d'un nom dans l'autre langue ; kind : 'etab' | 'ens'. */
+  function autoNameAr(nom, kind){
+    nom = String(nom||'').trim(); if(!nom || isArabicText(nom)) return nom;
+    if(kind==='etab'){
+      for(var i=0;i<ETAB_WORDS.length;i++){
+        var m = ETAB_WORDS[i][0].exec(nom);
+        if(m){ var rest = nom.slice(m[0].length).trim(); return ETAB_WORDS[i][1] + (rest ? ' '+phraseToAr(rest) : ''); }
+      }
+    }
+    return phraseToAr(nom);
+  }
+  function autoNameFr(nom, kind){
+    nom = String(nom||'').trim(); if(!nom || !isArabicText(nom)) return nom;
+    if(kind==='etab'){
+      for(var i=0;i<ETAB_WORDS_AR.length;i++){
+        var m = ETAB_WORDS_AR[i][0].exec(nom);
+        if(m){ var rest = nom.slice(m[0].length).trim(); return ETAB_WORDS_AR[i][1] + (rest ? ' '+phraseToFr(rest, 'etab') : ''); }
+      }
+    }
+    var fr = phraseToFr(nom, kind);
+    if(kind==='ens'){ var ws = fr.split(' '); if(ws.length > 1){ var cut = (ws.length > 2 && /^(El|Al)$/i.test(ws[ws.length-2])) ? ws.length-2 : ws.length-1; fr = ws.slice(0, cut).join(' ')+' '+ws.slice(cut).join(' ').toUpperCase(); } }
+    return fr;
+  }
+  function nameInLang(rec, raw, lang, kind){
+    var base = rec ? rec.nom : raw;
+    if(rec && raw && raw !== rec.nom && !rec.nomAr && !rec.nomFr) base = raw;
+    if(lang==='ar'){
+      if(rec && rec.nomAr) return rec.nomAr;
+      if(isArabicText(base)) return base;
+      return autoNameAr(base, kind);
+    }
+    if(rec && rec.nomFr) return rec.nomFr;
+    if(base && !isArabicText(base)) return base;
+    return autoNameFr(base, kind);
+  }
+  function findEns(id, nom){ return (id && state.enseignants.find(function(x){ return x.id===id; })) || (nom && state.enseignants.find(function(x){ return x.nom===nom || x.nomAr===nom || x.nomFr===nom; })) || null; }
+  function findEtab(id, nom){ return (id && state.etablissements.find(function(x){ return x.id===id; })) || (nom && state.etablissements.find(function(x){ return x.nom===nom || x.nomAr===nom || x.nomFr===nom; })) || null; }
+  function ensNameLang(lang, id, nom){ var r = findEns(id, nom); return nameInLang(r, nom || (r && r.nom) || '', lang, 'ens'); }
+  function etabNameLang(lang, id, nom){ var r = findEtab(id, nom); return nameInLang(r, nom || (r && r.nom) || '', lang, 'etab'); }
+  /* Proposition par l'IA (plus juste que la translittération automatique). */
+  function aiNamePair(nom, kind){
+    var target = isArabicText(nom) ? 'en caractères latins (orthographe française usuelle au Maroc, nom de famille en MAJUSCULES pour une personne)' : 'en arabe (graphie officielle utilisée au Maroc)';
+    var what = kind==='etab' ? "le nom d'un établissement scolaire marocain (traduis les mots génériques : Lycée = الثانوية التأهيلية, Collège = الثانوية الإعدادية, École = مدرسة, Groupe scolaire = مجموعة مدارس ; translittère les noms propres)" : "le nom et prénom d'un(e) enseignant(e) marocain(e) (translittération, pas de traduction)";
+    var prompt = "Donne "+what+" "+target+". Nom : « "+nom+" ». Réponds uniquement par le nom converti, sans guillemets ni commentaire.";
+    return geminiGenerate(prompt, 1).then(function(t){ return String(t||'').replace(/<think>[\s\S]*?<\/think>/g, '').trim().split('\n').filter(Boolean).pop().replace(/^["«»“”'\s]+|["«»“”'\s.]+$/g, ''); });
+  }
+  function aiNamesBatch(list, kind){
+    // list : [{id, nom, to:'ar'|'fr'}] → {id: nom converti}
+    var lines = list.map(function(x, i){ return (i+1)+'. '+x.nom+' → '+(x.to==='ar'?'arabe':'latin'); }).join('\n');
+    var what = kind==='etab' ? "noms d'établissements scolaires marocains (traduis les mots génériques : Lycée = الثانوية التأهيلية, Collège = الثانوية الإعدادية, École = مدرسة, Groupe scolaire = مجموعة مدارس ; translittère les noms propres)" : "noms et prénoms d'enseignant(e)s marocain(e)s (translittération ; en latin, nom de famille en MAJUSCULES)";
+    var prompt = "Convertis ces "+what+" dans la langue indiquée (arabe : graphie officielle au Maroc ; latin : orthographe française usuelle au Maroc).\n"+lines+"\nRéponds uniquement par la liste numérotée des noms convertis, une ligne par nom, au format « 1. nom converti ».";
+    return geminiGenerate(prompt, 1).then(function(t){
+      var out = {}; String(t||'').replace(/<think>[\s\S]*?<\/think>/g, '').split('\n').forEach(function(l){
+        var m = /^\s*(\d+)[.)-]\s*(.+?)\s*$/.exec(l); if(!m) return;
+        var x = list[+m[1]-1]; if(x) out[x.id] = m[2].replace(/^.*→\s*/, '').replace(/^["«»“”']+|["«»“”'.]+$/g, '');
+      });
+      return out;
+    });
+  }
+  function bilingualFieldsHtml(prefix, rec, kind){
+    var ar = rec.nomAr || '', fr = rec.nomFr || '';
+    var autoAr = !ar && rec.nom && !isArabicText(rec.nom) ? autoNameAr(rec.nom, kind) : '';
+    var autoFr = !fr && rec.nom && isArabicText(rec.nom) ? autoNameFr(rec.nom, kind) : '';
+    return '<div class="field-row"><div class="field"><label for="'+prefix+'NomFr">Nom en français</label><input type="text" id="'+prefix+'NomFr" value="'+esc(fr)+'" placeholder="'+esc(autoFr || (isArabicText(rec.nom) ? 'Automatique' : (rec.nom||'Identique au nom')))+'"></div>'+
+      '<div class="field"><label for="'+prefix+'NomAr">الاسم بالعربية</label><input type="text" id="'+prefix+'NomAr" dir="rtl" value="'+esc(ar)+'" placeholder="'+esc(autoAr || (isArabicText(rec.nom) ? rec.nom : 'تلقائي'))+'"></div></div>'+
+      '<div class="btn-row" style="margin:-4px 0 8px;"><button class="btn ghost sm" type="button" data-autoname="'+prefix+'" data-kind="'+kind+'">'+ICONS.ai+' Compléter la version manquante</button></div>'+
+      '<p style="font-size:11px;color:var(--ink-faint);margin:-4px 0 10px;">Laissés vides, ces noms sont déduits automatiquement (translittération) ; les documents en arabe utilisent le nom arabe, ceux en français le nom latin.</p>';
+  }
+  function wireBilingualFields(syncFn){
+    document.querySelectorAll('[data-autoname]').forEach(function(b){ b.onclick = function(){
+      var prefix = b.getAttribute('data-autoname'), kind = b.getAttribute('data-kind');
+      if(syncFn) syncFn();
+      var rec = state.draftRecord, nom = (rec.nom||'').trim();
+      if(!nom){ toast('Saisissez d\'abord le nom.'); return; }
+      var needAr = !rec.nomAr && !isArabicText(nom), needFr = !rec.nomFr && isArabicText(nom);
+      if(!needAr && !needFr){ toast('Les deux versions sont déjà renseignées.'); return; }
+      var apply = function(v){ if(needAr) rec.nomAr = v; else rec.nomFr = v; render(); };
+      if(aiUsable()){
+        b.disabled = true; var lbl = b.innerHTML; b.textContent = 'Conversion…';
+        aiNamePair(nom, kind).then(function(v){ apply(v || (needAr ? autoNameAr(nom, kind) : autoNameFr(nom, kind))); })
+          .catch(function(){ apply(needAr ? autoNameAr(nom, kind) : autoNameFr(nom, kind)); toast('IA indisponible : translittération automatique.'); })
+          .then(function(){ b.disabled = false; b.innerHTML = lbl; });
+      } else apply(needAr ? autoNameAr(nom, kind) : autoNameFr(nom, kind));
+    }; });
+  }
+  /* Complète en une fois les noms manquants de toute une liste (enseignants ou établissements). */
+  function completeMissingNames(kind, btn){
+    var coll = kind==='etab' ? state.etablissements : state.enseignants;
+    var todo = coll.filter(function(r){ return r.nom && ((!r.nomAr && !isArabicText(r.nom)) || (!r.nomFr && isArabicText(r.nom))); })
+      .map(function(r){ return { id: r.id, nom: r.nom, to: isArabicText(r.nom) ? 'fr' : 'ar' }; });
+    if(!todo.length){ toast('Tous les noms ont déjà leurs deux versions.'); return; }
+    if(btn){ btn.disabled = true; btn.textContent = 'Conversion de '+todo.length+' nom(s)…'; }
+    var chunks = []; for(var i=0;i<todo.length;i+=25) chunks.push(todo.slice(i, i+25));
+    var results = {};
+    var run = aiUsable() ? chunks.reduce(function(p, ch){ return p.then(function(){ return aiNamesBatch(ch, kind).then(function(r){ Object.assign(results, r); }).catch(function(){}); }); }, Promise.resolve()) : Promise.resolve();
+    return run.then(function(){
+      return Promise.all(todo.map(function(x){
+        var rec = coll.find(function(r){ return r.id===x.id; }); if(!rec) return null;
+        var v = results[x.id] || (x.to==='ar' ? autoNameAr(rec.nom, kind) : autoNameFr(rec.nom, kind));
+        var upd = Object.assign({}, rec); if(x.to==='ar') upd.nomAr = v; else upd.nomFr = v;
+        return recordSet(kind==='etab' ? 'etablissement' : 'enseignant', upd);
+      }));
+    }).then(function(){ toast(todo.length+' nom(s) complété(s) — vérifiez-les dans les fiches.'); render(); });
+  }
+  /* ================= apparence (thèmes et réglages, propres à cet appareil) =================
+     Le thème (ci_skin) et les réglages (ci_look : accent, taille du texte, densité, coins,
+     animations, police de l'interface, mode clair/sombre du thème classique) sont gardés dans le
+     navigateur de l'appareil et appliqués avant l'affichage par window.applyLook (script du <head>).
+     Les styles sont dans themes-apparence.css et theme-futuriste.css. */
+  var SKINS = [
+    {k:'futur', l:'Futuriste', d:'Sombre, verre dépoli, néon', c:['#070B16','#22E3C4','#A78BFA','#5B8CFF']},
+    {k:'classique', l:'Classique', d:'Thème d\'origine', c:['#F6F4EE','#2F6F62','#B5762A','#1E2A3A']},
+    {k:'oasis', l:'Oasis', d:'Sable, zellige, terre cuite', c:['#F3ECDF','#0F7B6C','#B9692A','#2B2118']},
+    {k:'majorelle', l:'Majorelle', d:'Bleu Majorelle et jaune', c:['#EEF0FA','#4A3FD1','#F2C230','#141A33']},
+    {k:'aurore', l:'Aurore', d:'Clair, dégradés doux', c:['#FBF6FB','#8A3FD8','#FF7AA8','#4FC3D9']},
+    {k:'nuit', l:'Nuit', d:'Sombre sobre, bleu nuit', c:['#0E131D','#7AA7FF','#B29BFF','#E4E9F2']},
+    {k:'sahara', l:'Sahara', d:'Sombre chaud, ocre', c:['#1B1510','#E4A853','#EE806B','#F3E8D8']},
+    {k:'contraste', l:'Contraste élevé', d:'Lisibilité maximale', c:['#FFFFFF','#003FA3','#000000','#A0001B']}
+  ];
+  var ACCENTS = ['#2F6F62','#0F7B6C','#1baf7a','#2a78d6','#4A3FD1','#8A3FD8','#e87ba4','#C8365E','#eb6834','#E4A853'];
+  var UI_FONTS = [
+    {v:'', l:'IBM Plex Sans (par défaut)'},
+    {v:'system-ui,-apple-system,"Segoe UI",Roboto,sans-serif', l:'Police du système'},
+    {v:'"Space Grotesk","IBM Plex Sans",sans-serif', l:'Space Grotesk', g:'Space+Grotesk:wght@400;500;600;700'},
+    {v:'"Cairo","IBM Plex Sans",sans-serif', l:'Cairo (latin et arabe)', g:'Cairo:wght@400;600;700'},
+    {v:'"Tajawal","IBM Plex Sans",sans-serif', l:'Tajawal (latin et arabe)', g:'Tajawal:wght@400;500;700'},
+    {v:'"Nunito","IBM Plex Sans",sans-serif', l:'Nunito (arrondie)', g:'Nunito:wght@400;600;700'},
+    {v:'"Atkinson Hyperlegible","IBM Plex Sans",sans-serif', l:'Atkinson Hyperlegible (lisibilité)', g:'Atkinson+Hyperlegible:wght@400;700'}
+  ];
+  function lookGet(){ try{ return JSON.parse(localStorage.getItem('ci_look')||'{}') || {}; }catch(e){ return {}; } }
+  function skinGet(){ return document.documentElement.getAttribute('data-skin') || 'futur'; }
+  function lookSet(patch, skin){
+    var look = Object.assign(lookGet(), patch||{});
+    Object.keys(look).forEach(function(k){ if(look[k]==='' || look[k]==null) delete look[k]; });
+    try{ localStorage.setItem('ci_look', JSON.stringify(look)); if(skin) localStorage.setItem('ci_skin', skin); }catch(e){}
+    var f = UI_FONTS.find(function(x){ return x.v===look.uifont; }); if(f && f.g) ensureGoogleFont(f.g);
+    window.applyLook(skin || skinGet(), look);
+  }
+  (function(){ var lk = lookGet(); var f = UI_FONTS.find(function(x){ return x.v===lk.uifont; }); if(f && f.g) setTimeout(function(){ ensureGoogleFont(f.g); }, 0); })();
+  function segHtml(id, cur, opts){
+    return '<div class="seg" id="'+id+'" style="margin:6px 0 10px;">'+opts.map(function(o){ return '<button type="button" data-v="'+o[0]+'" aria-pressed="'+((cur||'')===o[0])+'">'+o[1]+'</button>'; }).join('')+'</div>';
+  }
+  function appearanceSettingsHtml(){
+    var skin = skinGet(), lk = lookGet();
+    var html = '<div class="section-label">Thème de l\'application sur cet appareil</div><div class="skin-grid">'+
+      SKINS.map(function(sk){
+        return '<button type="button" class="skin-card" data-skin="'+sk.k+'" aria-pressed="'+(skin===sk.k)+'">'+
+          '<span class="sw" style="background:'+sk.c[0]+';">'+sk.c.slice(1).map(function(c){ return '<i style="background:'+c+'"></i>'; }).join('')+'</span>'+
+          '<span class="nm">'+esc(sk.l)+'</span><span class="ds">'+esc(sk.d)+'</span></button>';
+      }).join('')+'</div>';
+    if(skin==='classique') html += '<div class="section-label">Mode du thème classique</div>'+segHtml('lookMode', lk.mode||'', [['','Automatique'],['light','Clair'],['dark','Sombre']]);
+    html += '<div class="section-label">Couleur d\'accent</div><div class="swatch-row" id="accentRow">'+
+      '<button type="button" class="swatch auto" data-acc="" title="Couleur du thème" aria-pressed="'+(!lk.accent)+'"></button>'+
+      ACCENTS.map(function(c){ return '<button type="button" class="swatch" data-acc="'+c+'" style="background:'+c+'" title="'+c+'" aria-pressed="'+(lk.accent===c)+'"></button>'; }).join('')+
+      '<input type="color" id="accentCustom" value="'+esc(lk.accent||'#2a78d6')+'" title="Autre couleur"></div>';
+    html += '<div class="section-label">Taille du texte</div>'+segHtml('lookTextsize', lk.textsize||'', [['s','Petite'],['','Normale'],['l','Grande'],['xl','Très grande']]);
+    html += '<div class="section-label">Densité de l\'affichage</div>'+segHtml('lookDensity', lk.density||'', [['compact','Compacte'],['','Normale'],['aere','Aérée']]);
+    html += '<div class="section-label">Coins</div>'+segHtml('lookCorners', lk.corners||'', [['droit','Droits'],['','Du thème'],['rond','Très arrondis']]);
+    html += '<div class="section-label">Animations</div>'+segHtml('lookMotion', lk.motion||'', [['','Activées'],['off','Désactivées']]);
+    html += '<div class="field"><label for="lookUiFont">Police de l\'interface</label><select id="lookUiFont">'+
+      UI_FONTS.map(function(f){ return '<option value="'+esc(f.v)+'"'+((lk.uifont||'')===f.v?' selected':'')+'>'+esc(f.l)+'</option>'; }).join('')+'</select></div>'+
+      '<div class="btn-row"><button class="btn ghost sm" id="btnLookReset" type="button">Rétablir l\'apparence par défaut</button></div>'+
+      '<p style="font-size:11.5px;color:var(--ink-faint);">Ces réglages ne concernent que cet appareil et n\'affectent pas les documents imprimés ou exportés (voir « Polices des documents » ci-dessous).</p>';
+    return html;
+  }
+  function wireAppearanceSettings(){
+    document.querySelectorAll('.skin-card[data-skin]').forEach(function(b){ b.onclick = function(){ lookSet({}, b.getAttribute('data-skin')); render(); }; });
+    [['lookMode','mode'],['lookTextsize','textsize'],['lookDensity','density'],['lookCorners','corners'],['lookMotion','motion']].forEach(function(p){
+      var seg = $(p[0]); if(!seg) return;
+      seg.querySelectorAll('button').forEach(function(b){ b.onclick = function(){ var o = {}; o[p[1]] = b.getAttribute('data-v'); lookSet(o); render(); }; });
+    });
+    document.querySelectorAll('[data-acc]').forEach(function(b){ b.onclick = function(){ lookSet({accent: b.getAttribute('data-acc')}); render(); }; });
+    var cc = $('accentCustom'); if(cc){ cc.oninput = function(){ lookSet({accent: cc.value}); }; cc.onchange = function(){ lookSet({accent: cc.value}); render(); }; }
+    var uf = $('lookUiFont'); if(uf) uf.onchange = function(){ lookSet({uifont: uf.value}); render(); };
+    var rs = $('btnLookReset'); if(rs) rs.onclick = function(){ try{ localStorage.removeItem('ci_look'); }catch(e){} lookSet({}, 'futur'); render(); };
+  }
+
+  /* ================= graphiques statistiques (SVG, sans bibliothèque) =================
+     Utilisés à l'écran (couleurs du thème via les variables CSS --viz-*) et exportés en image PNG
+     dans le bilan Word / PDF (palette claire fixe). Chaque graphique a une info-bulle par élément
+     (<title>) et un tableau des données. Palette catégorielle validée (daltonisme) : bleu, orange,
+     vert d'eau ; rampe séquentielle bleue pour les données ordonnées (statut, appréciation). */
+  var VIZ_SCREEN = { ink:'var(--ink)', soft:'var(--ink-soft)', faint:'var(--ink-faint)', grid:'var(--viz-grid)', surface:'var(--surface)',
+    s1:'var(--viz-1)', s2:'var(--viz-2)', s3:'var(--viz-3)', seq:['var(--viz-seq-1)','var(--viz-seq-2)','var(--viz-seq-3)','var(--viz-seq-4)','var(--viz-seq-5)'], font:'inherit' };
+  var VIZ_PRINT = { ink:'#1a1a1a', soft:'#52514e', faint:'#7a7974', grid:'#e4e2dc', surface:'#ffffff',
+    s1:'#2a78d6', s2:'#eb6834', s3:'#1baf7a', seq:['#c6dcf6','#93bdee','#5c9be3','#2a78d6','#1b56a0'], font:'Arial, Helvetica, sans-serif' };
+  function vzEsc(t){ return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function vzTrunc(t, n){ t = String(t||''); return t.length > n ? t.slice(0, n-1)+'…' : t; }
+  function vzText(x, y, t, pal, o){ o = o||{};
+    return '<text x="'+x+'" y="'+y+'" style="fill:'+(o.fill||pal.soft)+';font-size:'+(o.size||11)+'px;font-family:'+pal.font+';'+(o.bold?'font-weight:700;':'')+'"'+(o.anchor?' text-anchor="'+o.anchor+'"':'')+'>'+vzEsc(t)+'</text>'; }
+  /* barre horizontale ancrée à gauche, extrémité droite arrondie (4 px) */
+  function vzBarH(x, y, w, h, r){ r = Math.min(r, w, h/2); if(w<=0) return '';
+    return 'M'+x+','+y+'H'+(x+w-r)+'Q'+(x+w)+','+y+' '+(x+w)+','+(y+r)+'V'+(y+h-r)+'Q'+(x+w)+','+(y+h)+' '+(x+w-r)+','+(y+h)+'H'+x+'Z'; }
+  function vzBarV(x, y, w, h, r){ r = Math.min(r, h, w/2); if(h<=0) return '';
+    return 'M'+x+','+(y+h)+'V'+(y+r)+'Q'+x+','+y+' '+(x+r)+','+y+'H'+(x+w-r)+'Q'+(x+w)+','+y+' '+(x+w)+','+(y+r)+'V'+(y+h)+'Z'; }
+  function vzNiceMax(m){ if(m<=4) return Math.max(1,m); var p = Math.pow(10, Math.floor(Math.log10(m))), f = m/p; return (f<=1?1:f<=2?2:f<=5?5:10)*p; }
+  /* Barres horizontales triées (une seule série : la longueur porte la valeur). */
+  function vzHBars(entries, pal, o){
+    o = o||{}; var W = 340, rowH = 24, top = 4, labW = o.labW || 128, valW = 30;
+    if(!entries.length) return '';
+    var H = top + entries.length*rowH, max = Math.max.apply(null, entries.map(function(e){ return e[1]; })) || 1, plotW = W - labW - valW;
+    var tot = entries.reduce(function(a,e){ return a+e[1]; }, 0);
+    var out = '<svg class="viz" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+vzEsc(o.label||'')+'" xmlns="http://www.w3.org/2000/svg">';
+    entries.forEach(function(e, i){
+      var y = top + i*rowH, w = Math.max(2, e[1]/max*plotW), color = (o.colors && o.colors[i]) || pal.s1;
+      out += vzText(labW-8, y+15, vzTrunc(e[0], 20), pal, {anchor:'end'});
+      out += '<g class="mk"><rect x="0" y="'+y+'" width="'+W+'" height="'+rowH+'" style="fill:transparent"/><path d="'+vzBarH(labW, y+5, w, 13, 4)+'" style="fill:'+color+'"/>'+
+        '<title>'+vzEsc(e[0])+' : '+e[1]+(tot?' ('+Math.round(e[1]/tot*100)+' %)':'')+'</title></g>';
+      out += vzText(labW + w + 6, y+15, e[1], pal, {fill:pal.ink});
+    });
+    return out + '</svg>';
+  }
+  /* Colonnes empilées (2 séries max) dans le temps, une seule échelle. */
+  function vzColumns(buckets, series, pal, o){
+    o = o||{}; var W = 340, H = 176, L = 26, B = 22, T = 8, R = 4;
+    var plotW = W-L-R, plotH = H-T-B, n = buckets.length || 1;
+    var tot = buckets.map(function(b){ return series.reduce(function(a,s){ return a+(b[s.k]||0); }, 0); });
+    var max = vzNiceMax(Math.max.apply(null, tot.concat([1])));
+    var out = '<svg class="viz" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+vzEsc(o.label||'')+'" xmlns="http://www.w3.org/2000/svg">';
+    var ticks = max <= 4 ? max : 4;
+    for(var t=0;t<=ticks;t++){
+      var v = Math.round(max*t/ticks), y = T + plotH - plotH*t/ticks;
+      out += '<line x1="'+L+'" x2="'+(W-R)+'" y1="'+y+'" y2="'+y+'" style="stroke:'+pal.grid+';stroke-width:1"/>' + vzText(L-5, y+3.5, v, pal, {anchor:'end', size:10, fill:pal.faint});
+    }
+    var slot = plotW/n, bw = Math.max(4, Math.min(26, slot*0.62)), every = Math.ceil(n/8);
+    buckets.forEach(function(b, i){
+      var x = L + i*slot + (slot-bw)/2, base = T + plotH, tip = [];
+      out += '<g class="mk"><rect x="'+(L+i*slot)+'" y="'+T+'" width="'+slot+'" height="'+plotH+'" style="fill:transparent"/>';
+      series.forEach(function(s, si){
+        var v = b[s.k]||0; if(!v) return;
+        var h = v/max*plotH, last = series.slice(si+1).every(function(s2){ return !(b[s2.k]); });
+        var hh = Math.max(1, h - (base < T+plotH ? 2 : 0));
+        out += last ? '<path d="'+vzBarV(x, base-hh, bw, hh, 4)+'" style="fill:'+s.color+'"/>' : '<rect x="'+x+'" y="'+(base-hh)+'" width="'+bw+'" height="'+hh+'" style="fill:'+s.color+'"/>';
+        base -= h; tip.push(s.l+' : '+v);
+      });
+      out += '<title>'+vzEsc(b.label)+(tip.length ? ' — '+tip.join(', ') : ' — aucune')+'</title></g>';
+      if(i%every===0) out += vzText(L + i*slot + slot/2, H-6, b.short||b.label, pal, {anchor:'middle', size:10, fill:pal.faint});
+    });
+    return out + '</svg>';
+  }
+  /* Barre 100 % segmentée pour une donnée ordonnée (statuts du workflow), légende intégrée. */
+  function vzStack100(entries, colors, pal, o){
+    o = o||{}; var W = 340, tot = entries.reduce(function(a,e){ return a+e[1]; }, 0);
+    var rows = Math.ceil(entries.length/2), H = 30 + rows*18;
+    var out = '<svg class="viz" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+vzEsc(o.label||'')+'" xmlns="http://www.w3.org/2000/svg">';
+    if(!tot) return '';
+    var x = 0, nz = entries.filter(function(e){ return e[1]>0; }).length, gap = 2, avail = W - gap*(nz-1), seen = 0;
+    entries.forEach(function(e, i){
+      if(!e[1]) return; seen++;
+      var w = e[1]/tot*avail;
+      out += '<g class="mk"><rect x="'+x.toFixed(1)+'" y="0" width="'+Math.max(1,w).toFixed(1)+'" height="16" rx="'+(seen===1||seen===nz?4:0)+'" style="fill:'+colors[i]+'"/><title>'+vzEsc(e[0])+' : '+e[1]+' ('+Math.round(e[1]/tot*100)+' %)</title></g>';
+      x += w + gap;
+    });
+    entries.forEach(function(e, i){
+      var cx = (i%2)*(W/2), cy = 34 + Math.floor(i/2)*18;
+      out += '<rect x="'+cx+'" y="'+(cy-9)+'" width="10" height="10" rx="2" style="fill:'+colors[i]+'"/>'+
+        vzText(cx+15, cy, e[0]+' — '+e[1]+(tot?' ('+Math.round(e[1]/tot*100)+' %)':''), pal, {fill:pal.soft, size:11});
+    });
+    return out + '</svg>';
+  }
+  function vzTableHtml(headers, rows){
+    return '<details class="viz-table"><summary>Voir les données</summary><table><thead><tr>'+headers.map(function(h,i){ return '<th'+(i?' style="text-align:right"':'')+'>'+esc(h)+'</th>'; }).join('')+'</tr></thead><tbody>'+
+      rows.map(function(r){ return '<tr>'+r.map(function(c,i){ return '<td'+(i?' class="n"':'')+'>'+esc(c)+'</td>'; }).join('')+'</tr>'; }).join('')+'</tbody></table></details>';
+  }
+  var WF_DONE = { realisee:1, rapport:1, cloturee:1 };
+  function taskDate(t){ var d = new Date(t.echeance || t.createdAt || t.updatedAt); return isNaN(d) ? null : d; }
+  function taskEnsIdsAll(t){ var ids = (t.enseignantIds && t.enseignantIds.length) ? t.enseignantIds.slice() : []; if(t.enseignantId && ids.indexOf(t.enseignantId)<0) ids.push(t.enseignantId); return ids; }
+  /* Toutes les statistiques du bilan pour la période active. */
+  function bilanAnalytics(){
+    var s = bilanStats(), r = periodRange(), list = s.list, now = new Date();
+    var done = list.filter(function(t){ return WF_DONE[t.statut]; }).length;
+    var late = list.filter(function(t){ var d = taskDate(t); return d && d < now && !WF_DONE[t.statut]; }).length;
+    var ens = {}, etabs = {};
+    list.forEach(function(t){ taskEnsIdsAll(t).forEach(function(id){ ens[id] = 1; }); if(t.etablissementId) etabs[t.etablissementId] = 1; });
+    var visits = list.filter(function(t){ return t.taskType==='inspection' || t.taskType==='visite_conseil'; });
+    var ensVis = {}; visits.forEach(function(t){ taskEnsIdsAll(t).forEach(function(id){ ensVis[id] = 1; }); });
+    // seaux temporels : semaine si période ≤ 70 jours, sinon mois
+    var from = r.from, to = r.to;
+    if(state.bilanPeriod==='custom' && (!state.bilanCustomFrom || from.getFullYear() < 2000)){
+      var ds = list.map(taskDate).filter(Boolean).sort(function(a,b){ return a-b; });
+      from = ds.length ? new Date(ds[0].getFullYear(), ds[0].getMonth(), 1) : new Date(now.getFullYear(), now.getMonth(), 1);
+    }
+    var spanDays = (to - from)/864e5, buckets = [];
+    var MOIS_C = ['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
+    if(spanDays <= 70){
+      var d0 = new Date(from); d0.setDate(d0.getDate() - ((d0.getDay()+6)%7)); d0.setHours(0,0,0,0);
+      for(var d = new Date(d0); d < to; d.setDate(d.getDate()+7)){
+        var e = new Date(d); e.setDate(e.getDate()+7);
+        buckets.push({ from:new Date(d), to:e, label:'Semaine du '+d.getDate()+' '+MOIS_C[d.getMonth()], short:d.getDate()+' '+MOIS_C[d.getMonth()] });
+      }
+    } else {
+      for(var m = new Date(from.getFullYear(), from.getMonth(), 1); m < to && buckets.length < 36; m = new Date(m.getFullYear(), m.getMonth()+1, 1)){
+        buckets.push({ from:m, to:new Date(m.getFullYear(), m.getMonth()+1, 1), label:MOIS_C[m.getMonth()]+' '+m.getFullYear(), short:MOIS_C[m.getMonth()] });
+      }
+    }
+    buckets.forEach(function(b){ b.done = 0; b.todo = 0; });
+    list.forEach(function(t){ var d = taskDate(t); if(!d) return;
+      var b = buckets.find(function(x){ return d >= x.from && d < x.to; }); if(b) b[WF_DONE[t.statut] ? 'done' : 'todo']++; });
+    var byNote = NOTE_SCALE.map(function(n){ return [n, list.filter(function(t){ return t.noteGlobale===n; }).length]; });
+    var JOURS = ['Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi','Dimanche'], byDay = JOURS.map(function(j){ return [j, 0]; });
+    list.forEach(function(t){ if(!t.echeance) return; var d = taskDate(t); if(d) byDay[(d.getDay()+6)%7][1]++; });
+    var top = function(obj, n){ var e = Object.keys(obj).map(function(k){ return [k, obj[k]]; }).sort(function(a,b){ return b[1]-a[1]; });
+      if(e.length > n){ var rest = e.slice(n-1).reduce(function(a,x){ return a+x[1]; }, 0); e = e.slice(0, n-1).concat([['Autres', rest]]); } return e; };
+    return {
+      s: s, range: r, total: list.length, done: done, late: late,
+      rate: list.length ? Math.round(done/list.length*100) : 0,
+      ensCount: Object.keys(ens).length, ensTotal: state.enseignants.length,
+      ensVisited: Object.keys(ensVis).length, visits: visits.length,
+      etabCount: Object.keys(etabs).length, etabTotal: state.etablissements.length,
+      buckets: buckets,
+      byWf: WORKFLOW.map(function(w){ return [w.l, s.byWf[w.v]||0]; }),
+      byType: top(objKeysLabel(s.byType, TT_LABEL), 8),
+      byEtab: top(s.byEtab, 10),
+      byNote: byNote, byDay: byDay.filter(function(x,i){ return i<6 || x[1]; })
+    };
+  }
+  var BILAN_CHARTS = [
+    { k:'activite', h:'Activité dans le temps', svg:function(a, pal){ return vzColumns(a.buckets, [{k:'done', l:'Réalisées', color:pal.s1},{k:'todo', l:'À venir / en cours', color:pal.s2}], pal, {label:'Activité dans le temps'}); },
+      legend:function(pal){ return [['Réalisées', pal.s1],['À venir / en cours', pal.s2]]; },
+      table:function(a){ return [['Période','Réalisées','À venir'], a.buckets.map(function(b){ return [b.label, b.done, b.todo]; })]; }, show:function(a){ return a.total > 0; } },
+    { k:'statut', h:'Avancement (statut)', svg:function(a, pal){ return vzStack100(a.byWf, pal.seq, pal, {label:'Avancement'}); },
+      table:function(a){ return [['Statut','Tâches'], a.byWf]; }, show:function(a){ return a.total > 0; } },
+    { k:'type', h:'Par type d\'activité', svg:function(a, pal){ return vzHBars(a.byType, pal, {label:'Par type'}); },
+      table:function(a){ return [['Type','Tâches'], a.byType]; }, show:function(a){ return a.byType.length > 0; } },
+    { k:'etab', h:'Par établissement', svg:function(a, pal){ return vzHBars(a.byEtab, pal, {label:'Par établissement'}); },
+      table:function(a){ return [['Établissement','Tâches'], a.byEtab]; }, show:function(a){ return a.byEtab.length > 0; } },
+    { k:'note', h:'Appréciations des inspections', svg:function(a, pal){ return vzHBars(a.byNote, pal, {label:'Appréciations', colors:pal.seq.slice(1)}); },
+      table:function(a){ return [['Appréciation','Inspections'], a.byNote]; }, show:function(a){ return a.byNote.some(function(x){ return x[1]; }); } },
+    { k:'jour', h:'Jours de la semaine', svg:function(a, pal){ return vzHBars(a.byDay, pal, {label:'Jours de la semaine', labW:90}); },
+      table:function(a){ return [['Jour','Tâches'], a.byDay]; }, show:function(a){ return a.byDay.some(function(x){ return x[1]; }); } }
+  ];
+  function bilanChartsHtml(a){
+    var pct = function(x, t){ return t ? Math.round(x/t*100) : 0; };
+    var kpi = function(v, small, label, meter){ return '<div class="kpi"><b class="tnum">'+v+(small?'<small>'+small+'</small>':'')+'</b><span>'+label+'</span>'+(meter!=null?'<div class="meter"><i style="width:'+Math.min(100,meter)+'%"></i></div>':'')+'</div>'; };
+    var html = '<div class="kpi-grid">'+
+      kpi(a.total, '', 'Tâches sur la période')+
+      kpi(a.rate, '%', 'Taux de réalisation ('+a.done+'/'+a.total+')', a.rate)+
+      kpi(a.visits, '', 'Inspections et visites')+
+      kpi(a.ensVisited, '/ '+a.ensTotal, 'Enseignants inspectés ou visités ('+pct(a.ensVisited, a.ensTotal)+' %)', pct(a.ensVisited, a.ensTotal))+
+      kpi(a.etabCount, '/ '+a.etabTotal, 'Établissements concernés ('+pct(a.etabCount, a.etabTotal)+' %)', pct(a.etabCount, a.etabTotal))+
+      kpi(a.late, '', 'En retard (échéance passée)')+
+      '</div>';
+    BILAN_CHARTS.forEach(function(c){
+      if(!c.show(a)) return;
+      var tb = c.table(a);
+      html += '<div class="setup-card"><h2>'+esc(c.h)+'</h2>'+
+        (c.legend ? '<div class="viz-legend">'+c.legend(VIZ_SCREEN).map(function(l){ return '<span><i style="background:'+l[1]+'"></i>'+esc(l[0])+'</span>'; }).join('')+'</div>' : '')+
+        c.svg(a, VIZ_SCREEN)+vzTableHtml(tb[0], tb[1].map(function(r){ return r.map(String); }))+'</div>';
+    });
+    return html;
+  }
+  /* Graphiques du bilan en images PNG (fond blanc, palette claire) pour Word et PDF. */
+  function svgToPng(svg, scale){
+    scale = scale || 3;
+    return new Promise(function(resolve){
+      var m = /viewBox="0 0 ([\d.]+) ([\d.]+)"/.exec(svg); var w = m ? +m[1] : 340, h = m ? +m[2] : 180;
+      var src = svg.replace('<svg ', '<svg width="'+w+'" height="'+h+'" ');
+      var img = new Image();
+      img.onload = function(){
+        try{
+          var c = document.createElement('canvas'); c.width = Math.round(w*scale); c.height = Math.round(h*scale);
+          var g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0,0,c.width,c.height); g.scale(scale, scale); g.drawImage(img, 0, 0, w, h);
+          resolve({ dataUrl: c.toDataURL('image/png'), w: w, h: h });
+        }catch(e){ resolve(null); }
+      };
+      img.onerror = function(){ resolve(null); };
+      img.src = 'data:image/svg+xml;charset=utf-8,'+encodeURIComponent(src);
+    });
+  }
+  function bilanChartImages(a){
+    var items = BILAN_CHARTS.filter(function(c){ return c.show(a); });
+    return Promise.all(items.map(function(c){
+      var svg = c.svg(a, VIZ_PRINT);
+      if(c.legend){
+        var lg = c.legend(VIZ_PRINT), m = /viewBox="0 0 ([\d.]+) ([\d.]+)"/.exec(svg), w = +m[1], h = +m[2];
+        var leg = lg.map(function(l, i){ return '<rect x="'+(i*150)+'" y="'+(h+8)+'" width="10" height="10" rx="2" style="fill:'+l[1]+'"/>'+vzText(i*150+15, h+17, l[0], VIZ_PRINT, {size:11}); }).join('');
+        svg = svg.replace('viewBox="0 0 '+w+' '+h+'"', 'viewBox="0 0 '+w+' '+(h+24)+'"').replace('</svg>', leg+'</svg>');
+      }
+      return svgToPng(svg).then(function(png){ return png ? { heading: c.h, dataUrl: png.dataUrl, w: png.w, h: png.h } : null; });
+    })).then(function(r){ return r.filter(Boolean); });
+  }
+  /* ================= polices des documents =================
+     Polices au choix pour les titres et le texte, en arabe et en français (Paramètres → Apparence →
+     Polices des documents), parmi les polices courantes de Windows, quelques polices Google Fonts
+     (chargées à la demande pour l'impression et le PDF) et les polices INSTALLÉES par l'utilisateur
+     (fichier .ttf / .otf / .woff2, par ex. une police maghribi) : celles-ci sont gardées dans les
+     données de l'application (synchronisées avec Drive comme les logos), chargées dans la page pour
+     l'impression et le PDF, et intégrées au fichier Word (.ttf) pour s'afficher même sur un poste où
+     la police n'est pas installée. Une police installée dont le nom évoque le style maghribi devient
+     automatiquement la police des titres arabes. */
+  var DOC_FONT_SLOTS = [
+    {k:'arTitle', l:'Titres en arabe'}, {k:'arBody', l:'Texte en arabe'},
+    {k:'frTitle', l:'Titres en français'}, {k:'frBody', l:'Texte en français'}
+  ];
+  var BUILTIN_FONTS = [
+    {family:'Sakkal Majalla', css:"'Sakkal Majalla','Traditional Arabic',serif"},
+    {family:'Traditional Arabic', css:"'Traditional Arabic','Sakkal Majalla',serif"},
+    {family:'Simplified Arabic', css:"'Simplified Arabic',Arial,sans-serif"},
+    {family:'Amiri', google:'Amiri:ital,wght@0,400;0,700;1,400', css:"'Amiri',serif"},
+    {family:'Aref Ruqaa', google:'Aref+Ruqaa:wght@400;700', css:"'Aref Ruqaa',serif"},
+    {family:'Reem Kufi', google:'Reem+Kufi:wght@400;700', css:"'Reem Kufi',sans-serif"},
+    {family:'El Messiri', google:'El+Messiri:wght@400;700', css:"'El Messiri',sans-serif"},
+    {family:'Cairo', google:'Cairo:wght@400;700', css:"'Cairo',sans-serif"},
+    {family:'Calibri', css:"Calibri,Carlito,'Segoe UI',Arial,sans-serif"},
+    {family:'Times New Roman', css:"'Times New Roman',Times,serif"},
+    {family:'Arial', css:"Arial,Helvetica,sans-serif"},
+    {family:'Cambria', css:"Cambria,Caladea,Georgia,serif"},
+    {family:'Garamond', css:"Garamond,'EB Garamond',Georgia,serif"},
+    {family:'Georgia', css:"Georgia,serif"}
+  ];
+  function installedFonts(){ return (state.templates.fonts || []).filter(function(f){ return f && f.family; }); }
+  function docFontPrefs(){
+    var pr = Object.assign({}, (state.templates.docFonts || {}));
+    if(!pr.arTitle){
+      var mg = installedFonts().find(function(f){ return /maghrib|maghreb|mabsout|mabsut|rabat|مغرب/i.test(f.family+' '+(f.fileName||'')); });
+      if(mg) pr.arTitle = mg.family;
+    }
+    return pr;
+  }
+  function fontInfo(family){
+    if(!family) return null;
+    var inst = installedFonts().find(function(f){ return f.family===family; });
+    if(inst) return { family: family, css: "'"+family.replace(/'/g,'')+"',serif", docx: family, installed: inst };
+    var b = BUILTIN_FONTS.find(function(f){ return f.family===family; });
+    if(b) return { family: family, css: b.css, docx: family, google: b.google };
+    return { family: family, css: "'"+family.replace(/'/g,'')+"',serif", docx: family };
+  }
+  /* Police de titre d'un paragraphe : title=true → langue du document ; 'ar' / 'fr' → forcée. */
+  function offTitleFont(off, title){
+    if(!title || !off) return null;
+    var lang = title==='ar' ? 'ar' : title==='fr' ? 'fr' : (off.rtl ? 'ar' : 'fr');
+    var fam = docFontPrefs()[lang+'Title'];
+    return fam ? fontInfo(fam) : (lang==='ar' && !off.rtl ? { css:"'Traditional Arabic','Sakkal Majalla',serif", docx:'Traditional Arabic' } : null);
+  }
+  function applyDocFonts(off){
+    var pr = docFontPrefs(), body = fontInfo(pr[off.rtl ? 'arBody' : 'frBody']);
+    if(body){ off.fontCss = body.css; off.fontDocx = body.docx; }
+    off.usedFamilies = [pr[off.rtl?'arBody':'frBody'], pr.arTitle, pr.frTitle].filter(Boolean);
+  }
+  var fontFacesLoaded = {};
+  function registerInstalledFonts(){
+    if(!window.FontFace || !document.fonts) return Promise.resolve();
+    return Promise.all(installedFonts().map(function(f){
+      if(fontFacesLoaded[f.family]) return fontFacesLoaded[f.family];
+      var url = assetUrl(f.assetId);
+      if(!url) return Promise.resolve();
+      var ff = new FontFace(f.family, 'url('+url+')');
+      fontFacesLoaded[f.family] = ff.load().then(function(face){ document.fonts.add(face); }).catch(function(){ delete fontFacesLoaded[f.family]; });
+      return fontFacesLoaded[f.family];
+    }));
+  }
+  function ensureGoogleFont(spec){
+    if(!spec || document.querySelector('link[data-gfont="'+spec+'"]')) return;
+    var l = document.createElement('link'); l.rel = 'stylesheet'; l.setAttribute('data-gfont', spec);
+    l.href = 'https://fonts.googleapis.com/css2?family='+spec+'&display=swap';
+    document.head.appendChild(l);
+  }
+  function docFontsReady(off){
+    var fams = (off && off.usedFamilies) || [];
+    fams.forEach(function(f){ var i = fontInfo(f); if(i && i.google) ensureGoogleFont(i.google); });
+    return registerInstalledFonts().then(function(){
+      if(!document.fonts || !document.fonts.load) return;
+      return Promise.all(fams.map(function(f){ return document.fonts.load('16px "'+f+'"').catch(function(){}); }));
+    }).then(function(){ return document.fonts && document.fonts.ready; }).catch(function(){});
+  }
+  function docFontsEmbedFor(off){
+    var used = (off && off.usedFamilies) || [];
+    return installedFonts().filter(function(f){ return used.indexOf(f.family) >= 0 && /\.(ttf|otf)$/i.test(f.fileName||'') && assetUrl(f.assetId); })
+      .map(function(f){ return { name: f.family, data: dataUrlToUint8Array(assetUrl(f.assetId)) }; });
+  }
+  /* Nom de famille lu dans le fichier de police (table « name »), pour proposer le vrai nom. */
+  function readFontFamilyName(buf){
+    try{
+      var dv = new DataView(buf), numTables = dv.getUint16(4), nameOff = -1;
+      for(var i=0;i<numTables;i++){ var o = 12 + i*16; if(String.fromCharCode(dv.getUint8(o),dv.getUint8(o+1),dv.getUint8(o+2),dv.getUint8(o+3))==='name'){ nameOff = dv.getUint32(o+8); break; } }
+      if(nameOff < 0) return '';
+      var count = dv.getUint16(nameOff+2), strOff = nameOff + dv.getUint16(nameOff+4), best = '';
+      for(var j=0;j<count;j++){
+        var r = nameOff + 6 + j*12, plat = dv.getUint16(r), nameId = dv.getUint16(r+6), len = dv.getUint16(r+8), off = dv.getUint16(r+10);
+        if(nameId!==1 && nameId!==16) continue;
+        var str = '';
+        if(plat===3 || plat===0){ for(var k=0;k<len;k+=2) str += String.fromCharCode(dv.getUint16(strOff+off+k)); }
+        else { for(var k2=0;k2<len;k2++) str += String.fromCharCode(dv.getUint8(strOff+off+k2)); }
+        if(str && (nameId===16 || !best)) best = str;
+      }
+      return best.trim();
+    }catch(e){ return ''; }
+  }
+  function installFontFile(file){
+    if(!file) return Promise.resolve();
+    if(!/\.(ttf|otf|woff2?)$/i.test(file.name||'')) return Promise.reject({code:'unsupported_type'});
+    if(file.size > 3*1024*1024) return Promise.reject({code:'font_too_large'});
+    return file.arrayBuffer().then(function(buf){
+      var fam = readFontFamilyName(buf) || String(file.name).replace(/\.[^.]+$/, '').replace(/[-_]+/g,' ');
+      fam = prompt('Nom de la police (tel qu\'il apparaîtra dans les listes) :', fam) || fam;
+      return uploadAsset(file, 3*1024*1024).then(function(res){
+        var list = (state.templates.fonts || []).filter(function(f){ return f.family !== fam; });
+        list.push({ id: uid(), family: fam, assetId: res.id, fileName: file.name, size: file.size });
+        templatesSet({ fonts: list });
+        delete fontFacesLoaded[fam];
+        return registerInstalledFonts().then(function(){ return fam; });
+      });
+    });
+  }
+  function removeInstalledFont(id){
+    var f = (state.templates.fonts||[]).find(function(x){ return x.id===id; });
+    if(!f) return;
+    if(f.assetId) removeAsset(f.assetId);
+    var pr = Object.assign({}, state.templates.docFonts||{});
+    Object.keys(pr).forEach(function(k){ if(pr[k]===f.family) delete pr[k]; });
+    templatesSet({ fonts: (state.templates.fonts||[]).filter(function(x){ return x.id!==id; }), docFonts: pr });
+  }
+  function fontsSettingsHtml(){
+    var pr = docFontPrefs(), stored = state.templates.docFonts || {};
+    var inst = installedFonts();
+    var options = function(cur){
+      return '<option value=""'+(cur?'':' selected')+'>Police du modèle (par défaut)</option>'+
+        (inst.length ? '<optgroup label="Polices installées">'+inst.map(function(f){ return '<option value="'+esc(f.family)+'"'+(cur===f.family?' selected':'')+'>'+esc(f.family)+'</option>'; }).join('')+'</optgroup>' : '')+
+        '<optgroup label="Polices courantes">'+BUILTIN_FONTS.map(function(f){ return '<option value="'+esc(f.family)+'"'+(cur===f.family?' selected':'')+'>'+esc(f.family)+(f.google?' (Google Fonts)':'')+'</option>'; }).join('')+'</optgroup>';
+    };
+    var html = '<div class="side-divider" style="margin:16px 0;"></div><div class="section-label">Polices des documents</div>'+
+      '<p style="font-size:11.5px;color:var(--ink-faint);margin:2px 0 8px;">Utilisées pour les documents officiels (rapport, grilles, ورقة إرسال, رسالة إخبارية, طلب سيارة المصلحة) : impression, PDF et Word.</p>';
+    DOC_FONT_SLOTS.forEach(function(sl){
+      var cur = stored[sl.k] || '';
+      var auto = !cur && pr[sl.k] ? ' <span style="font-weight:400;color:var(--ink-faint);">(automatique : '+esc(pr[sl.k])+')</span>' : '';
+      var sample = sl.k.indexOf('ar')===0 ? 'ورقة إرسال — الموضوع' : 'Rapport d’inspection';
+      var fi = fontInfo(cur || pr[sl.k]);
+      html += '<div class="field"><label>'+esc(sl.l)+auto+'</label><select data-docfont="'+sl.k+'">'+options(cur)+'</select>'+
+        '<div style="margin-top:6px;font-size:'+(sl.k.indexOf('Title')>0?'20':'15')+'px;'+(fi?'font-family:'+fi.css+';':'')+(sl.k.indexOf('ar')===0?'direction:rtl;text-align:right;':'')+'">'+esc(sample)+'</div></div>';
+    });
+    html += '<div class="section-label" style="margin-top:6px;">Polices installées</div>'+
+      (inst.length ? '<div class="doc-list" style="margin:6px 0;">'+inst.map(function(f){
+        return '<div class="doc-row"><div class="doc-info"><div class="t" style="font-family:'+fontInfo(f.family).css+';font-size:16px;">'+esc(f.family)+' — أبجد هوز</div><div class="s">'+esc(f.fileName||'')+(f.size?' · '+esc(fmtSize(f.size)):'')+'</div></div>'+
+          '<button class="icon-btn" data-rmfont="'+esc(f.id)+'" type="button" style="color:var(--danger);" title="Supprimer">'+ICONS.trash+'</button></div>';
+      }).join('')+'</div>' : '<p style="font-size:12px;color:var(--ink-faint);margin:4px 0 8px;">Aucune police installée.</p>')+
+      '<div class="btn-row" style="margin-top:6px;"><button class="btn ghost sm" id="btnInstallFont" type="button">'+ICONS.upload+' Installer une police (.ttf, .otf, .woff2)</button></div>'+
+      '<input type="file" id="fileFontInput" accept=".ttf,.otf,.woff,.woff2,font/ttf,font/otf,font/woff2" hidden>'+
+      '<details style="margin:10px 0;font-size:12px;color:var(--ink-faint);"><summary style="cursor:pointer;font-weight:600;color:var(--ink);">Police maghribi : où la trouver ?</summary>'+
+      '<p style="margin-top:6px;line-height:1.55;">La police gratuite <b>Rabat</b> (style maghribi mabsout) est proposée sur <a href="https://sourceforge.net/projects/maghribifonts/files/Font%20Maghribi%20Mabsout%20RABAT%20v1.0/Font%20Rabat%20v1.0/" target="_blank" rel="noopener">SourceForge (projet Maghribi Fonts)</a>. Téléchargez <code>Rabat.otf</code>, puis touchez « Installer une police » : elle sera aussitôt utilisée pour les titres en arabe. Pour le fichier Word, une police .ttf s\'intègre au document ; une police .otf doit aussi être installée sur l\'ordinateur qui ouvre le fichier.</p></details>';
+    return html;
+  }
   function offProfil(){ return Object.assign({}, DEFAULT_PROFIL, state.templates.profil || {}); }
 
   /* ---- petits constructeurs de blocs ---- */
@@ -4508,6 +5213,8 @@
         if(b.borderBottom) st.push('border-bottom:1px solid #000;padding-bottom:2pt');
         if(b.dir) st.push('direction:'+b.dir);
         if(b.b) st.push('font-weight:bold');
+        var tf = offTitleFont(ctx && ctx.off, b.title);
+        if(tf) st.push('font-family:'+tf.css);
         return '<p style="'+st.join(';')+'">'+(offRunsHtml(b.runs)||'&nbsp;')+'</p>';
       }
       if(b.t==='space') return '<div style="height:'+(b.h||4)+'mm"></div>';
@@ -4545,14 +5252,15 @@
     }).join('');
   }
   function offHtml(off, imgs, forPdf){
-    var foot = (off.footer && off.footer.length) ? offBlocksHtml(off.footer, imgs) : '';
+    var ctx = { off: off };
+    var foot = (off.footer && off.footer.length) ? offBlocksHtml(off.footer, imgs, ctx) : '';
     return '<style>'+offCss()+'</style><div class="off-page" dir="'+(off.rtl?'rtl':'ltr')+'" lang="'+(off.rtl?'ar':'fr')+'" style="font-family:'+off.fontCss+';font-size:'+off.size+'pt;line-height:1.25;'+(forPdf?'width:'+(210-off.margin*2)+'mm;':'')+'">'+
-      offBlocksHtml(off.blocks, imgs)+
+      offBlocksHtml(off.blocks, imgs, ctx)+
       (foot ? (forPdf ? '<div style="margin-top:10mm">'+foot+'</div>' : '<div class="off-foot" style="position:fixed;left:0;right:0;bottom:0">'+foot+'</div>') : '')+
       '</div>';
   }
   function printOfficial(off){
-    return offImagesFor(off).then(function(imgs){
+    return Promise.all([offImagesFor(off), docFontsReady(off)]).then(function(r){ var imgs = r[0];
       var root = $('printRoot');
       root.innerHTML = '<style>@media print{@page{size:A4;margin:'+off.margin+'mm;} body{font-size:inherit;}}</style>'+offHtml(off, imgs, false);
       setTimeout(function(){ window.print(); }, 120);
@@ -4568,17 +5276,84 @@
      page est reculée jusqu'à une ligne entièrement blanche, pour ne jamais couper une ligne de texte
      ou une rangée de tableau en deux. */
   function officialToPdfBlob(off){
-    return Promise.all([ensureJsPDF(), ensureHtml2Canvas(), offImagesFor(off)]).then(function(r){
-      var imgs = r[2];
-      var contentMm = 210 - off.margin*2, contentHmm = 297 - off.margin*2, pxPerMm = 96/25.4;
+    return offImagesFor(off).then(function(imgs){
+      return htmlToPdfBlob(offHtml(off, imgs, true), { margin: off.margin, families: off.usedFamilies || [], off: off });
+    });
+  }
+  /* ---- Rendu HTML → PDF ----
+     La page est dessinée par le moteur du navigateur lui-même (SVG <foreignObject> → canvas) : le
+     texte arabe est ainsi formé et ordonné exactement comme à l'écran (lettres liées, droite à
+     gauche, chiffres et mots latins à la bonne place), ce que html2canvas ne garantit pas — il dessine
+     le texte mot par mot et casse souvent l'arabe sur téléphone. Les polices installées et les polices
+     Google Fonts choisies sont intégrées à l'image. En cas d'échec (navigateur ancien), html2canvas
+     sert de solution de secours. L'image obtenue est ensuite découpée en pages A4 aux lignes blanches. */
+  var pdfFontCssCache = {};
+  function blobToDataUrl(blob){ return new Promise(function(res, rej){ var r = new FileReader(); r.onload = function(){ res(r.result); }; r.onerror = rej; r.readAsDataURL(blob); }); }
+  function googleFontFaceCss(spec){
+    if(pdfFontCssCache[spec]) return pdfFontCssCache[spec];
+    pdfFontCssCache[spec] = fetch('https://fonts.googleapis.com/css2?family='+spec+'&display=block').then(function(r){ return r.ok ? r.text() : ''; }).then(function(css){
+      // seulement les sous-ensembles arabe et latin, polices converties en data: URL
+      var blocks = css.split(/(?=\/\*\s*[\w-]+\s*\*\/)/).filter(function(b){ return /\/\*\s*(arabic|latin|latin-ext)\s*\*\//.test(b); });
+      return Promise.all(blocks.map(function(b){
+        var m = /url\((https:[^)]+)\)/.exec(b); if(!m) return '';
+        return fetch(m[1]).then(function(r){ return r.blob(); }).then(blobToDataUrl).then(function(du){ return b.replace(m[1], du).replace(/\/\*[^*]*\*\//, ''); }).catch(function(){ return ''; });
+      })).then(function(parts){ return parts.join('\n'); });
+    }).catch(function(){ return ''; });
+    return pdfFontCssCache[spec];
+  }
+  function pdfFontFaceCss(families){
+    var seen = {};
+    return Promise.all((families||[]).filter(function(f){ if(!f || seen[f]) return false; seen[f] = 1; return true; }).map(function(f){
+      var inst = installedFonts().find(function(x){ return x.family===f; });
+      if(inst){ var u = assetUrl(inst.assetId); return u ? "@font-face{font-family:'"+f.replace(/'/g,'')+"';src:url("+u+");}" : ''; }
+      var b = BUILTIN_FONTS.find(function(x){ return x.family===f; });
+      return b && b.google ? googleFontFaceCss(b.google) : '';
+    })).then(function(parts){ return parts.join('\n'); });
+  }
+  function nativeRenderToCanvas(el, scale, faceCss){
+    var w = Math.ceil(el.offsetWidth), h = Math.ceil(el.scrollHeight);
+    var wrap = document.createElement('div');
+    wrap.setAttribute('style', 'width:'+w+'px;background:#fff;margin:0;padding:0;');
+    wrap.innerHTML = '<style>'+faceCss+'</style>' + el.outerHTML;
+    var xml = new XMLSerializer().serializeToString(wrap);
+    var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="'+w+'" height="'+h+'"><foreignObject x="0" y="0" width="'+w+'" height="'+h+'">'+xml+'</foreignObject></svg>';
+    return new Promise(function(resolve, reject){
+      var img = new Image();
+      img.onload = function(){
+        // laisse le temps aux polices intégrées d'être décodées dans l'image SVG
+        setTimeout(function(){
+          try{
+            var c = document.createElement('canvas'); c.width = Math.round(w*scale); c.height = Math.round(h*scale);
+            var g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.scale(scale, scale); g.drawImage(img, 0, 0, w, h);
+            c.toDataURL('image/png').length; // lève une erreur si le canvas est « contaminé »
+            resolve(c);
+          }catch(e){ reject(e); }
+        }, 120);
+      };
+      img.onerror = function(){ reject(new Error('foreignObject')); };
+      img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    });
+  }
+  function htmlToPdfBlob(html, o){
+    var margin = o.margin || 14;
+    return Promise.all([ensureJsPDF(), pdfFontFaceCss(o.families)]).then(function(r){
+      var faceCss = r[1];
+      var contentMm = 210 - margin*2, contentHmm = 297 - margin*2, pxPerMm = 96/25.4;
       var host = document.createElement('div');
       host.style.cssText = 'position:fixed;left:-10000px;top:0;background:#fff;width:'+Math.round(contentMm*pxPerMm)+'px;';
-      host.innerHTML = offHtml(off, imgs, true);
+      host.innerHTML = '<style>'+faceCss+'</style>' + html;
       document.body.appendChild(host);
-      var el = host.querySelector('.off-page');
-      var fontsReady = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
-      return fontsReady.then(function(){
-        return window.html2canvas(el, { scale: 2, backgroundColor:'#ffffff', useCORS:true, logging:false, windowWidth: Math.round(contentMm*pxPerMm) });
+      var el = host.querySelector('.off-page, .p-page') || host;
+      el.style.width = Math.round(contentMm*pxPerMm)+'px'; el.style.background = '#fff';
+      var styles = Array.prototype.slice.call(host.querySelectorAll('style')).filter(function(st){ return !el.contains(st); });
+      // les feuilles de style de la page passent dans le bloc rendu
+      styles.forEach(function(st){ el.insertBefore(st.cloneNode(true), el.firstChild); });
+      var ready = (o.off ? docFontsReady(o.off) : Promise.resolve()).then(function(){ return document.fonts && document.fonts.ready; });
+      return ready.then(function(){
+        return nativeRenderToCanvas(el, 2, faceCss).catch(function(e){
+          console.warn('rendu natif indisponible, html2canvas', e);
+          return ensureHtml2Canvas().then(function(){ return window.html2canvas(el, { scale: 2, backgroundColor:'#ffffff', useCORS:true, logging:false, windowWidth: Math.round(contentMm*pxPerMm) }); });
+        });
       }).then(function(canvas){
         document.body.removeChild(host);
         var jsPDF = window.jspdf.jsPDF;
@@ -4601,7 +5376,7 @@
           slice.getContext('2d').fillStyle = '#fff'; slice.getContext('2d').fillRect(0,0,W,slice.height);
           slice.getContext('2d').drawImage(canvas, 0, y, W, end - y, 0, 0, W, end - y);
           if(!first) doc.addPage();
-          doc.addImage(slice.toDataURL('image/jpeg', 0.92), 'JPEG', off.margin, off.margin, contentMm, (end - y) / pxPerMmC);
+          doc.addImage(slice.toDataURL('image/jpeg', 0.92), 'JPEG', margin, margin, contentMm, (end - y) / pxPerMmC);
           first = false; y = end;
         }
         return doc.output('blob');
@@ -4620,7 +5395,8 @@
   }
 
   /* ---- Word (.docx) ---- */
-  function offDocxRuns(d, runs, off, pSize, pBold){
+  function offDocxRuns(d, runs, off, pSize, pBold, pTitle){
+    var tfont = offTitleFont(off, pTitle);
     var out = [];
     (runs||[]).forEach(function(r){
       if(r.box){ out.push(new d.TextRun({ text: r.checked ? '☒' : '☐', font:'Segoe UI Symbol', size: Math.round((r.size||pSize||off.size)*2) })); return; }
@@ -4633,7 +5409,7 @@
         segs.forEach(function(sg, j){
           var latin = off.rtl && /[A-Za-z\u00C0-\u024F0-9@]/.test(sg) && !/[\u0600-\u06FF]/.test(sg);
           out.push(new d.TextRun({ text: sg, break: (i>0 && j===0) ? 1 : undefined, bold: !!(r.b || pBold), italics: !!r.i, underline: r.u ? {} : undefined,
-            size: Math.round((r.size||pSize||off.size)*2), font: r.font || off.fontDocx, color: r.color, rightToLeft: !!off.rtl && !latin }));
+            size: Math.round((r.size||pSize||off.size)*2), font: r.font || (tfont ? tfont.docx : off.fontDocx), color: r.color, rightToLeft: (!!off.rtl || pTitle==='ar') && !latin }));
         });
       });
     });
@@ -4657,7 +5433,7 @@
           spacing: { before: Math.round((b.before||0)*20), after: Math.round((b.after||0)*20), line: b.line ? Math.round(240*b.line) : undefined },
           indent: b.indent ? { firstLine: Math.round(b.indent*56.7) } : undefined,
           border: (b.borderTop||b.borderBottom) ? borders : undefined,
-          children: offDocxRuns(d, b.runs, off, b.size, b.b) }));
+          children: offDocxRuns(d, b.runs, off, b.size, b.b, b.title) }));
       } else if(b.t==='space'){
         out.push(new d.Paragraph({ spacing:{before:0, after:0, line: Math.max(1, Math.round((b.h||4)*56.7)), lineRule: d.LineRuleType ? d.LineRuleType.EXACT : undefined}, children:[] }));
       } else if(b.t==='hr'){
@@ -4705,7 +5481,11 @@
       var section = { properties:{ page:{ size:{ width:11906, height:16838 }, margin:{ top: marginTw, bottom: marginTw, left: marginTw, right: marginTw } } },
         children: offDocxBlocks(d, off.blocks, off, imgs, widthTw) };
       if(off.footer && off.footer.length) section.footers = { default: new d.Footer({ children: offDocxBlocks(d, off.footer, off, imgs, widthTw) }) };
-      var docx = new d.Document({ styles:{ default:{ document:{ run:{ font: off.fontDocx, size: Math.round(off.size*2) } } } }, sections:[section] });
+      var embed = docFontsEmbedFor(off);
+      var docOpts = { styles:{ default:{ document:{ run:{ font: off.fontDocx, size: Math.round(off.size*2) } } } }, sections:[section] };
+      if(embed.length) docOpts.fonts = embed;
+      var docx;
+      try{ docx = new d.Document(docOpts); }catch(e){ delete docOpts.fonts; docx = new d.Document(docOpts); }
       return d.Packer.toBlob(docx);
     });
   }
@@ -4771,7 +5551,8 @@
   function offObservationSefrou(d, task){
     var g = d.sefrou || defaultSefrouGrid();
     var ens = (task && task.enseignantId) ? state.enseignants.find(function(x){ return x.id===task.enseignantId; }) : null;
-    var etab = (task && (task.etablissementNom || etabName(task.etablissementId))) || d.etablissement || '';
+    var etab = etabNameLang('fr', task && task.etablissementId, (task && (task.etablissementNom || etabName(task.etablissementId))) || d.etablissement || '');
+    var ensFr = ensNameLang('fr', task && task.enseignantId, d.enseignantNom||'');
     var it = g.items || {};
     var val = function(k){ var v = it[k]; return v ? (SEFROU_SCALE_SHORT[v] || v) : ''; };
     var rightRows = [];
@@ -4810,10 +5591,10 @@
       { t:'table', border:true, cols:[34,33,33], mb:0, rows:[
         { cells:[
           C([P('Direction provinciale de SEFROU', {size:10, b:true}), P('Inspection de français', {size:10}), P('Année scolaire : '+(g.annee || anneeScolaireCourante(d.date)), {size:10})], {v:'middle'}),
-          C([P([R("Grille d'observation", {b:true})], {size:12, align:'center'}), P([R('', {box:true, checked:nat}), R(' Visite   /   '), R('', {box:true, checked:!nat}), R(' Inspection')], {size:10, align:'center', before:3})], {v:'middle'}),
+          C([P([R("Grille d'observation", {b:true})], {size:12, align:'center', title:true}), P([R('', {box:true, checked:nat}), R(' Visite   /   '), R('', {box:true, checked:!nat}), R(' Inspection')], {size:10, align:'center', before:3})], {v:'middle'}),
           C([P([R('Date : ',{b:true}), R(fmtDate(d.date) || dots('',22))], {size:10}), P([R('Heure : ',{b:true}), R(g.heure || dots('',14))], {size:10, before:3})], {v:'middle'})
         ] },
-        { cells:[ offFieldCell('Nom et prénom', d.enseignantNom), offFieldCell('Etablissement', etab), offFieldCell('Note Inspection', g.noteInspPrec) ] },
+        { cells:[ offFieldCell('Nom et prénom', ensFr), offFieldCell('Etablissement', etab), offFieldCell('Note Inspection', g.noteInspPrec) ] },
         { cells:[ offFieldCell('CIN', g.cin), offFieldCell('Localité', g.localite), offFieldCell('Date', g.datePrec) ] },
         { cells:[ offFieldCell('Doti', g.doti || (ens && ens.ppr) || ''), C([P([R('Echelle : ',{b:true}), R(g.echelle||''), R('        Echelon : ',{b:true}), R(g.echelon||'')], {size:10})]), offFieldCell('Par', g.par) ] },
         { cells:[ offFieldCell('Manuel', g.manuel), offFieldCell('Pages', g.pages), C([P('',{size:10})]) ] },
@@ -4829,7 +5610,7 @@
   function offObservationPionnier(d, task){
     var variante = d.variante;
     var titreSeance = variante==='pionnier_synthese' ? ['Séance de synthèse','حصة التوليف'] : ['Séance ordinaire','حصة عادية'];
-    var etab = (task && (task.etablissementNom || etabName(task.etablissementId))) || '';
+    var etab = etabNameLang('fr', task && task.etablissementId, (task && (task.etablissementNom || etabName(task.etablissementId))) || '');
     var scaleAr = OBS_PIONNIER_SCALE_AR.slice();
     var head = { cells:[ C([P([R("Domaines d'observation",{b:true})],{size:10, align:'center'})], {v:'middle', shade:'F2F2F2'}),
       C([P([R("Critères et indicateurs d'évaluation",{b:true})],{size:10, align:'center'})], {v:'middle', shade:'F2F2F2'}) ]
@@ -4845,12 +5626,12 @@
       });
     });
     var blocks = [
-      P([R('Collèges Pionniers',{u:true})], {align:'center', size:10.5, font:'Franklin Gothic Book'}),
-      P('GRILLE D’OBSERVATION (26/27)', {align:'center', size:13}),
-      P(titreSeance[0], {align:'center', size:10.5}),
-      P([R(titreSeance[1], {font:"'Traditional Arabic','Sakkal Majalla',serif"})], {align:'center', size:13, after:6}),
+      P([R('Collèges Pionniers',{u:true})], {align:'center', size:10.5, title:true}),
+      P('GRILLE D’OBSERVATION (26/27)', {align:'center', size:13, title:true}),
+      P(titreSeance[0], {align:'center', size:10.5, title:true}),
+      P([R(titreSeance[1])], {align:'center', size:14, after:6, title:'ar', dir:'rtl'}),
       { t:'table', border:false, cols:[50,50], mb:2, rows:[
-        { cells:[ C([P([R('Enseignant(e) : ',{b:true}), R(d.enseignantNom||'')],{size:10}), P([R('Établissement : ',{b:true}), R(etab)],{size:10})]),
+        { cells:[ C([P([R('Enseignant(e) : ',{b:true}), R(ensNameLang('fr', task && task.enseignantId, d.enseignantNom||''))],{size:10}), P([R('Établissement : ',{b:true}), R(etab)],{size:10})]),
                   C([P([R('Classe : ',{b:true}), R(d.classe||''), R('    Date : ',{b:true}), R(fmtDate(d.date))],{size:10}), P([R('Matière : ',{b:true}), R(d.matiere||''), R('    Durée : ',{b:true}), R(d.duree||'')],{size:10})]) ] }
       ] },
       { t:'table', border:true, cols:[17,59,8,8,8], rows: rows },
@@ -4863,7 +5644,7 @@
   /* ---- Rapport d'inspection ---- */
   function civiliteOf(d){
     if(d.civilite) return d.civilite;
-    var ens = state.enseignants.find(function(x){ return x.nom===d.enseignantNom; });
+    var ens = findEns(null, d.enseignantNom);
     return (ens && ens.genre==='F') ? 'Mme.' : (ens && ens.genre==='H') ? 'M.' : '';
   }
   function rapportInspectionTexte(d){
@@ -4884,10 +5665,10 @@
         C([P([R('Etablissement : ',{b:true}), R(d.lieu||'')],{size:10.5}), P([R('Localité : ',{b:true}), R(d.localite||'')],{size:10.5}),
            P([R('Classe : ',{b:true}), R(d.classe||'')],{size:10.5}), P([R('Manuel : ',{b:true}), R(d.manuel||'')],{size:10.5})], {pad:0})
       ] } ] },
-      P([R("RAPPORT D’INSPECTION", {b:true, u:true})], {align:'center', size:16, before:14, after:10}),
+      P([R("RAPPORT D’INSPECTION", {b:true, u:true})], {align:'center', size:16, before:14, after:10, title:true}),
       { t:'table', border:false, cols:[60,40], width:70, center:true, mb:0, rows:[
         { cells:[ C([P([R("Nom et prénom de l’enseignant"+(fem?'e':''),{i:true})],{size:9.5, align:'center'})]), C([P([R('PPR',{i:true})],{size:9.5, align:'center'})]) ] },
-        { cells:[ C([P([R((civ?civ+' ':'')+(d.enseignantNom||''),{b:true})],{size:11.5, align:'center'})]), C([P([R(d.ppr||'',{b:true})],{size:11.5, align:'center'})]) ] }
+        { cells:[ C([P([R((civ?civ+' ':'')+ensNameLang('fr', task && task.enseignantId, d.enseignantNom||''),{b:true})],{size:11.5, align:'center'})]), C([P([R(d.ppr||'',{b:true})],{size:11.5, align:'center'})]) ] }
       ] },
       { t:'table', border:false, cols:[18,41,41], mt:3, mb:4, rows:[
         { cells:[ C([P('')]), C([P('Nationalité : '+(d.nationalite||'Marocaine'),{size:10.5})]), C([P('Cadre : '+(d.cadre||''),{size:10.5})]) ] },
@@ -4932,7 +5713,7 @@
       P('مفتش مادة : '+(pf.matiereAr||'اللغة الفرنسية'), {size:11, after:14}),
       P('إلى السيد : '+(arDestinataire(d.destinataire) || dots('',70)), {size:11, align:'center', after:4}),
       d.reference ? P('المرجع : '+d.reference, {size:10.5, align:'center'}) : P('', {size:4}),
-      P([R('ورقة إرسال',{b:true})], {align:'center', size:22, before:10, after:12}),
+      P([R('ورقة إرسال',{b:true})], {align:'center', size:24, before:10, after:12, title:true}),
       { t:'table', border:true, cols:[38,16,46], rows: rows }
     ];
     function annex(title, list, withObs){
@@ -4970,17 +5751,17 @@
       P([R('من السيد',{b:true})], {size:16}),
       P([R((pf.nomAr||pf.nom||'')+' مفتش تربوي لمادة '+matiere,{b:true})], {size:16, after:10})
     ].concat(destLines.map(function(l, i){ return P([R(l,{b:true})], {size: i===0 ? 18 : 16, align:'center'}); })).concat([
-      P([R('الموضوع: ',{b:true}), R(d.objet||'',{b:true})], {size:17, align:'center', before:12, after:12}),
-      P([R('سلام تام بوجود مولانا الإمام.',{b:true})], {size:17, indent:10, after:8})
+      P([R('الموضوع: ',{b:true}), R(d.objet||'',{b:true})], {size:17, align:'center', before:12, after:12, title:true}),
+      P([R('سلام تام بوجود مولانا الإمام.',{b:true})], {size:17, indent:10, after:8, title:true})
     ]).concat(bodyParas.length ? bodyParas : [P('', {size:16})]);
     if(d.invites && d.invites.length){
       var rr = [{ cells:[ C([P([R('الاسم الكامل',{b:true})],{align:'center', size:13})]), C([P([R('رقم التأجير',{b:true})],{align:'center', size:13})]), C([P([R('المؤسسة',{b:true})],{align:'center', size:13})]) ] }];
-      d.invites.forEach(function(iv){ rr.push({ cantSplit:true, cells:[ C([P(iv.nom||'',{size:13})]), C([P(iv.ppr||'',{size:13, align:'center'})]), C([P(iv.etablissementNom||'',{size:13})]) ] }); });
+      d.invites.forEach(function(iv){ var ensRec = findEns(iv.enseignantId, iv.nom); rr.push({ cantSplit:true, cells:[ C([P(ensNameLang('ar', iv.enseignantId, iv.nom||''),{size:13})]), C([P(iv.ppr||'',{size:13, align:'center'})]), C([P(etabNameLang('ar', ensRec && ensRec.etablissementId, iv.etablissementNom||''),{size:13})]) ] }); });
       blocks.push(P([R('الأساتذة المدعوون',{b:true})], {size:14, before:8, after:4}));
       blocks.push({ t:'table', border:true, cols:[40,20,40], rows: rr });
     }
     blocks = blocks.concat([
-      P([R('والسلام',{b:true})], {size:17, align:'center', before:10, after:8}),
+      P([R('والسلام',{b:true})], {size:17, align:'center', before:10, after:8, title:true}),
       { t:'table', border:false, cols:[50,50], rows:[ { cells:[ C([P('')]), C([P([R('مفتش '+matiere,{b:true})],{size:15, align:'center'}), P([R('التعليم '+cycle,{b:true})],{size:15, align:'center'}), {t:'sigimg', align:'center'},
         d.date ? P(fmtDate(d.date), {size:13, align:'center'}) : P('')]) ] } ] }
     ]);
@@ -5005,7 +5786,8 @@
     return off;
   }
   /* Modèle officiel du document, ou null pour les types qui gardent le rendu générique. */
-  function buildOfficialDoc(d, task){
+  function buildOfficialDoc(d, task){ var off = buildOfficialDocInner(d, task); if(off) applyDocFonts(off); return off; }
+  function buildOfficialDocInner(d, task){
     if(d.type==='observation'){
       if(d.variante==='sefrou') return offObservationSefrou(d, task);
       if(d.variante==='pionnier_ordinaire' || d.variante==='pionnier_synthese') return offObservationPionnier(d, task);
@@ -5028,19 +5810,24 @@
       '<div class="p-meta">'+meta.map(function(m){ return '<span><b>'+esc(m[0])+' :</b> '+esc(m[1]||'—')+'</span>'; }).join('')+'</div>';
   }
 
-  function printFromSpec(spec){
+  function printFromSpec(spec){ printHTML(specToHtml(spec), !!spec.rtl); }
+  function specToHtml(spec){
     var html = printHead(spec.titre, spec.meta, spec.photoAssetId ? assetUrl(spec.photoAssetId) : '');
-    (spec.tables||[]).forEach(function(tb){
+    var chartsHtml = (spec.charts||[]).map(function(ch){ return '<div class="p-section" style="break-inside:avoid;"><h3>'+esc(ch.heading)+'</h3><img src="'+ch.dataUrl+'" alt="" style="display:block;width:'+Math.min(100, Math.round(ch.w/340*82))+'%;margin:0 auto;"></div>'; }).join('');
+    var chartsAfterFirst = !!(spec.tables && spec.tables[0] && spec.tables[0].heading==='Indicateurs');
+    if(!chartsAfterFirst) html += chartsHtml;
+    (spec.tables||[]).forEach(function(tb, ti){
       if(tb.heading) html += '<div class="p-section"><h3>'+esc(tb.heading)+'</h3></div>';
       html += '<table class="p-table"><thead><tr>'+tb.headers.map(function(h){ return '<th>'+esc(h)+'</th>'; }).join('')+'</tr></thead><tbody>';
       (tb.rows.length ? tb.rows : [tb.headers.map(function(){ return '—'; })]).forEach(function(r){ html += '<tr>'+r.map(function(c){ return '<td>'+esc(c)+'</td>'; }).join('')+'</tr>'; });
       html += '</tbody></table>';
+      if(ti===0 && chartsAfterFirst) html += chartsHtml;
     });
     (spec.sections||[]).forEach(function(sec){
       html += '<div class="p-section">'+(sec.heading?'<h3>'+esc(sec.heading)+'</h3>':'')+'<p style="white-space:pre-line;">'+esc(sec.text||'—')+'</p></div>';
     });
     if(spec.signatures && spec.signatures.length) html += '<div class="p-sign">'+spec.signatures.map(function(s){ return '<span>'+esc(s)+'</span>'; }).join('')+'</div>';
-    printHTML(html, !!spec.rtl);
+    return html;
   }
   function doPrint(){
     var d = state.draftDoc, task = state.tasks.find(function(t){ return t.id===d.taskId; });
@@ -5165,11 +5952,20 @@
   function buildBilanSpec(){
     var s = bilanStats(), r = periodRange();
     var synth = $('bilanSynthText') ? $('bilanSynthText').value : '';
+    var an = bilanAnalytics(), pc = function(x,t){ return t ? ' ('+Math.round(x/t*100)+' %)' : ''; };
+    var ind = state.bilanCharts === false ? [] : [{heading:'Indicateurs', headers:['Indicateur','Valeur'], rows:[
+      ['Tâches sur la période', String(an.total)],
+      ['Taux de réalisation', an.rate+' % ('+an.done+'/'+an.total+')'],
+      ['Inspections et visites', String(an.visits)],
+      ['Enseignants inspectés ou visités', an.ensVisited+' / '+an.ensTotal+pc(an.ensVisited, an.ensTotal)],
+      ['Établissements concernés', an.etabCount+' / '+an.etabTotal+pc(an.etabCount, an.etabTotal)],
+      ['Tâches en retard', String(an.late)]
+    ]}];
     return { titre:"Bilan des activités d'inspection", meta:[['Période', fmtDate(r.from.toISOString())+' – '+fmtDate(r.to.toISOString())],['Total tâches', String(s.list.length)]],
-      tables:[
+      tables: ind.concat([
         {heading:'Par établissement', headers:['Établissement','Nb. tâches'], rows:Object.keys(s.byEtab).map(function(k){ return [k, String(s.byEtab[k])]; })},
         {heading:'Par type', headers:['Type','Nb.'], rows:Object.keys(s.byType).map(function(k){ return [TT_LABEL[k]||k, String(s.byType[k])]; })}
-      ],
+      ]),
       sections: synth ? [{heading:'Synthèse', text:synth}] : [], signatures:null };
   }
   /* Programme annuel de travail (برنامج العمل السنوي) : reflète toujours l'état courant de
@@ -5234,8 +6030,32 @@
     return null;
   }
   function isInspectorLabel(label){ return /inspecteur|مفتش/i.test(label||''); }
+  /* Un texte arabe (document en arabe, ou simple nom d'établissement / d'enseignant en arabe) ne
+     peut pas être écrit avec les polices intégrées de jsPDF (caractères illisibles) : ces documents
+     passent par le rendu HTML du navigateur (htmlToPdfBlob), qui forme correctement l'arabe. */
+  var P_CSS = '.p-page{padding:0;color:#111;font-family:Arial,"Segoe UI","Noto Sans Arabic","Noto Naskh Arabic",Tahoma,sans-serif;font-size:13px;line-height:1.4;}'+
+    '.p-head{text-align:center;margin-bottom:14px;border-bottom:2px solid #111;padding-bottom:8px;position:relative;}'+
+    '.p-head .org{font-size:11px;white-space:pre-line;} .p-head h1{font-size:16px;margin:6px 0 0;}'+
+    '.p-head .photo{position:absolute;top:0;right:0;width:24mm;height:30mm;object-fit:cover;border:1px solid #999;}'+
+    '.p-page[dir="rtl"] .p-head .photo{right:auto;left:0;}'+
+    '.p-meta{display:flex;justify-content:space-between;font-size:11px;margin-bottom:10px;flex-wrap:wrap;gap:6px;}'+
+    'table.p-table{width:100%;border-collapse:collapse;margin-bottom:12px;}'+
+    'table.p-table th,table.p-table td{border:1px solid #999;padding:5px 7px;font-size:11px;text-align:left;}'+
+    'table.p-table th{background:#2F6F62;color:#fff;}'+
+    '.p-section{margin-bottom:12px;} .p-section h3{font-size:12.5px;border-bottom:1px solid #bbb;padding-bottom:3px;margin:0 0 6px;}'+
+    '.p-sign{display:flex;justify-content:space-between;margin-top:40px;font-size:11px;}'+
+    '.p-page[dir="rtl"]{text-align:right;} .p-page[dir="rtl"] table.p-table th,.p-page[dir="rtl"] table.p-table td{text-align:right;}';
+  function specHasArabic(spec){
+    var t = [spec.titre].concat((spec.meta||[]).map(function(m){ return m.join(' '); }), (spec.tables||[]).map(function(tb){ return [tb.heading].concat(tb.headers, tb.rows.map(function(r){ return r.join(' '); })).join(' '); }),
+      (spec.sections||[]).map(function(x){ return (x.heading||'')+' '+(x.text||''); }), spec.signatures||[], [state.templates.entete||'']).join(' ');
+    return /[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/.test(t);
+  }
+  function specToPdfBlobHtml(spec){
+    var html = '<style>'+P_CSS+'</style><div class="p-page" dir="'+(spec.rtl?'rtl':'ltr')+'" lang="'+(spec.rtl?'ar':'fr')+'">'+specToHtml(spec)+'</div>';
+    return htmlToPdfBlob(html, { margin: 14, families: [] });
+  }
   function specToPdfBlob(spec){
-    if(spec.rtl) throw {code:'rtl-pdf-unsupported'};
+    if(spec.rtl || specHasArabic(spec)) return specToPdfBlobHtml(spec);
     var jsPDF = window.jspdf.jsPDF;
     var doc = new jsPDF({unit:'mm', format:'a4'});
     var margin = 16, y = 18, pageW = doc.internal.pageSize.getWidth(), maxW = pageW - margin*2;
@@ -5256,13 +6076,25 @@
     var metaLine = spec.meta.map(function(m){ return m[0]+' : '+(m[1]||'—'); }).join('    ');
     var metaLines = doc.splitTextToSize(metaLine, maxW);
     doc.text(metaLines, margin, y); y += metaLines.length*4.6 + 6;
-    (spec.tables||[]).forEach(function(tb){
+    var chartsPdf = function(){
+      (spec.charts||[]).forEach(function(ch){
+        var w = Math.min(maxW, 150), h = ch.h/ch.w*w;
+        if(y + h + 8 > 282){ doc.addPage(); y = 18; }
+        doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.setTextColor(20); doc.text(ch.heading, margin, y); y += 3;
+        try{ doc.addImage(ch.dataUrl, 'PNG', margin + (maxW-w)/2, y, w, h, undefined, 'FAST'); }catch(e){}
+        y += h + 7; doc.setFont('helvetica','normal');
+      });
+    };
+    var chartsAfterFirst = !!(spec.tables && spec.tables[0] && spec.tables[0].heading==='Indicateurs');
+    if(!chartsAfterFirst) chartsPdf();
+    (spec.tables||[]).forEach(function(tb, ti){
       if(y > 265){ doc.addPage(); y = 18; }
       if(tb.heading){ doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.setTextColor(20); doc.text(tb.heading, margin, y); y += 5.5; doc.setFont('helvetica','normal'); }
       doc.autoTable({ startY:y, margin:{left:margin,right:margin}, head:[tb.headers],
         body: tb.rows.length ? tb.rows : [tb.headers.map(function(){ return '—'; })],
         styles:{fontSize:9, cellPadding:2.4, textColor:30}, headStyles:{fillColor:[47,111,98], textColor:255}, theme:'grid' });
       y = doc.lastAutoTable.finalY + 8;
+      if(ti===0 && chartsAfterFirst) chartsPdf();
     });
     (spec.sections||[]).forEach(function(sec){
       if(y > 262){ doc.addPage(); y = 18; }
@@ -5330,7 +6162,17 @@
     children.push(new d.Paragraph({ alignment:d.AlignmentType.CENTER, bidirectional:rtl, spacing:{before:120, after:200}, children:[ new d.TextRun({text:spec.titre, bold:true, size:30, rightToLeft:rtl}) ] }));
     var metaLine = spec.meta.map(function(m){ return m[0]+' : '+(m[1]||'—'); }).join('   ·   ');
     children.push(new d.Paragraph({ bidirectional:rtl, alignment:align, spacing:{after:240}, children:[ new d.TextRun({text:metaLine, size:19, color:'444444', rightToLeft:rtl}) ] }));
-    (spec.tables||[]).forEach(function(tb){
+    var chartsDocx = function(){
+      (spec.charts||[]).forEach(function(ch){
+        try{
+          var wpx = 560, hpx = Math.round(ch.h/ch.w*wpx);
+          children.push(new d.Paragraph({ bidirectional:rtl, alignment:align, keepNext:true, spacing:{before:160, after:60}, children:[ new d.TextRun({text:ch.heading, bold:true, size:22, rightToLeft:rtl}) ] }));
+          children.push(new d.Paragraph({ alignment:d.AlignmentType.CENTER, spacing:{after:160}, children:[ new d.ImageRun({ type:'png', data: dataUrlToUint8Array(ch.dataUrl), transformation:{ width:wpx, height:hpx } }) ] }));
+        }catch(e){}
+      });
+    };
+    var chartsAfterFirst = !!(spec.tables && spec.tables[0] && spec.tables[0].heading==='Indicateurs');
+    (spec.tables||[]).forEach(function(tb, ti){
       if(tb.heading) children.push(new d.Paragraph({ bidirectional:rtl, alignment:align, spacing:{before:160, after:80}, children:[ new d.TextRun({text:tb.heading, bold:true, size:24, rightToLeft:rtl}) ] }));
       var headerRow = new d.TableRow({ tableHeader:true, children: tb.headers.map(function(h){
         return new d.TableCell({ shading:{fill:'2F6F62'}, children:[ new d.Paragraph({bidirectional:rtl, alignment: rtl?d.AlignmentType.CENTER:undefined, children:[new d.TextRun({text:h, bold:true, color:'FFFFFF', size:19, rightToLeft:rtl})]}) ] });
@@ -5340,7 +6182,9 @@
       });
       children.push(new d.Table({ width:{size:100, type:d.WidthType.PERCENTAGE}, rows:[headerRow].concat(rows) }));
       children.push(new d.Paragraph({ text:'', spacing:{after:200} }));
+      if(ti===0 && chartsAfterFirst) chartsDocx();
     });
+    if(!chartsAfterFirst) chartsDocx();
     (spec.sections||[]).forEach(function(sec){
       if(sec.heading) children.push(new d.Paragraph({ bidirectional:rtl, alignment:align, spacing:{before:160, after:80}, children:[ new d.TextRun({text:sec.heading, bold:true, size:24, rightToLeft:rtl}) ] }));
       (sec.text||'—').split('\n').forEach(function(line){
@@ -5440,6 +6284,15 @@
   function generateBilanDoc(){
     var s = bilanStats(), r = periodRange();
     var html = printHead('Bilan des activités d\'inspection', [['Période', fmtDate(r.from.toISOString())+' – '+fmtDate(r.to.toISOString())], ['Total tâches', s.list.length]]);
+    if(state.bilanCharts !== false){
+      var an = bilanAnalytics(), sp = buildBilanSpec(), ind = sp.tables[0];
+      if(ind && ind.heading==='Indicateurs') html += '<div class="p-section"><h3>Indicateurs</h3></div><table class="p-table"><tbody>'+ind.rows.map(function(r){ return '<tr><td>'+esc(r[0])+'</td><td>'+esc(r[1])+'</td></tr>'; }).join('')+'</tbody></table>';
+      BILAN_CHARTS.forEach(function(c){
+        if(!c.show(an)) return;
+        var lg = c.legend ? '<div style="font-size:11px;margin:2px 0 4px;">'+c.legend(VIZ_PRINT).map(function(l){ return '<span style="display:inline-block;margin-right:14px;"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:'+l[1]+';margin-right:5px;vertical-align:-1px;"></span>'+esc(l[0])+'</span>'; }).join('')+'</div>' : '';
+        html += '<div class="p-section" style="break-inside:avoid;"><h3>'+esc(c.h)+'</h3>'+lg+'<div style="max-width:150mm;">'+c.svg(an, VIZ_PRINT)+'</div></div>';
+      });
+    }
     html += '<table class="p-table"><thead><tr><th>Établissement</th><th>Nb. tâches</th></tr></thead><tbody>';
     Object.keys(s.byEtab).forEach(function(k){ html += '<tr><td>'+esc(k)+'</td><td>'+s.byEtab[k]+'</td></tr>'; });
     html += '</tbody></table>';
@@ -5728,7 +6581,7 @@
         }).join('')+'</select></div>'+
         '<div class="search-row"><input type="text" id="ensSearchInput" placeholder="Rechercher un(e) enseignant(e)…" value="'+esc(state.ensQuery)+'"></div>';
     }
-    html += '<div class="setup-actions"><button class="btn ghost sm" id="btnExportEns" type="button">Exporter CSV</button><button class="btn ghost sm" id="btnImportEns" type="button">Importer CSV</button></div>';
+    html += '<div class="setup-actions"><button class="btn ghost sm" id="btnExportEns" type="button">Exporter CSV</button><button class="btn ghost sm" id="btnImportEns" type="button">Importer CSV</button><button class="btn ghost sm" id="btnNamesEns" type="button">'+ICONS.ai+' Compléter les noms ar / fr</button></div>';
     /* Un seul bouton « Fiches à distance » (au lieu de trois boutons séparés) ouvre le hub qui
        regroupe l'import d'une fiche par IA (photo/PDF), le lien à distance (Google Form ou lien simple)
        et l'import des réponses reçues — voir ficheHubModalHtml/openFicheHubModal (suppression des
@@ -5759,6 +6612,7 @@
     var hh = $('horHeure'); if(hh) hh.onchange = function(){ state.horaireHeure = hh.value; render(); };
     var be = $('btnExportEns'); if(be) be.onclick = function(){ exportCSV('enseignants'); };
     var bi = $('btnImportEns'); if(bi) bi.onclick = function(){ importTarget='enseignants'; $('fileImportInput').click(); };
+    var bne2 = $('btnNamesEns'); if(bne2) bne2.onclick = function(){ completeMissingNames('ens', bne2); };
     var bfh = $('btnFicheHub'); if(bfh) bfh.onclick = openFicheHubModal;
     host.querySelectorAll('[data-actstop]').forEach(function(el){ el.onclick = function(ev){ ev.stopPropagation(); }; });
     host.querySelectorAll('.rec-row').forEach(function(el){
@@ -5815,7 +6669,8 @@
   function renderEtabsSubview(host){
     var html = '';
     html += '<div class="setup-actions"><button class="btn primary sm" id="btnAddEtab2" type="button">+ Établissement</button>'+
-      '<button class="btn ghost sm" id="btnExportEtab" type="button">Exporter CSV</button><button class="btn ghost sm" id="btnImportEtab" type="button">Importer CSV</button></div>';
+      '<button class="btn ghost sm" id="btnExportEtab" type="button">Exporter CSV</button><button class="btn ghost sm" id="btnImportEtab" type="button">Importer CSV</button>'+
+      '<button class="btn ghost sm" id="btnNamesEtab" type="button">'+ICONS.ai+' Compléter les noms ar / fr</button></div>';
     if(!state.zones.length && !state.etablissements.length){
       html += '<div class="empty">Aucune zone ni établissement. Créez d\'abord une zone dans l\'onglet « Zones », puis ajoutez des établissements.</div>';
     } else {
@@ -5834,6 +6689,7 @@
     var bae = $('btnAddEtab2'); if(bae) bae.onclick = function(){ openEtablissementEditor(null); };
     var bxe = $('btnExportEtab'); if(bxe) bxe.onclick = function(){ exportCSV('etablissements'); };
     var bie = $('btnImportEtab'); if(bie) bie.onclick = function(){ importTarget='etablissements'; $('fileImportInput').click(); };
+    var bne = $('btnNamesEtab'); if(bne) bne.onclick = function(){ completeMissingNames('etab', bne); };
     host.querySelectorAll('[data-editzone]').forEach(function(el){ el.onclick = function(ev){ ev.stopPropagation(); var z=state.zones.find(function(x){return x.id===el.getAttribute('data-editzone');}); if(z) openZoneEditor(z); }; });
     host.querySelectorAll('[data-mapstop]').forEach(function(el){ el.onclick = function(ev){ ev.stopPropagation(); }; });
     host.querySelectorAll('.rec-row').forEach(function(el){ el.onclick = function(){ var e=state.etablissements.find(function(x){return x.id===el.getAttribute('data-id');}); if(e) openEtablissementEditor(e); }; });
@@ -5856,18 +6712,14 @@
       html += '<div class="field-row"><div class="field"><label>Du</label><input type="date" id="bilanFrom" value="'+esc(state.bilanCustomFrom)+'"></div>'+
         '<div class="field"><label>Au</label><input type="date" id="bilanTo" value="'+esc(state.bilanCustomTo)+'"></div></div>';
     }
-    html += '<div class="stats-row"><div class="stat"><b class="tnum">'+s.list.length+'</b><span>Tâches</span></div>'+
-      '<div class="stat"><b class="tnum">'+(s.byWf.cloturee||0)+'</b><span>Clôturées</span></div>'+
-      '<div class="stat"><b class="tnum">'+(state.enseignants.length)+'</b><span>Enseignants</span></div>'+
-      '<div class="stat"><b class="tnum">'+(state.etablissements.length)+'</b><span>Établissements</span></div></div>';
-
-    html += '<div class="setup-card"><h2>Par établissement</h2>'+barList(s.byEtab)+'</div>';
-    html += '<div class="setup-card"><h2>Par statut</h2>'+barList(objKeysLabel(s.byWf, WF_LABEL))+'</div>';
-    html += '<div class="setup-card"><h2>Par type</h2>'+barList(objKeysLabel(s.byType, TT_LABEL))+'</div>';
+    var an = bilanAnalytics();
+    html += bilanChartsHtml(an);
+    if(!an.total) html += '<div class="empty">Aucune tâche sur cette période : choisissez une autre période pour voir les graphiques.</div>';
 
     html += '<div class="setup-card"><h2>Générer un bilan</h2><p>Rédigez une courte synthèse (ou laissez l\'IA la proposer) puis générez le document.</p>'+
       '<div class="field"><textarea id="bilanSynthText" placeholder="Synthèse de la période…"></textarea></div>'+
       (state.sampleReady ? '<div class="btn-row"><button class="btn ai" id="btnAiBilan" type="button">'+ICONS.ai+' Proposer une synthèse</button><button class="btn ghost sm" id="btnTrBilan" type="button">'+ICONS.ai+' Traduire</button></div><div class="banner info" id="bilanAiStatus" hidden style="margin-top:8px;"></div>' : '')+
+      '<label class="check-row" style="display:flex;gap:8px;align-items:center;font-size:13px;margin:4px 0 10px;"><input type="checkbox" id="chkBilanCharts"'+(state.bilanCharts===false?'':' checked')+'> Inclure les graphiques et indicateurs</label>'+
       '<div class="setup-actions"><button class="btn ghost sm" id="btnGenBilan" type="button">'+ICONS.print+' Imprimer</button>'+
       '<button class="btn ghost sm" id="btnBilanExcel" type="button">'+ICONS.sheet+' Excel (.csv)</button>'+
       '<button class="btn ghost sm" id="btnBilanPdf" type="button">'+ICONS.pdf+' PDF</button>'+
@@ -5879,12 +6731,17 @@
     var bf = $('bilanFrom'); if(bf) bf.onchange = function(){ state.bilanCustomFrom = bf.value; render(); };
     var bt = $('bilanTo'); if(bt) bt.onchange = function(){ state.bilanCustomTo = bt.value; render(); };
     $('btnGenBilan').onclick = generateBilanDoc;
+    var chkCh = $('chkBilanCharts'); if(chkCh) chkCh.onchange = function(){ state.bilanCharts = chkCh.checked; };
     function runBilanGen(kind, btn){
       var spec = buildBilanSpec();
       var statusEl = $('bilanGenStatus');
       if(statusEl){ statusEl.hidden = false; statusEl.textContent = kind==='pdf' ? 'Génération du PDF…' : 'Génération du document Word…'; }
       if(btn) btn.disabled = true;
-      var p = kind==='pdf' ? downloadPdf(spec, 'Bilan_'+todayStr()) : downloadDocx(spec, 'Bilan_'+todayStr());
+      var withCharts = state.bilanCharts !== false;
+      var p = (withCharts ? bilanChartImages(an) : Promise.resolve([])).then(function(imgs){
+        spec.charts = imgs;
+        return kind==='pdf' ? downloadPdf(spec, 'Bilan_'+todayStr()) : downloadDocx(spec, 'Bilan_'+todayStr());
+      });
       p.then(function(gdocUrl){
         if(btn) btn.disabled = false;
         if(kind==='docx' && gdocUrl) showGdocLink(statusEl, gdocUrl); else if(statusEl) statusEl.hidden = true;
@@ -6445,12 +7302,9 @@
     } else if(tab==='ia'){
       html += iaTabHtml();
     } else if(tab==='apparence'){
-      var skin = document.documentElement.getAttribute('data-skin') || 'futur';
-      html += '<div class="section-label">Thème de l\'application sur cet appareil</div>'+
-        '<div class="seg" id="skinSeg" style="margin:6px 0 8px;">'+
-          '<button type="button" data-v="futur" aria-pressed="'+(skin==='futur')+'">Futuriste</button>'+
-          '<button type="button" data-v="classique" aria-pressed="'+(skin!=='futur')+'">Classique</button></div>'+
-        '<p style="font-size:11.5px;color:var(--ink-faint);">Futuriste : fond sombre étoilé, surfaces en verre dépoli et accents lumineux. Classique : thème d\'origine, clair ou sombre selon le réglage du téléphone. Les documents imprimés et exportés ne changent pas.</p>';
+      html += appearanceSettingsHtml() + fontsSettingsHtml();
+      setTimeout(registerInstalledFonts, 0);
+      BUILTIN_FONTS.forEach(function(f){ if(f.google) ensureGoogleFont(f.google); });
     } else if(tab==='notifications'){
       html += notificationsTabHtml();
     } else if(tab==='vacances'){
@@ -6876,7 +7730,8 @@
     var html = '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
       '<div class="sheet-head"><h2>'+(state.modalStack[idx].isNew?'Nouvel enseignant':'Modifier')+'</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
       '<div class="field photo-picker"><div class="avatar">'+av+'</div><button class="btn ghost sm" id="btnPickPhoto" type="button">'+ICONS.cam+' Photo</button>'+(e.photoAssetId?'<button class="btn ghost sm" id="btnRmPhoto" type="button">Retirer</button>':'')+'</div>'+
-      '<div class="field"><label for="eNom">Nom complet</label><input type="text" id="eNom" value="'+esc(e.nom)+'" placeholder="Nom et prénom"></div>'+
+      '<div class="field"><label for="eNom">Nom complet</label><input type="text" id="eNom" value="'+esc(e.nom)+'" placeholder="Nom et prénom (français ou arabe)"></div>'+
+      bilingualFieldsHtml('e', e, 'ens')+
       '<div class="field"><label>Établissement</label><button type="button" class="pickbtn" id="btnPickEtab2"><span class="'+(etabName(e.etablissementId)?'':'ph')+' t">'+esc(etabName(e.etablissementId)||'Choisir un établissement…')+'</span></button></div>'+
       '<div class="field-row"><div class="field"><label for="eMatiere">Matière</label><input type="text" id="eMatiere" value="'+esc(e.matiere)+'"></div>'+
       '<div class="field"><label for="eCycle">Cycle</label><input type="text" id="eCycle" value="'+esc(e.cycle)+'" placeholder="TC / 1BAC / 2BAC"></div></div>'+
@@ -6963,7 +7818,8 @@
     var e = state.draftRecord;
     return '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
       '<div class="sheet-head"><h2>'+(state.modalStack[idx].isNew?'Nouvel établissement':'Modifier')+'</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
-      '<div class="field"><label for="etNom">Nom</label><input type="text" id="etNom" value="'+esc(e.nom)+'"></div>'+
+      '<div class="field"><label for="etNom">Nom</label><input type="text" id="etNom" value="'+esc(e.nom)+'" placeholder="Nom (français ou arabe)"></div>'+
+      bilingualFieldsHtml('et', e, 'etab')+
       '<div class="field"><label>Zone</label><select id="etZone" style="width:100%;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:10px 11px;"><option value="">— Aucune —</option>'+
       state.zones.map(function(z){ return '<option value="'+z.id+'"'+(e.zoneId===z.id?' selected':'')+'>'+esc(z.nom)+'</option>'; }).join('')+'</select></div>'+
       '<div class="field"><label>Type</label><div class="seg" id="etTypeSeg">'+ETAB_TYPES.map(function(t){ return '<button type="button" data-v="'+t.v+'" aria-pressed="'+(e.type===t.v)+'">'+t.l+'</button>'; }).join('')+'</div></div>'+
@@ -7178,7 +8034,7 @@
       (rtl ? '<p style="font-size:11px;color:var(--ink-faint);margin:2px 0 6px;">Ce document est rédigé en arabe (عربي) : utilisez « Imprimer » ou « Word » pour un rendu correct — le PDF direct ne gère pas encore l\'arabe.</p>' : '')+
       '<div class="setup-actions" style="margin-top:6px;">'+
       '<button class="btn ghost sm" id="btnPrintDoc" type="button">'+ICONS.print+' Imprimer</button>'+
-      ((rtl && !{bordereau:1, lettre_information:1, demande_voiture:1}[m.docType]) ? '' : '<button class="btn ghost sm" id="btnPdfDoc" type="button">'+ICONS.pdf+' PDF</button>')+
+      '<button class="btn ghost sm" id="btnPdfDoc" type="button">'+ICONS.pdf+' PDF</button>'+
       '<button class="btn ghost sm" id="btnDocxDoc" type="button">'+ICONS.doc+' Word (.docx)</button>'+
       (d.gdocUrl ? '<a class="btn ghost sm" href="'+esc(d.gdocUrl)+'" target="_blank" rel="noopener" id="btnOpenGdoc">'+ICONS.ext+' Personnaliser sur Google Docs</a>' : '')+
       '</div>'+
@@ -7585,13 +8441,25 @@
     }
 
     /* -- assistant IA : moteur (Gemini / IA locale), modèle local, structure du rapport -- */
-    var skinSeg = $('skinSeg'); if(skinSeg) skinSeg.querySelectorAll('button').forEach(function(b){ b.onclick = function(){
-      var k = b.getAttribute('data-v');
-      try{ localStorage.setItem('ci_skin', k); }catch(e){}
-      document.documentElement.setAttribute('data-skin', k);
-      var mt = document.querySelector('meta[name="theme-color"]'); if(mt) mt.setAttribute('content', k==='futur' ? '#070B16' : '#2F6F62');
-      render();
+    document.querySelectorAll('[data-docfont]').forEach(function(sel){ sel.onchange = function(){
+      var pr = Object.assign({}, state.templates.docFonts||{}); var k = sel.getAttribute('data-docfont');
+      if(sel.value) pr[k] = sel.value; else delete pr[k];
+      templatesSet({ docFonts: pr }); render();
     }; });
+    var btnFont = $('btnInstallFont'), fileFont = $('fileFontInput');
+    if(btnFont && fileFont){
+      btnFont.onclick = function(){ fileFont.click(); };
+      fileFont.onchange = function(){
+        var f = fileFont.files && fileFont.files[0]; fileFont.value = '';
+        installFontFile(f).then(function(fam){ if(fam){ toast('Police « '+fam+' » installée.'); render(); } })
+          .catch(function(err){ toast(assetsErrorMessage(err)); });
+      };
+    }
+    document.querySelectorAll('[data-rmfont]').forEach(function(b){ b.onclick = function(){
+      if(!confirm('Supprimer cette police ? Les documents utiliseront de nouveau la police du modèle.')) return;
+      removeInstalledFont(b.getAttribute('data-rmfont')); render();
+    }; });
+    wireAppearanceSettings();
     var segReason = $('aiReasonSeg'); if(segReason) segReason.querySelectorAll('button').forEach(function(b){ b.onclick = function(){
       localAiPrefsSet({ reasoning: b.getAttribute('data-v')==='1' }); render();
     }; });
@@ -7793,10 +8661,12 @@
       syncHoraireInputs();
       var e = state.draftRecord, el;
       el=$('eNom'); if(el) e.nom=el.value; el=$('eMatiere'); if(el) e.matiere=el.value; el=$('eCycle'); if(el) e.cycle=el.value;
+      el=$('eNomAr'); if(el) e.nomAr=el.value.trim(); el=$('eNomFr'); if(el) e.nomFr=el.value.trim();
       el=$('ePpr'); if(el) e.ppr=el.value;
       el=$('eTel'); if(el) e.telephone=el.value; el=$('eEmail'); if(el) e.email=el.value; el=$('eNotes'); if(el) e.notes=el.value;
       el=$('eCadre'); if(el) e.cadre=el.value; el=$('eSession'); if(el) e.sessionTitularisation=el.value;
     }
+    if($('eNomAr')) wireBilingualFields(syncEnsFields);
     var segStatutEns = $('eStatutSeg'); if(segStatutEns) segStatutEns.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ syncEnsFields(); state.draftRecord.statut=b.getAttribute('data-v'); render(); }; });
     var segGenreEns = $('eGenreSeg'); if(segGenreEns) segGenreEns.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ syncEnsFields(); state.draftRecord.genre=b.getAttribute('data-v'); render(); }; });
     var selSession = $('eSession'); if(selSession) selSession.onchange = function(){ syncEnsFields(); state.draftRecord.sessionTitularisation=selSession.value; render(); };
@@ -7926,7 +8796,9 @@
       el=$('etNom'); if(el) e.nom=el.value; el=$('etAdr'); if(el) e.adresse=el.value; el=$('etTel'); if(el) e.telephone=el.value;
       el=$('etLat'); if(el) e.latitude=el.value; el=$('etLng'); if(el) e.longitude=el.value; el=$('etNotes'); if(el) e.notes=el.value;
       el=$('etPionnier'); if(el) e.pionnier=el.checked;
+      el=$('etNomAr'); if(el) e.nomAr=el.value.trim(); el=$('etNomFr'); if(el) e.nomFr=el.value.trim();
     }
+    if($('etNomAr')) wireBilingualFields(syncEtabFields);
     var segET = $('etTypeSeg'); if(segET) segET.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ syncEtabFields(); state.draftRecord.type=b.getAttribute('data-v'); render(); }; });
     var segEC = $('etCycleSeg'); if(segEC) segEC.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ syncEtabFields(); state.draftRecord.cycle=b.getAttribute('data-v'); render(); }; });
     var btnEtabGeoloc = $('btnEtabGeoloc');
@@ -7954,6 +8826,7 @@
       var e = state.draftRecord; e.nom=$('etNom').value.trim()||'(sans nom)'; e.zoneId=$('etZone').value||null; e.adresse=$('etAdr').value; e.telephone=$('etTel').value;
       e.latitude=$('etLat').value.trim(); e.longitude=$('etLng').value.trim(); e.notes=$('etNotes').value;
       e.pionnier = $('etPionnier') ? $('etPionnier').checked : !!e.pionnier;
+      if($('etNomAr')){ e.nomAr = $('etNomAr').value.trim(); e.nomFr = $('etNomFr').value.trim(); }
       recordSet('etablissement', e).then(function(){ closeTopModal(); toast('Établissement enregistré.'); });
     };
     var delEtab = $('btnDeleteEtab'); if(delEtab) delEtab.onclick = function(){ recordDelete('etablissement', state.draftRecord.id).then(function(){ closeTopModal(); toast('Supprimé.'); }); };

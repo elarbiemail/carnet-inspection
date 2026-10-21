@@ -7,7 +7,7 @@
    un chargement instantané. Les appels réseau vers Google Drive/Sheets (googleapis.com,
    accounts.google.com) et vers les polices Google Fonts ne sont volontairement PAS interceptés : ils
    passent toujours par le réseau. */
-var CACHE_NAME = 'carnet-inspection-v26';
+var CACHE_NAME = 'carnet-inspection-v27';
 var APP_SHELL = [
   './',
   './index.html',
@@ -21,7 +21,8 @@ var APP_SHELL = [
   './entete-rapport.jpg',
   './entete-lettre.png',
   './taches-animations.css',
-  './theme-futuriste.css'
+  './theme-futuriste.css',
+  './themes-apparence.css'
 ];
 
 /* Accélération multicœur de l'IA locale (voir localAiIsolationSync dans index.html) : sur les appareils
