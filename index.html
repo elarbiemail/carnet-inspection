@@ -3848,6 +3848,12 @@
         });
       })
       .then(function(){
+        /* Échange automatique avec InspectApp (Paramètres → InspectApp), en meilleur effort : un
+           nouveau fichier d'InspectApp est proposé à l'import, puis l'état du carnet est redéposé. */
+        if(!state.config.xchAuto || !folderRef) return;
+        return xchDrivePull(false).then(function(){ return xchDrivePush(); }).catch(function(e){ console.warn('échange InspectApp', e); });
+      })
+      .then(function(){
         if(!folderRef) return Promise.resolve();
         /* La sauvegarde JSON est maintenant une vraie synchronisation à double sens : on la
            télécharge et on la fusionne dans l'état local (zones, établissements, enseignants,
@@ -4467,6 +4473,273 @@
     }); })(off.blocks.concat(off.footer||[]));
     var list = Object.keys(keys);
     return Promise.all(list.map(offLoadImage)).then(function(res){ var out = {}; list.forEach(function(k,i){ if(res[i]) out[k] = res[i]; }); return out; });
+  }
+  /* ================= échange de données avec iNSPECTAPP (dans les deux sens) =================
+     Format d'échange commun « carnet-inspectapp » (JSON, version 1, décrit dans ECHANGE-INSPECTAPP.md) :
+     établissements, enseignant(e)s, zones et tâches, avec leurs identifiants dans chacune des deux
+     applications (carnetId / inspectappId) pour ne jamais créer de doublon d'un échange à l'autre.
+     Deux transports :
+       • fichier .json (Exporter / Importer), pour une clé USB, un courriel, un partage ;
+       • Google Drive : dossier « Échange InspectApp » du dossier de l'application, où le carnet dépose
+         carnet-vers-inspectapp.json et lit inspectapp-vers-carnet.json (InspectApp y accède sur le PC
+         via Google Drive pour ordinateur).
+     Rapprochement à l'import : identifiant connu, puis clé naturelle — code MASSAR ou nom pour un
+     établissement, PPR ou nom + établissement pour un(e) enseignant(e), type + date + enseignant(e)
+     pour une tâche. Un champ local n'est remplacé que s'il est vide ou si la version reçue est plus
+     récente (updatedAt) ; rien n'est jamais supprimé. */
+  var XCH_FORMAT = 'carnet-inspectapp', XCH_VERSION = 1;
+  var XCH_FILE_OUT = 'carnet-vers-inspectapp.json', XCH_FILE_IN = 'inspectapp-vers-carnet.json', XCH_FOLDER = 'Échange InspectApp';
+  var XCH_TYPE_OUT = { inspection:'Inspection', visite_conseil:'Visit', reunion_pedagogique:'Meeting', cours_experimental:'ExperimentalLesson',
+    formation:'ContinuingEducation', reunion_distance:'Meeting', reunion_administrative:'Other', recherche_action:'ActionResearch',
+    observation_examen:'ExamObservation', conception_examen:'ExamDesign', autre:'Other' };
+  var XCH_TYPE_IN = { inspection:'inspection', visit:'visite_conseil', visite:'visite_conseil', visiteconseil:'visite_conseil', meeting:'reunion_pedagogique', reunion:'reunion_pedagogique',
+    reunionpedagogique:'reunion_pedagogique', experimentallesson:'cours_experimental', leconexperimentale:'cours_experimental', coursexperimental:'cours_experimental',
+    continuingeducation:'formation', formation:'formation', formationcontinue:'formation', actionresearch:'recherche_action', rechercheaction:'recherche_action',
+    examobservation:'observation_examen', observationexamens:'observation_examen', examdesign:'conception_examen', conceptionexamens:'conception_examen',
+    servicetablevalidation:'autre', titularisation:'autre', other:'autre', autre:'autre', autres:'autre' };
+  var XCH_STATUS_OUT = { a_planifier:'Planned', planifiee:'Planned', realisee:'InProgress', rapport:'InProgress', cloturee:'Completed' };
+  var XCH_STATUS_IN = { planned:'planifiee', planifiee:'planifiee', inprogress:'realisee', encours:'realisee', completed:'cloturee', terminee:'cloturee', done:'cloturee' };
+  function xchKey(t){ return String(t||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9؀-ۿ]+/g, ' ').trim(); }
+  function xchCode(t){ return String(t||'').toLowerCase().replace(/[^a-z]/g, ''); }
+  function xchExtId(r){ return (r && r.extIds && r.extIds.inspectapp) || ''; }
+  function xchEtabRef(id){ var e = state.etablissements.find(function(x){ return x.id===id; }); return e ? { carnetId:e.id, inspectappId:xchExtId(e)||undefined, codeMassar:e.codeMassar||undefined, nom:e.nom } : null; }
+  function xchEnsRef(id, nom){ var e = findEns(id, nom); return e ? { carnetId:e.id, inspectappId:xchExtId(e)||undefined, ppr:e.ppr||undefined, nom:e.nom } : (nom ? { nom:nom } : null); }
+  function buildExchangePayload(){
+    var pf = offProfil();
+    var zoneName = function(id){ var z = state.zones.find(function(x){ return x.id===id; }); return z ? z.nom : ''; };
+    return {
+      format: XCH_FORMAT, version: XCH_VERSION, source: 'carnet', exportedAt: nowIso(),
+      inspecteur: { nom: pf.nomSignature || pf.nom || '', nomAr: pf.nomAr || '', matiere: pf.matiere || '', academie: pf.academieRegionale || '', direction: pf.province || '' },
+      zones: state.zones.map(function(z){ return { carnetId:z.id, inspectappId:xchExtId(z)||undefined, nom:z.nom, academie:z.academieRegionale||'', direction:z.directionProvinciale||'', commune:z.commune||'', cycle:z.cycle||'', updatedAt:z.updatedAt||'' }; }),
+      etablissements: state.etablissements.map(function(e){ return { carnetId:e.id, inspectappId:xchExtId(e)||undefined, nom:e.nom, nomAr:nameInLang(e, e.nom, 'ar', 'etab'), nomFr:nameInLang(e, e.nom, 'fr', 'etab'),
+        codeMassar:e.codeMassar||'', type:e.type||'', cycle:e.cycle||'', pionnier:!!e.pionnier, adresse:e.adresse||'', telephone:e.telephone||'', latitude:e.latitude||'', longitude:e.longitude||'',
+        zone: e.zoneId ? { carnetId:e.zoneId, nom:zoneName(e.zoneId) } : null, updatedAt:e.updatedAt||'' }; }),
+      enseignants: state.enseignants.map(function(e){ return { carnetId:e.id, inspectappId:xchExtId(e)||undefined, nom:e.nom, nomAr:nameInLang(e, e.nom, 'ar', 'ens'), nomFr:nameInLang(e, e.nom, 'fr', 'ens'),
+        ppr:e.ppr||'', genre:e.genre||'', matiere:e.matiere||'', cycle:e.cycle||'', cadre:e.cadre||'', statut:e.statut||'', sessionTitularisation:e.sessionTitularisation||'',
+        telephone:e.telephone||'', email:e.email||'', etablissement: xchEtabRef(e.etablissementId), updatedAt:e.updatedAt||'' }; }),
+      taches: state.tasks.map(function(t){
+        var hasCar = state.documents.some(function(d){ return d.taskId===t.id && d.type==='demande_voiture'; });
+        return { carnetId:t.id, inspectappId:xchExtId(t)||undefined, type: XCH_TYPE_OUT[t.taskType] || 'Other', typeCarnet: t.taskType, statut: XCH_STATUS_OUT[t.statut] || 'Planned', statutCarnet: t.statut,
+          titre:t.titre||'', date:t.echeance||'', heureDebut:t.heureDebut||'', heureFin:t.heureFin||'', lieu:t.lieu||'', description:t.description||'', priorite:t.priorite||'',
+          note: t.noteGlobale||'', voitureService: hasCar,
+          enseignant: (t.enseignantId || t.enseignantNom) ? xchEnsRef(t.enseignantId, t.enseignantNom) : null,
+          etablissement: t.etablissementId ? xchEtabRef(t.etablissementId) : (t.etablissementNom ? { nom:t.etablissementNom } : null),
+          participants: (t.invites||[]).map(function(iv){ var r = xchEnsRef(iv.enseignantId, iv.nom) || {}; return Object.assign(r, { nom: iv.nom || r.nom, ppr: iv.ppr || r.ppr, etablissement: iv.etablissementNom || '' }); }),
+          updatedAt:t.updatedAt||'' };
+      })
+    };
+  }
+  /* ---- import ---- */
+  function xchNewer(inc, loc){ var a = Date.parse(inc && inc.updatedAt || ''), b = Date.parse(loc && loc.updatedAt || ''); return !isNaN(a) && (isNaN(b) || a > b); }
+  function xchMerge(local, fields, inc, newer){
+    var changed = false;
+    Object.keys(fields).forEach(function(k){
+      var v = fields[k]; if(v===undefined || v===null || v==='') return;
+      var cur = local[k];
+      if(cur===undefined || cur===null || cur==='' || (newer && JSON.stringify(cur)!==JSON.stringify(v))){
+        if(JSON.stringify(cur)!==JSON.stringify(v)){ local[k] = v; changed = true; }
+      }
+    });
+    return changed;
+  }
+  function xchSetExt(local, inc){ var id = inc.inspectappId || (inc.source!=='carnet' && inc.id) || ''; if(id && xchExtId(local)!==String(id)){ local.extIds = Object.assign({}, local.extIds||{}, {inspectapp:String(id)}); return true; } return false; }
+  function xchFindBy(arr, inc, natural){
+    var iid = inc.inspectappId || inc.id;
+    return (inc.carnetId && arr.find(function(x){ return x.id===inc.carnetId; }))
+      || (iid && arr.find(function(x){ return xchExtId(x)===String(iid); }))
+      || natural();
+  }
+  function xchFindEtab(ref){
+    if(!ref) return null;
+    var keys = [ref.nom, ref.nomAr, ref.nomFr].filter(Boolean).map(xchKey);
+    return xchFindBy(state.etablissements, ref, function(){
+      return (ref.codeMassar && state.etablissements.find(function(x){ return x.codeMassar && x.codeMassar.toUpperCase()===String(ref.codeMassar).toUpperCase(); }))
+        || (keys.length && state.etablissements.find(function(x){ return [x.nom, x.nomAr, x.nomFr].filter(Boolean).some(function(n){ return keys.indexOf(xchKey(n))>=0; }); })) || null;
+    });
+  }
+  function xchFindEns(ref, etabId){
+    if(!ref) return null;
+    var keys = [ref.nom, ref.nomAr, ref.nomFr].filter(Boolean).map(xchKey);
+    return xchFindBy(state.enseignants, ref, function(){
+      return (ref.ppr && state.enseignants.find(function(x){ return x.ppr && String(x.ppr).trim()===String(ref.ppr).trim(); }))
+        || (keys.length && state.enseignants.find(function(x){ return (!etabId || !x.etablissementId || x.etablissementId===etabId) && [x.nom, x.nomAr, x.nomFr].filter(Boolean).some(function(n){ return keys.indexOf(xchKey(n))>=0; }); })) || null;
+    });
+  }
+  /* Analyse puis applique un fichier d'échange ; dryRun → seulement le bilan. */
+  function applyExchange(data, dryRun){
+    if(!data || data.format!==XCH_FORMAT) throw new Error("Ce fichier n'est pas un fichier d'échange Carnet ↔ InspectApp.");
+    if(dryRun){
+      // simulation sur une copie : les données réelles ne sont pas touchées
+      var saved = { zones: state.zones, etablissements: state.etablissements, enseignants: state.enseignants, tasks: state.tasks };
+      Object.keys(saved).forEach(function(k){ state[k] = JSON.parse(JSON.stringify(saved[k])); });
+      try{ return applyExchangeInner(data, true); } finally { Object.keys(saved).forEach(function(k){ state[k] = saved[k]; }); }
+    }
+    return applyExchangeInner(data, false);
+  }
+  function applyExchangeInner(data, dryRun){
+    var rep = { zones:{add:0, upd:0}, etablissements:{add:0, upd:0}, enseignants:{add:0, upd:0}, taches:{add:0, upd:0, skip:0} };
+    var touched = {};
+    var stamp = nowIso();
+    var put = function(coll, rec, isNew){ if(dryRun) return; rec.updatedAt = stamp; if(!rec.createdAt) rec.createdAt = stamp; if(isNew) state[coll].push(rec); touched[coll] = 1; };
+    var zoneMap = {};
+    (data.zones||[]).forEach(function(z){
+      if(!z || !z.nom) return;
+      var loc = xchFindBy(state.zones, z, function(){ return state.zones.find(function(x){ return xchKey(x.nom)===xchKey(z.nom); }) || null; });
+      var isNew = !loc; if(isNew) loc = { id: uid(), nom: z.nom, academieRegionale:'', directionProvinciale:'', commune:'', cycle:'', discipline:'', notes:'' };
+      var ch = xchMerge(loc, { nom:z.nom, academieRegionale:z.academie, directionProvinciale:z.direction, commune:z.commune, cycle:z.cycle }, z, isNew || xchNewer(z, loc));
+      ch = xchSetExt(loc, z) || ch;
+      if(isNew){ rep.zones.add++; put('zones', loc, true); } else if(ch){ rep.zones.upd++; put('zones', loc); }
+      zoneMap[z.carnetId||z.inspectappId||z.id||z.nom] = loc.id;
+    });
+    var etabMap = {};
+    (data.etablissements||[]).forEach(function(e){
+      if(!e || !(e.nom || e.nomAr || e.nomFr)) return;
+      var loc = xchFindEtab(e);
+      var isNew = !loc; if(isNew) loc = { id: uid(), nom: e.nom || e.nomFr || e.nomAr, zoneId:null, type:'public', cycle:'', adresse:'', telephone:'', latitude:'', longitude:'', pionnier:false, notes:'' };
+      var zid = e.zone ? (zoneMap[e.zone.carnetId||e.zone.inspectappId||e.zone.id||e.zone.nom] || (state.zones.find(function(x){ return e.zone.nom && xchKey(x.nom)===xchKey(e.zone.nom); })||{}).id) : null;
+      var nm = { nomAr: e.nomAr && isArabicText(e.nomAr) ? e.nomAr : undefined, nomFr: e.nomFr && !isArabicText(e.nomFr) ? e.nomFr : undefined };
+      var ch = xchMerge(loc, { nomAr:nm.nomAr, nomFr:nm.nomFr, codeMassar:e.codeMassar, type:e.type, cycle:e.cycle, adresse:e.adresse, telephone:e.telephone,
+        latitude: e.latitude!=null ? String(e.latitude) : '', longitude: e.longitude!=null ? String(e.longitude) : '', zoneId: zid || undefined }, e, isNew || xchNewer(e, loc));
+      if(e.pionnier===true && !loc.pionnier){ loc.pionnier = true; ch = true; }
+      ch = xchSetExt(loc, e) || ch;
+      if(isNew){ rep.etablissements.add++; put('etablissements', loc, true); } else if(ch){ rep.etablissements.upd++; put('etablissements', loc); }
+      etabMap[e.carnetId||e.inspectappId||e.id||e.codeMassar||e.nom] = loc.id;
+    });
+    var resolveEtab = function(ref){ if(!ref) return null; var k = ref.carnetId||ref.inspectappId||ref.id||ref.codeMassar||ref.nom; if(etabMap[k]) return etabMap[k]; var f = xchFindEtab(ref); return f ? f.id : null; };
+    (data.enseignants||[]).forEach(function(e){
+      if(!e || !(e.nom || e.nomAr || e.nomFr)) return;
+      var etId = resolveEtab(e.etablissement);
+      var loc = xchFindEns(e, etId);
+      var isNew = !loc; if(isNew) loc = { id: uid(), nom: e.nom || e.nomFr || e.nomAr, etablissementId:null, matiere:'', cycle:'', telephone:'', email:'', ppr:'', genre:'', statut:'titulaire', sessionTitularisation:'', cadre:'', photoAssetId:null, horaire:[], attachments:[], notes:'' };
+      var genre = /^(f|femme|female|feminin|féminin|mme|madame)$/i.test(e.genre||'') ? 'F' : /^(h|m|homme|male|masculin|m\.|monsieur)$/i.test(e.genre||'') ? 'H' : '';
+      var ch = xchMerge(loc, { nomAr: e.nomAr && isArabicText(e.nomAr) ? e.nomAr : undefined, nomFr: e.nomFr && !isArabicText(e.nomFr) ? e.nomFr : undefined,
+        ppr:e.ppr, genre:genre, matiere:e.matiere, cycle:e.cycle, cadre:e.cadre, statut:e.statut, sessionTitularisation:e.sessionTitularisation, telephone:e.telephone, email:e.email, etablissementId: etId || undefined }, e, isNew || xchNewer(e, loc));
+      ch = xchSetExt(loc, e) || ch;
+      if(isNew){ rep.enseignants.add++; put('enseignants', loc, true); } else if(ch){ rep.enseignants.upd++; put('enseignants', loc); }
+    });
+    (data.taches||[]).forEach(function(t){
+      if(!t) return;
+      var type = (t.typeCarnet && TT_LABEL[t.typeCarnet]) ? t.typeCarnet : (XCH_TYPE_IN[xchCode(t.type)] || 'autre');
+      var statut = (t.statutCarnet && WF_LABEL[t.statutCarnet]) ? t.statutCarnet : XCH_STATUS_IN[xchCode(t.statut)];
+      var cancelled = /cancel|annul/i.test(t.statut||'');
+      var etId = resolveEtab(t.etablissement);
+      var ens = t.enseignant ? xchFindEns(t.enseignant, etId) : null;
+      var date = String(t.date || '').slice(0, 10);
+      var loc = xchFindBy(state.tasks, t, function(){
+        return state.tasks.find(function(x){ return x.taskType===type && x.echeance && x.echeance===date && ((ens && x.enseignantId===ens.id) || (!ens && etId && x.etablissementId===etId) || (!ens && !etId && xchKey(x.titre)===xchKey(t.titre))); }) || null;
+      });
+      if(!loc && cancelled){ rep.taches.skip++; return; }
+      var isNew = !loc;
+      if(isNew) loc = { id: uid(), titre:'', statut:'a_planifier', priorite:'moyenne', taskType:type, enseignantId:null, enseignantNom:'', etablissementId:null, etablissementNom:'', heureDebut:'', heureFin:'', lieu:'', lienConnexion:'', echeance:'', description:'', docTitre:'', docUrl:'', noteGlobale:'', notificationEnvoyee:false, invites:[], attachments:[] };
+      var et = etId ? state.etablissements.find(function(x){ return x.id===etId; }) : null;
+      var fields = { taskType:type, statut: cancelled ? undefined : statut, titre:t.titre, echeance:date, heureDebut:t.heureDebut, heureFin:t.heureFin, lieu:t.lieu, description: cancelled ? ((loc.description||'') + (/\[Annulée/.test(loc.description||'') ? '' : '\n[Annulée dans InspectApp]')).trim() : t.description,
+        priorite:t.priorite, noteGlobale: NOTE_SCALE.indexOf(t.note)>=0 ? t.note : undefined,
+        enseignantId: ens ? ens.id : undefined, enseignantNom: ens ? ens.nom : (t.enseignant && t.enseignant.nom) || undefined,
+        etablissementId: etId || undefined, etablissementNom: et ? et.nom : (t.etablissement && t.etablissement.nom) || undefined };
+      var ch = xchMerge(loc, fields, t, isNew || xchNewer(t, loc) || cancelled);
+      if((t.participants||[]).length && (isNew || xchNewer(t, loc) || !(loc.invites||[]).length)){
+        var inv = t.participants.map(function(pp){ var r = xchFindEns(pp, null); return { enseignantId: r ? r.id : null, nom: r ? r.nom : (pp.nom||''), ppr: (r && r.ppr) || pp.ppr || '', etablissementNom: pp.etablissement && pp.etablissement.nom ? pp.etablissement.nom : (pp.etablissement || (r ? etabName(r.etablissementId) : '')) }; });
+        if(JSON.stringify(inv)!==JSON.stringify(loc.invites||[])){ loc.invites = inv; ch = true; }
+      }
+      if(!loc.titre){ loc.titre = (TT_LABEL[type]||'Tâche')+(loc.enseignantNom ? ' · '+loc.enseignantNom : '')+(loc.etablissementNom ? ' · '+loc.etablissementNom : ''); ch = true; }
+      ch = xchSetExt(loc, t) || ch;
+      if(isNew){ rep.taches.add++; put('tasks', loc, true); } else if(ch){ rep.taches.upd++; put('tasks', loc); }
+    });
+    if(!dryRun){ Object.keys(touched).forEach(function(c){ saveLocal(c); }); render(); }
+    return rep;
+  }
+  function xchReportText(r){
+    var l = function(n, o){ return n+' : '+o.add+' nouveau(x), '+o.upd+' mis à jour'+(o.skip ? ', '+o.skip+' ignoré(s) (annulés)' : ''); };
+    return [l('Établissements', r.etablissements), l('Enseignant(e)s', r.enseignants), l('Zones', r.zones), l('Tâches', r.taches)].join('\n');
+  }
+  function xchTotal(r){ return ['zones','etablissements','enseignants','taches'].reduce(function(a,k){ return a + r[k].add + r[k].upd; }, 0); }
+  function importExchangeData(data, origin){
+    var dry = applyExchange(data, true);
+    if(!xchTotal(dry)){ toast('Rien de nouveau à importer depuis '+origin+'.'); return false; }
+    var from = data.source==='inspectapp' ? 'InspectApp' : (data.source || 'le fichier');
+    if(!confirm('Importer les données de '+from+(data.exportedAt ? ' (exportées le '+fmtDate(data.exportedAt)+')' : '')+' ?\n\n'+xchReportText(dry)+'\n\nAucune donnée locale ne sera supprimée.')) return false;
+    var r = applyExchange(data, false);
+    configSet({ xchLastImport: nowIso() });
+    toast('Import terminé — '+xchTotal(r)+' élément(s) ajouté(s) ou mis à jour.');
+    return true;
+  }
+  function exportExchangeFile(){
+    var data = buildExchangePayload();
+    var blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+    return saveBlob('Echange_Carnet_vers_InspectApp_'+todayStr()+'.json', blob).then(function(){ configSet({ xchLastExport: nowIso() }); toast('Fichier d\'échange enregistré : ouvrez-le dans InspectApp (Importer depuis le Carnet).'); });
+  }
+  function importExchangeFile(file){
+    if(!file) return;
+    file.text().then(function(txt){
+      var data; try{ data = JSON.parse(txt.replace(/^﻿/, '')); }catch(e){ throw new Error('Fichier illisible (JSON attendu).'); }
+      importExchangeData(data, 'le fichier');
+    }).catch(function(e){ toast(e && e.message ? e.message : 'Import impossible.'); });
+  }
+  /* ---- via Google Drive ---- */
+  function xchDriveFolder(){ return ensureAppFolder().then(function(f){ return ensureSubfolder(f.id, XCH_FOLDER, 'xchFolderId'); }); }
+  function xchFindFile(folderId, name){
+    var q = "title = '"+name.replace(/'/g,"\\'")+"' and '"+folderId+"' in parents";
+    return mcpCall('search_files', {query:q, pageSize:5, excludeContentSnippets:true}).then(function(res){ return ((res.payload && res.payload.files) || [])[0] || null; });
+  }
+  function xchDrivePush(){
+    var json = JSON.stringify(buildExchangePayload(), null, 2);
+    return xchDriveFolder().then(function(folder){
+      return xchFindFile(folder.id, XCH_FILE_OUT).then(function(f){
+        if(f) return driveFetch(DRIVE_UPLOAD_API+'/'+f.id+'?uploadType=media', { method:'PATCH', headers:{'Content-Type':'application/json; charset=UTF-8'}, body: json });
+        return mcpCall('create_file', { title: XCH_FILE_OUT, textContent: json, contentMimeType:'application/json', parentId: folder.id, disableConversionToGoogleType:true });
+      });
+    }).then(function(){ return configSet({ xchLastPush: nowIso() }); });
+  }
+  function xchDrivePull(force){
+    return xchDriveFolder().then(function(folder){
+      return xchFindFile(folder.id, XCH_FILE_IN).then(function(f){
+        if(!f) return { none:true };
+        if(!force && state.config.xchLastPullModified && f.modifiedTime && f.modifiedTime===state.config.xchLastPullModified) return { same:true };
+        return mcpCall('download_file_content', { fileId: f.id }).then(function(res){
+          var data = JSON.parse(b64ToUtf8(res.payload.content).replace(/^﻿/, ''));
+          var done = importExchangeData(data, 'InspectApp (Drive)');
+          return configSet({ xchLastPullModified: f.modifiedTime || '' }).then(function(){ return { imported: done }; });
+        });
+      });
+    });
+  }
+  function xchDriveSync(btn){
+    if(!state.mcpReady){ toast('Connectez d\'abord Google Drive (Paramètres → Synchronisation).'); return; }
+    if(btn) btn.disabled = true;
+    xchDrivePull(true).then(function(r){
+      if(r && r.none) toast('Aucun fichier d\'InspectApp pour l\'instant dans « '+XCH_FOLDER+' ». Envoi des données du carnet…');
+      return xchDrivePush();
+    }).then(function(){ toast('Échange avec InspectApp terminé (Google Drive).'); render(); })
+      .catch(function(e){ console.warn('xch drive', e); toast(e && e.code ? mcpErrorMessage(e) : 'Échange Drive impossible : '+(e && e.message || e)); })
+      .then(function(){ if(btn) btn.disabled = false; });
+  }
+  function inspectappTabHtml(){
+    var c = state.config || {};
+    var when = function(iso){ return iso ? fmtDate(iso)+' '+new Date(iso).toTimeString().slice(0,5) : 'jamais'; };
+    var nEtab = state.etablissements.filter(xchExtId).length, nEns = state.enseignants.filter(xchExtId).length, nT = state.tasks.filter(xchExtId).length;
+    return '<div class="section-label">Échange de données avec iNSPECTAPP</div>'+
+      '<p style="font-size:12.5px;color:var(--ink-soft);margin:4px 0 10px;">Établissements, enseignant(e)s, zones et tâches circulent dans les deux sens. Les éléments déjà connus des deux côtés sont mis à jour, jamais dupliqués ; rien n\'est supprimé.</p>'+
+      '<div class="setup-card" style="margin-bottom:10px;"><h2>Par Google Drive (automatique)</h2>'+
+        '<p>Le carnet dépose <code>'+XCH_FILE_OUT+'</code> et lit <code>'+XCH_FILE_IN+'</code> dans le dossier « '+esc(XCH_FOLDER)+' » de son dossier Drive. Sur le PC, InspectApp lit et écrit dans ce même dossier grâce à Google Drive pour ordinateur.</p>'+
+        '<div class="setup-actions"><button class="btn primary sm" id="btnXchSync" type="button"'+(state.mcpReady?'':' disabled')+'>'+ICONS.link+' Échanger maintenant</button></div>'+
+        (state.mcpReady ? '' : '<p style="font-size:11.5px;color:var(--warn);margin:8px 0 0;">Google Drive n\'est pas connecté sur cet appareil.</p>')+
+        '<label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-top:10px;"><input type="checkbox" id="chkXchAuto"'+(c.xchAuto?' checked':'')+'> Échanger automatiquement à chaque synchronisation</label>'+
+      '</div>'+
+      '<div class="setup-card" style="margin-bottom:10px;"><h2>Par fichier</h2><p>Pour une clé USB, un courriel ou un partage : le même format, lu et produit par les deux applications.</p>'+
+        '<div class="setup-actions"><button class="btn ghost sm" id="btnXchExport" type="button">'+ICONS.dl+' Exporter vers InspectApp (.json)</button>'+
+        '<button class="btn ghost sm" id="btnXchImport" type="button">'+ICONS.upload+' Importer depuis InspectApp</button></div>'+
+        '<input type="file" id="fileXchInput" accept=".json,application/json" hidden></div>'+
+      '<div class="settings-row"><div><div class="l">Dernier envoi</div><div class="s">'+esc(when(c.xchLastPush || c.xchLastExport))+'</div></div></div>'+
+      '<div class="settings-row"><div><div class="l">Dernière réception</div><div class="s">'+esc(when(c.xchLastImport))+'</div></div></div>'+
+      '<div class="settings-row"><div><div class="l">Éléments reliés à InspectApp</div><div class="s">'+nEtab+' établissement(s), '+nEns+' enseignant(e)(s), '+nT+' tâche(s)</div></div></div>'+
+      '<p style="font-size:11px;color:var(--ink-faint);margin-top:10px;">Rapprochement : code MASSAR ou nom pour les établissements, PPR ou nom pour les enseignant(e)s, type + date + enseignant(e) pour les tâches. Renseignez le code MASSAR des établissements et le PPR des enseignant(e)s pour un rapprochement sûr.</p>';
+  }
+  function wireInspectappTab(){
+    var b1 = $('btnXchSync'); if(b1) b1.onclick = function(){ xchDriveSync(b1); };
+    var b2 = $('btnXchExport'); if(b2) b2.onclick = exportExchangeFile;
+    var b3 = $('btnXchImport'), fi = $('fileXchInput');
+    if(b3 && fi){ b3.onclick = function(){ fi.click(); }; fi.onchange = function(){ var f = fi.files && fi.files[0]; fi.value = ''; importExchangeFile(f); }; }
+    var ca = $('chkXchAuto'); if(ca) ca.onchange = function(){ configSet({ xchAuto: ca.checked }); };
   }
   /* ================= noms bilingues (arabe / français) =================
      Chaque établissement et chaque enseignant(e) peut avoir un nom en arabe (nomAr) et un nom en
@@ -7228,6 +7501,7 @@
       '<button class="chip" data-stab="templates" aria-pressed="'+(tab==='templates')+'">Modèles de documents</button>'+
       '<button class="chip" data-stab="referentiel" aria-pressed="'+(tab==='referentiel')+'">Régions / DP</button>'+
       '<button class="chip" data-stab="ia" aria-pressed="'+(tab==='ia')+'">Assistant IA</button>'+
+      '<button class="chip" data-stab="inspectapp" aria-pressed="'+(tab==='inspectapp')+'">InspectApp</button>'+
       '<button class="chip" data-stab="apparence" aria-pressed="'+(tab==='apparence')+'">Apparence</button>'+
       '<button class="chip" data-stab="notifications" aria-pressed="'+(tab==='notifications')+'">Notifications</button>'+
       '<button class="chip" data-stab="vacances" aria-pressed="'+(tab==='vacances')+'">Vacances</button></div>';
@@ -7305,6 +7579,8 @@
       html += appearanceSettingsHtml() + fontsSettingsHtml();
       setTimeout(registerInstalledFonts, 0);
       BUILTIN_FONTS.forEach(function(f){ if(f.google) ensureGoogleFont(f.google); });
+    } else if(tab==='inspectapp'){
+      html += inspectappTabHtml();
     } else if(tab==='notifications'){
       html += notificationsTabHtml();
     } else if(tab==='vacances'){
@@ -7820,6 +8096,7 @@
       '<div class="sheet-head"><h2>'+(state.modalStack[idx].isNew?'Nouvel établissement':'Modifier')+'</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
       '<div class="field"><label for="etNom">Nom</label><input type="text" id="etNom" value="'+esc(e.nom)+'" placeholder="Nom (français ou arabe)"></div>'+
       bilingualFieldsHtml('et', e, 'etab')+
+      '<div class="field"><label for="etMassar">Code MASSAR / GRESA <span style="font-weight:400;color:var(--ink-faint);">(rapprochement avec InspectApp)</span></label><input type="text" id="etMassar" value="'+esc(e.codeMassar||'')+'" autocapitalize="characters" placeholder="ex. 12345A"></div>'+
       '<div class="field"><label>Zone</label><select id="etZone" style="width:100%;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:10px 11px;"><option value="">— Aucune —</option>'+
       state.zones.map(function(z){ return '<option value="'+z.id+'"'+(e.zoneId===z.id?' selected':'')+'>'+esc(z.nom)+'</option>'; }).join('')+'</select></div>'+
       '<div class="field"><label>Type</label><div class="seg" id="etTypeSeg">'+ETAB_TYPES.map(function(t){ return '<button type="button" data-v="'+t.v+'" aria-pressed="'+(e.type===t.v)+'">'+t.l+'</button>'; }).join('')+'</div></div>'+
@@ -8460,6 +8737,7 @@
       removeInstalledFont(b.getAttribute('data-rmfont')); render();
     }; });
     wireAppearanceSettings();
+    wireInspectappTab();
     var segReason = $('aiReasonSeg'); if(segReason) segReason.querySelectorAll('button').forEach(function(b){ b.onclick = function(){
       localAiPrefsSet({ reasoning: b.getAttribute('data-v')==='1' }); render();
     }; });
@@ -8797,6 +9075,7 @@
       el=$('etLat'); if(el) e.latitude=el.value; el=$('etLng'); if(el) e.longitude=el.value; el=$('etNotes'); if(el) e.notes=el.value;
       el=$('etPionnier'); if(el) e.pionnier=el.checked;
       el=$('etNomAr'); if(el) e.nomAr=el.value.trim(); el=$('etNomFr'); if(el) e.nomFr=el.value.trim();
+      el=$('etMassar'); if(el) e.codeMassar=el.value.trim().toUpperCase();
     }
     if($('etNomAr')) wireBilingualFields(syncEtabFields);
     var segET = $('etTypeSeg'); if(segET) segET.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ syncEtabFields(); state.draftRecord.type=b.getAttribute('data-v'); render(); }; });
@@ -8827,6 +9106,7 @@
       e.latitude=$('etLat').value.trim(); e.longitude=$('etLng').value.trim(); e.notes=$('etNotes').value;
       e.pionnier = $('etPionnier') ? $('etPionnier').checked : !!e.pionnier;
       if($('etNomAr')){ e.nomAr = $('etNomAr').value.trim(); e.nomFr = $('etNomFr').value.trim(); }
+      if($('etMassar')) e.codeMassar = $('etMassar').value.trim().toUpperCase();
       recordSet('etablissement', e).then(function(){ closeTopModal(); toast('Établissement enregistré.'); });
     };
     var delEtab = $('btnDeleteEtab'); if(delEtab) delEtab.onclick = function(){ recordDelete('etablissement', state.draftRecord.id).then(function(){ closeTopModal(); toast('Supprimé.'); }); };
