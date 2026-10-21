@@ -1022,8 +1022,10 @@
      document gardent néanmoins ce type pour que d'anciens documents « plan_action » déjà créés restent
      consultables, imprimables et modifiables normalement. */
   var DOCS_FOR_TYPE = {
-    inspection:['lettre_information','observation','rapport_inspection','bordereau'],
-    visite_conseil:['lettre_information','observation','rapport','bordereau'],
+    /* Visites et inspections : l'inspecteur n'informe ni l'enseignant(e) ni la direction ; seule une
+       demande de voiture de service (sans mention des personnes concernées) peut être adressée. */
+    inspection:['demande_voiture','observation','rapport_inspection','bordereau'],
+    visite_conseil:['demande_voiture','observation','rapport','bordereau'],
     reunion_pedagogique:['lettre_information','presence','compte_rendu','attestation','bordereau'],
     cours_experimental:['lettre_information','presence','compte_rendu','attestation','bordereau'],
     formation:['lettre_information','presence','compte_rendu','attestation','bordereau'],
@@ -1038,6 +1040,7 @@
     presence: {label:'Liste de présence'}, compte_rendu: {label:'Compte-rendu de réunion'},
     observation: {label:"Grille d'observation"}, rapport: {label:'Rapport de synthèse'},
     attestation: {label:'Attestation de présence'}, lettre_information: {label:"Lettre d'information"},
+    demande_voiture: {label:'Demande de voiture de service'},
     rapport_inspection: {label:"Rapport d'inspection"}, bordereau: {label:"Bordereau d'envoi"},
     plan_action: {label:"Plan d'action"}
   };
@@ -1046,7 +1049,7 @@
      en français ; TOUS les autres documents (y compris le plan d'action) sont rédigés en arabe (langue
      de l'administration marocaine). Voir buildDocSpecInner() : ces trois types y ont des libellés et
      un contenu en français ; tous les autres ont déjà des libellés arabes et rtl:true. */
-  var RTL_DOC_TYPES = { presence:true, compte_rendu:true, attestation:true, lettre_information:true, bordereau:true, plan_action:true };
+  var RTL_DOC_TYPES = { presence:true, compte_rendu:true, attestation:true, lettre_information:true, bordereau:true, plan_action:true, demande_voiture:true };
   /* ---- Modèles personnalisés (Réglages → Modèles de documents → Modèles personnalisés) : un modèle
      par type de document associe un logo optionnel (state.templates.docTemplates[type].logoAssetId,
      utilisé à la place du logo global du profil dans les exports PDF/Word de ce type précis — voir
@@ -4020,6 +4023,9 @@
       base.texte='';
     } else if(type==='attestation'){
       base.beneficiaireNom = task.enseignantNom||''; base.fonction='Enseignant(e)'; base.objet = task.titre; base.lieu = task.lieu||task.etablissementNom||''; base.texteLibre='';
+    } else if(type==='demande_voiture'){
+      base.destinataire = 'المدير الإقليمي'; base.objet = 'طلب سيارة المصلحة';
+      base.heureDepart = task.heureDebut || ''; base.heureRetour = task.heureFin || ''; base.destination = ''; base.corpsLibre = '';
     } else if(type==='lettre_information'){
       /* Pour une réunion pédagogique / un cours expérimental, le courrier d'information est adressé au
          service pédagogique (et non au/à la directeur(trice) de l'établissement comme pour une visite
@@ -4748,6 +4754,20 @@
     ];
     return { type:'lettre_information', rtl:true, margin:16, size:16, fontCss:"'Sakkal Majalla','Traditional Arabic','Amiri',serif", fontDocx:'Sakkal Majalla', blocks: blocks, footer: footer };
   }
+  /* ---- Demande de voiture de service (طلب سيارة المصلحة) ----
+     Même présentation que la رسالة إخبارية ; le texte ne nomme ni l'enseignant(e) ni l'établissement
+     visités (seulement la date, l'heure et, si on le souhaite, une destination générale). */
+  function demandeVoitureCorps(d){
+    if(d.corpsLibre && d.corpsLibre.trim()) return d.corpsLibre;
+    return 'يشرفني أن ألتمس منكم التفضل بوضع سيارة المصلحة رهن إشارتي يوم '+dateLongueAr(d.date)+
+      (d.heureDepart ? ' ابتداء من الساعة '+d.heureDepart : '')+(d.heureRetour ? ' إلى غاية الساعة '+d.heureRetour : '')+
+      '، وذلك قصد القيام بمهمة تربوية'+(d.destination && d.destination.trim() ? ' '+(/[\u0600-\u06FF]/.test(d.destination) ? 'ب' : 'بـ')+bidiIso(d.destination.trim()) : '')+'.';
+  }
+  function offDemandeVoiture(d, task){
+    var off = offLettre({ destinataire: d.destinataire, objet: d.objet || 'طلب سيارة المصلحة', corps: demandeVoitureCorps(d), date: d.date, invites: [] }, task);
+    off.type = 'demande_voiture';
+    return off;
+  }
   /* Modèle officiel du document, ou null pour les types qui gardent le rendu générique. */
   function buildOfficialDoc(d, task){
     if(d.type==='observation'){
@@ -4758,6 +4778,7 @@
     if(d.type==='rapport_inspection') return offRapportInspection(d, task);
     if(d.type==='bordereau') return offBordereau(d, task);
     if(d.type==='lettre_information') return offLettre(d, task);
+    if(d.type==='demande_voiture') return offDemandeVoiture(d, task);
     return null;
   }
 
@@ -4841,6 +4862,10 @@
         rows: d.invites.map(function(iv){ return [iv.nom||'', iv.ppr||'', iv.etablissementNom||'']; })}] : [];
       return { rtl:true, titre:'رسالة إخبارية', meta:[['المرسل إليه',d.destinataire],['الموضوع',d.objet],['التاريخ',fmtDate(d.date)]],
         tables:invTables, sections:[{heading:null, text:d.corps||'—'}], signatures:['توقيع المفتش(ة)'] };
+    }
+    if(d.type==='demande_voiture'){
+      return { rtl:true, titre:'طلب سيارة المصلحة', meta:[['المرسل إليه',arDestinataire(d.destinataire)],['التاريخ',fmtDate(d.date)]],
+        tables:[], sections:[{heading:null, text:demandeVoitureCorps(d)}], signatures:['توقيع المفتش(ة)'] };
     }
     if(d.type==='rapport_inspection'){
       return { titre:"Rapport d'inspection", meta:[['Enseignant(e)',d.enseignantNom],['Établissement',d.lieu],['Classe',d.classe],['Matière',d.matiere],['Date',fmtDate(d.date)],['Appréciation générale',d.appreciation||'—']],
@@ -6790,6 +6815,12 @@
         '<div class="field-row"><div class="field"><label for="dLieu">Lieu</label><input type="text" id="dLieu" value="'+esc(d.lieu)+'"></div><div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div></div>'+
         '<div class="field"><label for="dObjet">Objet</label><input type="text" id="dObjet" value="'+esc(d.objet)+'"></div>'+
         '<div class="field"><label for="dTexteLibre">Texte de l\'attestation <span style="font-weight:400;color:var(--ink-faint);">(optionnel — laissez vide pour le texte standard généré automatiquement)</span></label><textarea id="dTexteLibre" rows="4" dir="rtl">'+esc(d.texteLibre)+'</textarea></div>';
+    } else if(m.docType==='demande_voiture'){
+      body += '<p style="font-size:11.5px;color:var(--ink-faint);margin:0 0 10px;">Demande adressée à la Direction provinciale. Le texte ne mentionne ni l\'enseignant(e) ni l\'établissement visités.</p>'+
+        '<div class="field"><label for="dDestinataire">Destinataire</label><input type="text" id="dDestinataire" dir="rtl" value="'+esc(d.destinataire)+'"></div>'+
+        dkRow('<div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div>', dkField('Départ','heureDepart', d.heureDepart, {type:'time'}), dkField('Retour','heureRetour', d.heureRetour, {type:'time'}))+
+        dkField('Destination (facultatif, sans nommer les personnes)','destination', d.destination, {dir:'rtl', ph:'مثال: جماعة إيموزار كندر'})+
+        dkField('Texte (facultatif — laissez vide pour le texte standard)','corpsLibre', d.corpsLibre, {area:true, rows:4, dir:'rtl', ph: demandeVoitureCorps(Object.assign({}, d, {corpsLibre:''}))});
     } else if(m.docType==='lettre_information'){
       body += '<div class="field"><label for="dDestinataire">Destinataire</label><input type="text" id="dDestinataire" value="'+esc(d.destinataire)+'"></div>'+
         '<div class="field-row"><div class="field"><label for="dObjet">Objet</label><input type="text" id="dObjet" value="'+esc(d.objet)+'"></div><div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div></div>'+
@@ -6882,7 +6913,7 @@
       (rtl ? '<p style="font-size:11px;color:var(--ink-faint);margin:2px 0 6px;">Ce document est rédigé en arabe (عربي) : utilisez « Imprimer » ou « Word » pour un rendu correct — le PDF direct ne gère pas encore l\'arabe.</p>' : '')+
       '<div class="setup-actions" style="margin-top:6px;">'+
       '<button class="btn ghost sm" id="btnPrintDoc" type="button">'+ICONS.print+' Imprimer</button>'+
-      ((rtl && !{bordereau:1, lettre_information:1}[m.docType]) ? '' : '<button class="btn ghost sm" id="btnPdfDoc" type="button">'+ICONS.pdf+' PDF</button>')+
+      ((rtl && !{bordereau:1, lettre_information:1, demande_voiture:1}[m.docType]) ? '' : '<button class="btn ghost sm" id="btnPdfDoc" type="button">'+ICONS.pdf+' PDF</button>')+
       '<button class="btn ghost sm" id="btnDocxDoc" type="button">'+ICONS.doc+' Word (.docx)</button>'+
       (d.gdocUrl ? '<a class="btn ghost sm" href="'+esc(d.gdocUrl)+'" target="_blank" rel="noopener" id="btnOpenGdoc">'+ICONS.ext+' Personnaliser sur Google Docs</a>' : '')+
       '</div>'+
