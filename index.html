@@ -980,6 +980,21 @@
     {v:'conception_examen', l:"Conception d'examen"}, {v:'autre', l:'Autre'}
   ];
   var TT_LABEL = {}; TASK_TYPES.forEach(function(t){ TT_LABEL[t.v]=t.l; });
+  /* Libellés arabes des types de tâches, pour les courriers en arabe (رسالة إخبارية…). */
+  var TT_AR = { inspection:'زيارة تفتيشية', visite_conseil:'زيارة تأطيرية', reunion_pedagogique:'لقاء تربوي', cours_experimental:'درس تجريبي',
+    formation:'دورة تكوينية', reunion_distance:'اجتماع عن بعد', reunion_administrative:'اجتماع إداري', recherche_action:'بحث تدخلي',
+    observation_examen:'تتبع امتحان', conception_examen:'إعداد امتحان', autre:'نشاط تربوي' };
+  var JOURS_AR = ['الأحد','الإثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'];
+  var MOIS_AR = ['يناير','فبراير','مارس','أبريل','ماي','يونيو','يوليوز','غشت','شتنبر','أكتوبر','نونبر','دجنبر'];
+  /* Texte en caractères latins inséré dans une phrase arabe : isolé (FSI…PDI) pour que l'ordre
+     d'affichage reste correct. */
+  function bidiIso(t){ t = String(t||''); return /[\u0600-\u06FF]/.test(t) ? t : '\u2068'+t+'\u2069'; }
+  function dateLongueAr(iso){
+    if(!iso) return '..................';
+    var d = new Date(iso.length<=10 ? iso+'T12:00:00' : iso);
+    if(isNaN(d)) return '..................';
+    return JOURS_AR[d.getDay()]+' '+String(d.getDate()).padStart(2,'0')+' '+MOIS_AR[d.getMonth()]+' '+d.getFullYear();
+  }
   var LEGACY_TASKTYPE = {visite:'inspection', reunion:'reunion_pedagogique'};
   function normTaskType(v){ if(TT_LABEL[v]) return v; if(LEGACY_TASKTYPE[v]) return LEGACY_TASKTYPE[v]; return 'autre'; }
   var TASK_TYPES_GRADED = {inspection:true};
@@ -1159,7 +1174,11 @@
   var DEFAULT_PROFIL = { nom:'EL ADLOUNI EL ARBI', grade:'مفتش التعليم الثانوي الإعدادي', doti:'', cin:'', rib:'',
     telephone:'', email:'', dateRecrutement:'2000-09-06', dateCadre:'2003-01-01', dateAffectation:'',
     matiere:'Langue française', numRemuneration:'1176050', academieRegionale:'Fès-Meknès', province:'Sefrou', nbEncadres:'',
-    logoAssetId:null, cachetAssetId:null, signatureAssetId:null };
+    logoAssetId:null, cachetAssetId:null, signatureAssetId:null,
+    /* Pour les modèles officiels (rapport d'inspection, ورقة إرسال, رسالة إخبارية) */
+    nomSignature:'M. El Arbi EL ADLOUNI', nomAr:'العربي العدلوني', matiereAr:'اللغة الفرنسية', cycleAr:'',
+    academieAr:'فاس- مكناس', provinceAr:'صفرو',
+    piedPageAr:'ص ب: 187 طريق المنزل. الهاتف: 0535661490 - الفاكس: 0535661492 - البريد الإلكتروني: dpmenfpsefrou2017@gmail.com' };
 
   /* ---- Programme annuel de travail (corps de l'inspection pédagogique) ----
      Document officiel distinct des « documents » liés à une tâche : un seul par année scolaire,
@@ -1250,7 +1269,8 @@
      Contenu recopié fidèlement des documents officiels (texte en français ; seule l'échelle de notation
      est libellée en arabe sur le document source — voir OBS_PIONNIER_SCALE/_AR ci-dessous). */
   var OBS_VARIANTES = [
-    {v:'standard', l:'Grille standard'},
+    {v:'sefrou', l:'Grille DP Sefrou'},
+    {v:'standard', l:'Grille personnalisée'},
     {v:'pionnier_ordinaire', l:'Collège pionnier — séance ordinaire'},
     {v:'pionnier_synthese', l:'Collège pionnier — séance de synthèse'}
   ];
@@ -1364,6 +1384,11 @@
      ré-exportée après un changement de variante. */
   function applyObsVariante(d, variante){
     d.variante = variante;
+    if(variante==='sefrou'){
+      if(!d.sefrou) d.sefrou = defaultSefrouGrid();
+      delete d.criteres; delete d.pointsForts; delete d.axesAmelioration; delete d.synthese; delete d.domaines; delete d.appreciationGlobale;
+      return;
+    }
     if(variante==='pionnier_ordinaire' || variante==='pionnier_synthese'){
       d.domaines = OBS_PIONNIER_DOMAINES[variante].map(function(dom){
         return { nom: dom.nom, criteres: dom.criteres.map(function(c){ return {nom:c, note:''}; }) };
@@ -3973,7 +3998,16 @@
          de la tâche est coché « Collège pionnier » ; sinon la grille standard. Reste modifiable via le
          sélecteur de variante dans l'éditeur (docEditModalHtml). */
       var etObs = task.etablissementId ? state.etablissements.find(function(x){ return x.id===task.etablissementId; }) : null;
-      applyObsVariante(base, (etObs && etObs.pionnier) ? 'pionnier_ordinaire' : 'standard');
+      base.seance = 'normale';
+      applyObsVariante(base, obsVarianteFor(etObs && etObs.pionnier, 'normale'));
+      if(base.sefrou){
+        var ensObs = task.enseignantId ? state.enseignants.find(function(x){ return x.id===task.enseignantId; }) : null;
+        base.sefrou.annee = anneeScolaireCourante(base.date);
+        base.sefrou.heure = task.heureDebut || '';
+        base.sefrou.doti = ensObs ? (ensObs.ppr||'') : '';
+        base.sefrou.localite = offProfil().province || '';
+        base.sefrou.nature = task.taskType==='inspection' ? 'inspection' : 'visite';
+      }
     } else if(type==='rapport'){
       base.texte='';
     } else if(type==='attestation'){
@@ -3984,20 +4018,30 @@
          d'inspection classique), et le corps mentionne la date ET l'heure ainsi que la liste des
          enseignant(e)s invité(e)s — reprise dans un tableau à l'impression/export (voir
          buildDocSpecInner et TEACHER_DOC_TYPES plus bas). */
-      base.destinataire = TASK_TYPES_NOTIFY[task.taskType] ? 'Service pédagogique'
-        : "Monsieur/Madame le/la Directeur(trice) de "+(task.etablissementNom||"l'établissement");
-      base.objet = task.titre; base.lieu = task.lieu||task.etablissementNom||'';
+      /* Courrier en arabe, sur le modèle de la رسالة إخبارية de l'inspection (voir offLettre) :
+         adressé à M. le Directeur provincial, objet = nature de l'activité, corps = demande de
+         convocation avec la date, l'heure et le lieu. */
+      base.destinataire = 'المدير الإقليمي';
+      base.objet = TT_AR[task.taskType] || task.titre; base.lieu = task.lieu||task.etablissementNom||'';
       base.invites = invites.slice();
-      var quandTxt = fmtDate(task.echeance)+(task.heureDebut?' à '+task.heureDebut+(task.heureFin?'–'+task.heureFin:''):'');
+      var lieuAr = task.lieu || task.etablissementNom || '';
+      var quandAr = dateLongueAr(task.echeance) + (task.heureDebut ? ' على الساعة '+task.heureDebut : '');
+      var etabsInv = []; invites.forEach(function(iv){ var n = (iv.etablissementNom||'').trim(); if(n && etabsInv.indexOf(n)<0) etabsInv.push(n); });
       base.corps = invites.length
-        ? "J'ai l'honneur de vous informer que "+(TT_LABEL[task.taskType]||'une réunion').toLowerCase()+" aura lieu le "+quandTxt+(task.etablissementNom?" à "+task.etablissementNom:"")+", avec la participation des enseignant(e)s dont la liste figure ci-après. Je vous prie de bien vouloir prendre les dispositions nécessaires à cet effet."
-        : "J'ai l'honneur de vous informer que "+(TT_LABEL[task.taskType]||'une visite').toLowerCase()+" aura lieu le "+quandTxt+(task.enseignantNom?" concernant l'enseignant(e) "+task.enseignantNom:"")+". Je vous prie de bien vouloir prendre les dispositions nécessaires à cet effet.";
+        ? 'يشرفني أن أطلب منكم دعوة السيدات والسادة الأساتذة'+(etabsInv.length ? ' بـ'+etabsInv.map(bidiIso).join('، ') : '')+' الواردة أسماؤهم في اللائحة أسفله لحضور '+(TT_AR[task.taskType]||'لقاء تربوي')+(task.titre ? ' في موضوع: '+bidiIso(task.titre) : '')+' يوم '+quandAr+(lieuAr ? ' بمقر '+bidiIso(lieuAr) : '')+'.'
+        : 'يشرفني أن أخبركم بأنني سأقوم بـ'+(TT_AR[task.taskType]||'زيارة تربوية')+(task.enseignantNom ? ' لفائدة الأستاذ(ة) '+bidiIso(task.enseignantNom) : '')+(task.etablissementNom ? ' بمؤسسة '+bidiIso(task.etablissementNom) : '')+' يوم '+quandAr+'، والمرجو إخبار المعني(ة) بالأمر واتخاذ الترتيبات اللازمة.';
     } else if(type==='rapport_inspection'){
       base.enseignantNom = task.enseignantNom||''; base.lieu = task.lieu||task.etablissementNom||''; base.classe=''; base.matiere='';
       base.appreciation = task.noteGlobale || ''; base.constats=''; base.recommandations='';
+      var ensR = task.enseignantId ? state.enseignants.find(function(x){ return x.id===task.enseignantId; }) : null;
+      base.ppr = ensR ? (ensR.ppr||'') : ''; base.cadre = ensR ? (ensR.cadre||'') : '';
+      base.civilite = ensR ? (ensR.genre==='F' ? 'Mme.' : ensR.genre==='H' ? 'M.' : '') : '';
+      base.localite = offProfil().province || ''; base.manuel = ''; base.nationalite = 'Marocaine';
+      base.precInspection = ''; base.precNote = ''; base.par = 'Nous-même'; base.note = '';
+      base.notesObs = ''; base.texte = ''; base.redacteur = offProfil().nomSignature || '';
     } else if(type==='bordereau'){
-      base.destinataire = 'Monsieur le Directeur Provincial'; base.reference=''; base.objet = task.titre;
-      base.pieces = [{designation: task.titre, nombre:'1'}]; base.observations='';
+      base.destinataire = 'المدير الإقليمي'; base.reference=''; base.objet = task.titre;
+      base.pieces = [{designation: task.titre, nombre:'1', observation:''}]; base.observations='';
       base.tableauxValides = []; base.tableauxNonValides = [];
     } else if(type==='plan_action'){
       base.lieu = task.lieu||task.etablissementNom||''; base.objet = task.titre; base.contexte=''; base.objectifs=''; base.actions=[];
@@ -4113,6 +4157,600 @@
     reader.readAsText(file, 'utf-8');
   }
 
+  /* ================= MODÈLES OFFICIELS (mise en page fidèle aux documents fournis) =================
+     Les documents suivants reprennent la mise en page des modèles officiels utilisés par l'inspection :
+       - grille d'observation de la Direction provinciale de Sefrou (établissements non pionniers) ;
+       - grilles « Collèges Pionniers » 26/27 du ministère (séance ordinaire / séance de synthèse) ;
+       - rapport d'inspection (en-tête ministériel, identité, texte suivi, note, signatures) ;
+       - ورقة إرسال (bordereau d'envoi) et رسالة إخبارية (lettre d'information) en arabe.
+     Chaque modèle est décrit UNE SEULE FOIS sous forme de « blocs » (paragraphes, images, tableaux à
+     cellules fusionnées), puis rendu par deux moteurs : HTML (impression et PDF — le PDF passe par une
+     capture du rendu HTML, seule façon d'obtenir l'arabe correctement façonné) et Word (.docx via
+     docx.js, vrais tableaux et texte modifiables). Les autres types de documents gardent le rendu
+     générique (buildDocSpec / printFromSpec / specToPdfBlob / specToDocxBlob). */
+  var OFF_IMAGES = { ministere:'entete-ministere.png', rapport:'entete-rapport.jpg', lettre:'entete-lettre.png' };
+  var offImgCache = {};
+  function offLoadImage(key){
+    if(offImgCache[key]) return Promise.resolve(offImgCache[key]);
+    return fetch(OFF_IMAGES[key]).then(function(r){ if(!r.ok) throw new Error('img'); return r.blob(); }).then(function(blob){
+      return new Promise(function(resolve){
+        var fr = new FileReader();
+        fr.onload = function(){
+          var dataUrl = String(fr.result);
+          var im = new Image();
+          im.onload = function(){ offImgCache[key] = { dataUrl: dataUrl, w: im.naturalWidth, h: im.naturalHeight, type: /png/i.test(blob.type) ? 'png' : 'jpg' }; resolve(offImgCache[key]); };
+          im.onerror = function(){ resolve(null); };
+          im.src = dataUrl;
+        };
+        fr.readAsDataURL(blob);
+      });
+    }).catch(function(){ return null; });
+  }
+  function offImagesFor(off){
+    var keys = {};
+    (function walk(blocks){ (blocks||[]).forEach(function(b){
+      if(b.t==='img' && b.key) keys[b.key] = 1;
+      if(b.t==='table') b.rows.forEach(function(r){ r.cells.forEach(function(c){ walk(c.blocks); }); });
+    }); })(off.blocks.concat(off.footer||[]));
+    var list = Object.keys(keys);
+    return Promise.all(list.map(offLoadImage)).then(function(res){ var out = {}; list.forEach(function(k,i){ if(res[i]) out[k] = res[i]; }); return out; });
+  }
+  function offProfil(){ return Object.assign({}, DEFAULT_PROFIL, state.templates.profil || {}); }
+
+  /* ---- petits constructeurs de blocs ---- */
+  function P(text, o){ o = o || {}; return Object.assign({ t:'p', runs: Array.isArray(text) ? text : [{text: String(text==null?'':text)}] }, o); }
+  function R(text, o){ return Object.assign({ text: String(text==null?'':text) }, o||{}); }
+  function C(blocks, o){ return Object.assign({ blocks: Array.isArray(blocks) ? blocks : [blocks] }, o||{}); }
+  function dots(v, n){ return (v && String(v).trim()) ? String(v) : new Array((n||18)+1).join('.'); }
+  /* Mise en italique des locutions latines usuelles des rapports et en gras des notes « xx/20 »,
+     comme dans le modèle de rapport d'inspection. */
+  var LATIN_LOCS = ['in concreto','in abstracto','de visu','ipso facto','de facto','de jure','mutatis mutandis','a fortiori','in fine','a priori','a posteriori','sine qua non','stricto sensu','lato sensu','in situ','grosso modo','a contrario','ad hoc','per se','vice versa','nota bene','ex nihilo','in extenso','modus operandi','statu quo','sui generis','id est','ad litteram','hic et nunc','in vivo','manu militari','motu proprio','ex cathedra','a minima','a maxima','urbi et orbi'];
+  function richRuns(text, base){
+    base = base || {};
+    var src = String(text||'');
+    var re = new RegExp('('+LATIN_LOCS.map(function(l){ return l.replace(/ /g,'\\s+'); }).join('|')+'|\\b\\d{1,2}(?:[.,]\\d{1,2})?\\s?/\\s?20\\b)', 'gi');
+    var out = [], last = 0, m;
+    while((m = re.exec(src))){
+      if(m.index > last) out.push(R(src.slice(last, m.index), base));
+      var isNote = /\/\s?20$/.test(m[0]);
+      out.push(R(m[0], Object.assign({}, base, isNote ? {b:true} : {i:true})));
+      last = m.index + m[0].length;
+    }
+    if(last < src.length) out.push(R(src.slice(last), base));
+    return out.length ? out : [R('', base)];
+  }
+  function paragraphsOf(text){ return String(text||'').split(/\n\s*\n|\n/).map(function(s){ return s.trim(); }).filter(Boolean); }
+
+  /* ---- rendu HTML ---- */
+  function offCss(){
+    return '.off-page{color:#000;background:#fff;}'+
+      '.off-page p{margin:0;}'+
+      '.off-page table{border-collapse:collapse;width:100%;table-layout:fixed;}'+
+      '.off-page td{vertical-align:top;padding:1.2mm 1.6mm;word-wrap:break-word;}'+
+      '.off-page table.b td{border:1px solid #000;}'+
+      '.off-page .box{display:inline-block;width:3.2mm;height:3.2mm;border:1px solid #000;vertical-align:middle;}'+
+      '.off-page .box.x{background:linear-gradient(45deg,transparent 44%,#000 44%,#000 56%,transparent 56%),linear-gradient(-45deg,transparent 44%,#000 44%,#000 56%,transparent 56%);}';
+  }
+  function offRunsHtml(runs){
+    return (runs||[]).map(function(r){
+      var s = esc(r.text).replace(/\n/g,'<br>');
+      if(r.box) s = '<span class="box'+(r.checked?' x':'')+'"></span>';
+      var st = [];
+      if(r.size) st.push('font-size:'+r.size+'pt');
+      if(r.font) st.push('font-family:'+r.font);
+      if(r.color) st.push('color:#'+r.color);
+      if(r.b) st.push('font-weight:bold'); if(r.i) st.push('font-style:italic'); if(r.u) st.push('text-decoration:underline');
+      return st.length ? '<span style="'+st.join(';')+'">'+s+'</span>' : s;
+    }).join('');
+  }
+  function offBlocksHtml(blocks, imgs, ctx){
+    return (blocks||[]).map(function(b){
+      if(b.t==='p'){
+        var st = ['text-align:'+(b.align||'start')];
+        if(b.size) st.push('font-size:'+b.size+'pt');
+        if(b.before) st.push('margin-top:'+b.before+'pt');
+        if(b.after) st.push('margin-bottom:'+b.after+'pt');
+        if(b.indent) st.push('text-indent:'+b.indent+'mm');
+        if(b.line) st.push('line-height:'+b.line);
+        if(b.borderTop) st.push('border-top:1px solid #000;padding-top:2pt');
+        if(b.borderBottom) st.push('border-bottom:1px solid #000;padding-bottom:2pt');
+        if(b.dir) st.push('direction:'+b.dir);
+        if(b.b) st.push('font-weight:bold');
+        return '<p style="'+st.join(';')+'">'+(offRunsHtml(b.runs)||'&nbsp;')+'</p>';
+      }
+      if(b.t==='space') return '<div style="height:'+(b.h||4)+'mm"></div>';
+      if(b.t==='hr') return '<div style="border-top:'+(b.w||1)+'px solid #000;margin:'+(b.m||2)+'mm 0"></div>';
+      if(b.t==='img'){
+        var im = imgs[b.key]; if(!im) return '';
+        return '<div style="text-align:'+(b.align||'center')+'"><img src="'+im.dataUrl+'" style="width:'+b.w+'mm;height:auto" alt=""></div>';
+      }
+      if(b.t==='sigimg'){
+        var p = offProfil(), urls = [];
+        if(p.signatureAssetId && assetUrl(p.signatureAssetId)) urls.push('<img src="'+assetUrl(p.signatureAssetId)+'" style="height:15mm;width:auto">');
+        if(p.cachetAssetId && assetUrl(p.cachetAssetId)) urls.push('<img src="'+assetUrl(p.cachetAssetId)+'" style="height:20mm;width:auto">');
+        return urls.length ? '<div style="text-align:'+(b.align||'start')+'">'+urls.join(' ')+'</div>' : '';
+      }
+      if(b.t==='table'){
+        var html = '<table class="'+(b.border?'b':'')+'" style="'+(b.mt?'margin-top:'+b.mt+'mm;':'')+(b.mb?'margin-bottom:'+b.mb+'mm;':'')+(b.width?'width:'+b.width+'%;':'')+(b.center?'margin-left:auto;margin-right:auto;':'')+'"><colgroup>'+
+          b.cols.map(function(w){ return '<col style="width:'+w+'%">'; }).join('')+'</colgroup>';
+        b.rows.forEach(function(r){
+          html += '<tr'+(r.h?' style="height:'+r.h+'mm"':'')+'>';
+          r.cells.forEach(function(c){
+            var st = [];
+            if(c.v) st.push('vertical-align:'+c.v);
+            if(c.shade) st.push('background:#'+c.shade);
+            if(c.align) st.push('text-align:'+c.align);
+            if(c.noborder) st.push('border:none');
+            if(c.pad===0) st.push('padding:0');
+            if(c.tight) st.push('padding:0.35mm 1.2mm');
+            html += '<td'+(c.span>1?' colspan="'+c.span+'"':'')+(c.rowspan>1?' rowspan="'+c.rowspan+'"':'')+(st.length?' style="'+st.join(';')+'"':'')+'>'+offBlocksHtml(c.blocks, imgs, ctx)+'</td>';
+          });
+          html += '</tr>';
+        });
+        return html + '</table>';
+      }
+      return '';
+    }).join('');
+  }
+  function offHtml(off, imgs, forPdf){
+    var foot = (off.footer && off.footer.length) ? offBlocksHtml(off.footer, imgs) : '';
+    return '<style>'+offCss()+'</style><div class="off-page" dir="'+(off.rtl?'rtl':'ltr')+'" lang="'+(off.rtl?'ar':'fr')+'" style="font-family:'+off.fontCss+';font-size:'+off.size+'pt;line-height:1.25;'+(forPdf?'width:'+(210-off.margin*2)+'mm;':'')+'">'+
+      offBlocksHtml(off.blocks, imgs)+
+      (foot ? (forPdf ? '<div style="margin-top:10mm">'+foot+'</div>' : '<div class="off-foot" style="position:fixed;left:0;right:0;bottom:0">'+foot+'</div>') : '')+
+      '</div>';
+  }
+  function printOfficial(off){
+    return offImagesFor(off).then(function(imgs){
+      var root = $('printRoot');
+      root.innerHTML = '<style>@media print{@page{size:A4;margin:'+off.margin+'mm;} body{font-size:inherit;}}</style>'+offHtml(off, imgs, false);
+      setTimeout(function(){ window.print(); }, 120);
+    });
+  }
+
+  /* ---- PDF : capture du rendu HTML (jsPDF.html + html2canvas), texte arabe compris ---- */
+  function ensureHtml2Canvas(){
+    if(window.html2canvas) return Promise.resolve();
+    return loadScript('https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js');
+  }
+  /* Le rendu HTML est capturé en image (html2canvas), puis découpé en pages A4 ; chaque coupure de
+     page est reculée jusqu'à une ligne entièrement blanche, pour ne jamais couper une ligne de texte
+     ou une rangée de tableau en deux. */
+  function officialToPdfBlob(off){
+    return Promise.all([ensureJsPDF(), ensureHtml2Canvas(), offImagesFor(off)]).then(function(r){
+      var imgs = r[2];
+      var contentMm = 210 - off.margin*2, contentHmm = 297 - off.margin*2, pxPerMm = 96/25.4;
+      var host = document.createElement('div');
+      host.style.cssText = 'position:fixed;left:-10000px;top:0;background:#fff;width:'+Math.round(contentMm*pxPerMm)+'px;';
+      host.innerHTML = offHtml(off, imgs, true);
+      document.body.appendChild(host);
+      var el = host.querySelector('.off-page');
+      var fontsReady = (document.fonts && document.fonts.ready) ? document.fonts.ready : Promise.resolve();
+      return fontsReady.then(function(){
+        return window.html2canvas(el, { scale: 2, backgroundColor:'#ffffff', useCORS:true, logging:false, windowWidth: Math.round(contentMm*pxPerMm) });
+      }).then(function(canvas){
+        document.body.removeChild(host);
+        var jsPDF = window.jspdf.jsPDF;
+        var doc = new jsPDF({unit:'mm', format:'a4'});
+        var pxPerMmC = canvas.width / contentMm, pageH = Math.floor(contentHmm * pxPerMmC);
+        var ctx = canvas.getContext('2d'), W = canvas.width;
+        function blankRow(y){
+          var row = ctx.getImageData(0, y, W, 1).data;
+          for(var i=0;i<row.length;i+=16){ if(row[i] < 235 || row[i+1] < 235 || row[i+2] < 235) return false; }
+          return true;
+        }
+        var y = 0, first = true;
+        while(y < canvas.height - 2){
+          var end = Math.min(y + pageH, canvas.height);
+          if(end < canvas.height){
+            var lim = Math.max(y + Math.floor(pageH*0.75), end - Math.floor(pageH*0.25));
+            for(var k = end; k > lim; k--){ if(blankRow(k)){ end = k; break; } }
+          }
+          var slice = document.createElement('canvas'); slice.width = W; slice.height = end - y;
+          slice.getContext('2d').fillStyle = '#fff'; slice.getContext('2d').fillRect(0,0,W,slice.height);
+          slice.getContext('2d').drawImage(canvas, 0, y, W, end - y, 0, 0, W, end - y);
+          if(!first) doc.addPage();
+          doc.addImage(slice.toDataURL('image/jpeg', 0.92), 'JPEG', off.margin, off.margin, contentMm, (end - y) / pxPerMmC);
+          first = false; y = end;
+        }
+        return doc.output('blob');
+      }, function(e){ if(host.parentNode) document.body.removeChild(host); throw e; });
+    });
+  }
+  function downloadOfficialPdf(off, filenameBase){
+    return officialToPdfBlob(off).then(function(blob){
+      return saveBlob(filenameBase+'.pdf', blob).then(function(){
+        if(state.mcpReady) uploadBlobToDrive(blob, filenameBase+'.pdf', 'application/pdf').catch(function(e){ console.warn('drive upload (pdf) failed', e); });
+      });
+    }).then(function(){ toast('PDF enregistré.'); }).catch(function(err){
+      console.warn('pdf officiel', err);
+      toast(err && /load-failed/.test(err.message||'') ? 'Impossible de charger le générateur PDF (vérifiez la connexion).' : 'Échec de la génération du PDF.');
+    });
+  }
+
+  /* ---- Word (.docx) ---- */
+  function offDocxRuns(d, runs, off, pSize, pBold){
+    var out = [];
+    (runs||[]).forEach(function(r){
+      if(r.box){ out.push(new d.TextRun({ text: r.checked ? '☒' : '☐', font:'Segoe UI Symbol', size: Math.round((r.size||pSize||off.size)*2) })); return; }
+      var parts = String(r.text).split('\n');
+      parts.forEach(function(t, i){
+        /* Document arabe : les passages en caractères latins ou en chiffres (noms d'établissements,
+           dates, adresses électroniques…) forment des runs gauche-à-droite distincts, sinon Word les
+           mélange avec le texte arabe environnant. */
+        var segs = off.rtl ? (t.match(/[A-Za-z\u00C0-\u024F0-9@][A-Za-z\u00C0-\u024F0-9@ .,'’:\-\/()]*[A-Za-z\u00C0-\u024F0-9@.)]|[A-Za-z\u00C0-\u024F0-9@]|[^A-Za-z\u00C0-\u024F0-9@]+/g) || ['']) : [t];
+        segs.forEach(function(sg, j){
+          var latin = off.rtl && /[A-Za-z\u00C0-\u024F0-9@]/.test(sg) && !/[\u0600-\u06FF]/.test(sg);
+          out.push(new d.TextRun({ text: sg, break: (i>0 && j===0) ? 1 : undefined, bold: !!(r.b || pBold), italics: !!r.i, underline: r.u ? {} : undefined,
+            size: Math.round((r.size||pSize||off.size)*2), font: r.font || off.fontDocx, color: r.color, rightToLeft: !!off.rtl && !latin }));
+        });
+      });
+    });
+    return out;
+  }
+  function offDocxAlign(d, a, rtl){
+    if(a==='center') return d.AlignmentType.CENTER;
+    if(a==='justify') return d.AlignmentType.JUSTIFIED;
+    if(a==='right') return rtl ? d.AlignmentType.LEFT : d.AlignmentType.RIGHT;
+    if(a==='left') return rtl ? d.AlignmentType.RIGHT : d.AlignmentType.LEFT;
+    return undefined;
+  }
+  function offDocxBlocks(d, blocks, off, imgs, widthTw){
+    var out = [];
+    (blocks||[]).forEach(function(b){
+      if(b.t==='p'){
+        var borders = {};
+        if(b.borderTop) borders.top = {style:d.BorderStyle.SINGLE, size:6, color:'000000', space:2};
+        if(b.borderBottom) borders.bottom = {style:d.BorderStyle.SINGLE, size:6, color:'000000', space:2};
+        out.push(new d.Paragraph({ alignment: offDocxAlign(d, b.align, off.rtl), bidirectional: !!off.rtl,
+          spacing: { before: Math.round((b.before||0)*20), after: Math.round((b.after||0)*20), line: b.line ? Math.round(240*b.line) : undefined },
+          indent: b.indent ? { firstLine: Math.round(b.indent*56.7) } : undefined,
+          border: (b.borderTop||b.borderBottom) ? borders : undefined,
+          children: offDocxRuns(d, b.runs, off, b.size, b.b) }));
+      } else if(b.t==='space'){
+        out.push(new d.Paragraph({ spacing:{before:0, after:0, line: Math.max(1, Math.round((b.h||4)*56.7)), lineRule: d.LineRuleType ? d.LineRuleType.EXACT : undefined}, children:[] }));
+      } else if(b.t==='hr'){
+        out.push(new d.Paragraph({ border:{ bottom:{style:d.BorderStyle.SINGLE, size: (b.w||1)*6, color:'000000', space:1} }, spacing:{after:80}, children:[] }));
+      } else if(b.t==='img'){
+        var im = imgs[b.key]; if(!im) return;
+        var wpx = Math.round(b.w * 3.78), hpx = Math.round(wpx * im.h / im.w);
+        out.push(new d.Paragraph({ alignment: offDocxAlign(d, b.align||'center', off.rtl), children:[ new d.ImageRun({ type: im.type, data: dataUrlToUint8Array(im.dataUrl), transformation:{ width: wpx, height: hpx } }) ] }));
+      } else if(b.t==='sigimg'){
+        var p = offProfil(), runs = [];
+        try{ if(p.signatureAssetId && assetUrl(p.signatureAssetId)) runs.push(new d.ImageRun({ type: /png/i.test(assetUrl(p.signatureAssetId)) ? 'png' : 'jpg', data: dataUrlToUint8Array(assetUrl(p.signatureAssetId)), transformation:{width:100,height:50} })); }catch(e){}
+        try{ if(p.cachetAssetId && assetUrl(p.cachetAssetId)) runs.push(new d.ImageRun({ type: /png/i.test(assetUrl(p.cachetAssetId)) ? 'png' : 'jpg', data: dataUrlToUint8Array(assetUrl(p.cachetAssetId)), transformation:{width:70,height:70} })); }catch(e){}
+        if(runs.length) out.push(new d.Paragraph({ alignment: offDocxAlign(d, b.align||'left', off.rtl), children: runs }));
+      } else if(b.t==='table'){
+        var tblW = Math.round(widthTw * (b.width||100) / 100);
+        var colTw = b.cols.map(function(w){ return Math.round(tblW * w / 100); });
+        var none = { style: d.BorderStyle.NONE, size:0, color:'FFFFFF' }, line = { style: d.BorderStyle.SINGLE, size:6, color:'000000' };
+        var bd = b.border ? line : none;
+        var rows = b.rows.map(function(r){
+          var ci = 0;
+          return new d.TableRow({ cantSplit: !!r.cantSplit, height: r.h ? { value: Math.round(r.h*56.7), rule: d.HeightRule ? d.HeightRule.ATLEAST : 'atLeast' } : undefined,
+            children: r.cells.map(function(c){
+              var span = c.span || 1, w = 0; for(var k=0;k<span;k++) w += (colTw[ci+k]||0); ci += span;
+              var cb = c.noborder ? none : bd;
+              var kids = offDocxBlocks(d, c.blocks, off, imgs, w - 200);
+              if(!kids.length) kids = [new d.Paragraph({children:[]})];
+              return new d.TableCell({ children: kids, columnSpan: span>1 ? span : undefined, rowSpan: c.rowspan>1 ? c.rowspan : undefined,
+                width:{ size:w, type:d.WidthType.DXA }, verticalAlign: c.v==='middle' ? d.VerticalAlign.CENTER : (c.v==='bottom' ? d.VerticalAlign.BOTTOM : d.VerticalAlign.TOP),
+                shading: c.shade ? { fill: c.shade, type: d.ShadingType ? d.ShadingType.CLEAR : undefined, color:'auto' } : undefined,
+                margins: c.tight ? { top:10, bottom:10, left:70, right:70 } : { top:60, bottom:60, left:90, right:90 },
+                borders: { top:cb, bottom:cb, left:cb, right:cb } });
+            }) });
+        });
+        out.push(new d.Table({ rows: rows, width:{ size: tblW, type: d.WidthType.DXA }, columnWidths: colTw, layout: d.TableLayoutType ? d.TableLayoutType.FIXED : undefined,
+          visuallyRightToLeft: !!off.rtl, alignment: b.center ? d.AlignmentType.CENTER : undefined }));
+        if(b.mb !== 0) out.push(new d.Paragraph({ spacing:{after: Math.round((b.mb||2)*40)}, children:[] }));
+      }
+    });
+    return out;
+  }
+  function officialToDocxBlob(off){
+    return Promise.all([ensureDocx(), offImagesFor(off)]).then(function(r){
+      var d = window.docx, imgs = r[1];
+      var marginTw = Math.round(off.margin * 56.7), widthTw = 11906 - marginTw*2;
+      var section = { properties:{ page:{ size:{ width:11906, height:16838 }, margin:{ top: marginTw, bottom: marginTw, left: marginTw, right: marginTw } } },
+        children: offDocxBlocks(d, off.blocks, off, imgs, widthTw) };
+      if(off.footer && off.footer.length) section.footers = { default: new d.Footer({ children: offDocxBlocks(d, off.footer, off, imgs, widthTw) }) };
+      var docx = new d.Document({ styles:{ default:{ document:{ run:{ font: off.fontDocx, size: Math.round(off.size*2) } } } }, sections:[section] });
+      return d.Packer.toBlob(docx);
+    });
+  }
+  function downloadOfficialDocx(off, filenameBase){
+    var gdocUrl = null;
+    return officialToDocxBlob(off).then(function(blob){
+      return saveBlob(filenameBase+'.docx', blob).then(function(){
+        if(!state.mcpReady) return null;
+        return uploadBlobToDrive(blob, filenameBase+'.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', true)
+          .then(function(res){ if(res && res.payload && res.payload.id) gdocUrl = googleDocEditUrl(res.payload.id); })
+          .catch(function(e){ console.warn('drive upload (docx) failed', e); });
+      });
+    }).then(function(){
+      toast(gdocUrl ? 'Document Word enregistré — également disponible sur Google Docs pour le personnaliser.' : 'Document Word enregistré.');
+      return gdocUrl;
+    }).catch(function(err){
+      console.warn('docx officiel', err);
+      toast(err && /load-failed/.test(err.message||'') ? 'Impossible de charger le générateur Word (vérifiez la connexion).' : 'Échec de la génération du document Word.');
+      return null;
+    });
+  }
+
+  /* ---- Grille DP Sefrou (établissements non pionniers) ----
+     Structure recopiée de la grille d'observation de l'inspection de français de la Direction
+     provinciale de Sefrou : en-tête (année, visite/inspection, date, heure), identité de l'enseignant(e)
+     et de la séance, « Déroulement » en texte libre face à l'échelle de maîtrise (rubriques et
+     indicateurs), « Remarques et suggestions » face au rayonnement, puis appréciation globale et
+     réalisation de l'objectif. Chaque indicateur reçoit un niveau de maîtrise (SEFROU_SCALE). */
+  var SEFROU_GROUPS = [
+    { nom:'Planification', items:['Module / cahier journal','Cahier de textes','Séquence','Répartition des séances','Compétences'] },
+    { nom:'Gestion', items:['Temps','Espace','Interactions','Tableau','Matériel didactique','Usage des TIC','Groupe-classe','Difficultés','Feedback'] },
+    { nom:'Didactisation', items:['Validité des savoirs','Dosage','Concepts','Méthodologie','Implication des élèves','Transfert'] },
+    { nom:'Evaluation', items:['Programmation','Conception','Barème','Résultats','Soutien intégré'] }
+  ];
+  var SEFROU_RAYONNEMENT = ['Activités parascolaires',"Projet d'établissement",'Projet de classe',"Projets d'élèves",'Usage des TIC','Participation aux réunions','Recherche action','Soutien externe'];
+  var SEFROU_SCALE = ['Maîtrisé','En cours','Non maîtrisé','Non observé'];
+  var SEFROU_SCALE_SHORT = {'Maîtrisé':'M', 'En cours':'EC', 'Non maîtrisé':'NM', 'Non observé':'NO'};
+  var SEANCE_TYPES = [{v:'normale', l:'Séance normale'}, {v:'consolidation', l:'Séance de consolidation'}];
+  function defaultSefrouGrid(){
+    var items = {};
+    SEFROU_GROUPS.forEach(function(g){ g.items.forEach(function(it){ items[g.nom+'|'+it] = ''; }); });
+    SEFROU_RAYONNEMENT.forEach(function(it){ items['Rayonnement|'+it] = ''; });
+    return { nature:'inspection', annee:'', heure:'', cin:'', doti:'', echelle:'', echelon:'', localite:'', noteInspPrec:'', datePrec:'', par:'',
+      manuel:'', pages:'', module:'', sequence:'', activite:'', intitule:'', nbEleves:'', absents:'', deroulement:'', remarques:'',
+      appreciation:'', realisation:'', items: items };
+  }
+  function anneeScolaireCourante(iso){
+    var d = iso ? new Date(iso.length<=10 ? iso+'T12:00:00' : iso) : new Date();
+    if(isNaN(d)) d = new Date();
+    var y = d.getFullYear(), m = d.getMonth()+1;
+    return m >= 9 ? (y+' / '+(y+1)) : ((y-1)+' / '+y);
+  }
+  /* Grille appliquée selon l'établissement et le type de séance : collège pionnier → grilles du
+     ministère (séance normale = séance ordinaire, séance de consolidation = séance de synthèse) ;
+     autres établissements → grille de la DP de Sefrou. */
+  function obsVarianteFor(pionnier, seance){
+    if(pionnier) return seance==='consolidation' ? 'pionnier_synthese' : 'pionnier_ordinaire';
+    return 'sefrou';
+  }
+  function offFieldCell(label, value, extra){
+    return C([P([R(label+' : ', {b:true}), R(value||'')].concat(extra||[]), {size:10})]);
+  }
+  function offObservationSefrou(d, task){
+    var g = d.sefrou || defaultSefrouGrid();
+    var ens = (task && task.enseignantId) ? state.enseignants.find(function(x){ return x.id===task.enseignantId; }) : null;
+    var etab = (task && (task.etablissementNom || etabName(task.etablissementId))) || d.etablissement || '';
+    var it = g.items || {};
+    var val = function(k){ var v = it[k]; return v ? (SEFROU_SCALE_SHORT[v] || v) : ''; };
+    var rightRows = [];
+    rightRows.push({ head:true, text:'Echelle de maîtrise' });
+    SEFROU_GROUPS.forEach(function(gr){
+      rightRows.push({ group:true, text: gr.nom });
+      gr.items.forEach(function(x){ rightRows.push({ text:x, v: val(gr.nom+'|'+x) }); });
+    });
+    var rayRows = [{ group:true, text:'Rayonnement' }].concat(SEFROU_RAYONNEMENT.map(function(x){ return { text:x, v: val('Rayonnement|'+x) }; }));
+    function rightCell(r){
+      if(r.head) return C([P([R(r.text,{b:true})], {size:9.5, align:'center'})], {shade:'EDEDED', tight:true});
+      if(r.group) return C([P([R(r.text,{b:true,u:true})], {size:9.5})], {tight:true});
+      return C([P([R(r.text+' : ', {b:true}), R(r.v||'')], {size:9})], {tight:true});
+    }
+    var rows = [];
+    // Déroulement face à l'échelle de maîtrise
+    rows.push({ cells:[ C([P([R('Déroulement',{b:true})],{size:10.5})], {shade:'EDEDED'}), rightCell(rightRows[0]) ] });
+    var derN = rightRows.length - 1;
+    rightRows.slice(1).forEach(function(r, i){
+      var cells = [];
+      if(i===0) cells.push(C(paragraphsOf(g.deroulement).map(function(t){ return P(t, {size:10, after:3, align:'justify'}); }), {rowspan: derN}));
+      cells.push(rightCell(r));
+      rows.push({ cells: cells });
+    });
+    rows.push({ cells:[ C([P([R('Remarques et suggestions',{b:true})],{size:10.5})], {shade:'EDEDED'}), rightCell(rayRows[0]) ] });
+    rayRows.slice(1).forEach(function(r, i){
+      var cells = [];
+      if(i===0) cells.push(C(paragraphsOf(g.remarques).map(function(t){ return P(t, {size:10, after:3, align:'justify'}); }), {rowspan: rayRows.length-1}));
+      cells.push(rightCell(r));
+      rows.push({ cells: cells });
+    });
+    rows.push({ cells:[ C([P([R('Appréciation globale',{b:true})],{size:10.5})], {shade:'EDEDED'}), C([P([R("Réalisation de l'objectif",{b:true})],{size:10.5})], {shade:'EDEDED'}) ] });
+    rows.push({ h:30, cells:[ C(paragraphsOf(g.appreciation).map(function(t){ return P(t, {size:10, after:3, align:'justify'}); })), C(paragraphsOf(g.realisation).map(function(t){ return P(t, {size:10, after:3}); })) ] });
+    var nat = g.nature==='visite';
+    var blocks = [
+      { t:'table', border:true, cols:[34,33,33], mb:0, rows:[
+        { cells:[
+          C([P('Direction provinciale de SEFROU', {size:10, b:true}), P('Inspection de français', {size:10}), P('Année scolaire : '+(g.annee || anneeScolaireCourante(d.date)), {size:10})], {v:'middle'}),
+          C([P([R("Grille d'observation", {b:true})], {size:12, align:'center'}), P([R('', {box:true, checked:nat}), R(' Visite   /   '), R('', {box:true, checked:!nat}), R(' Inspection')], {size:10, align:'center', before:3})], {v:'middle'}),
+          C([P([R('Date : ',{b:true}), R(fmtDate(d.date) || dots('',22))], {size:10}), P([R('Heure : ',{b:true}), R(g.heure || dots('',14))], {size:10, before:3})], {v:'middle'})
+        ] },
+        { cells:[ offFieldCell('Nom et prénom', d.enseignantNom), offFieldCell('Etablissement', etab), offFieldCell('Note Inspection', g.noteInspPrec) ] },
+        { cells:[ offFieldCell('CIN', g.cin), offFieldCell('Localité', g.localite), offFieldCell('Date', g.datePrec) ] },
+        { cells:[ offFieldCell('Doti', g.doti || (ens && ens.ppr) || ''), C([P([R('Echelle : ',{b:true}), R(g.echelle||''), R('        Echelon : ',{b:true}), R(g.echelon||'')], {size:10})]), offFieldCell('Par', g.par) ] },
+        { cells:[ offFieldCell('Manuel', g.manuel), offFieldCell('Pages', g.pages), C([P('',{size:10})]) ] },
+        { cells:[ offFieldCell('Module/période', g.module), offFieldCell('Séquence', g.sequence), offFieldCell('Classe inspectée', d.classe) ] },
+        { cells:[ offFieldCell('Activité', g.activite || (d.seance==='consolidation' ? 'Séance de consolidation' : '')), offFieldCell('Intitulé', g.intitule),
+          C([P([R('Nbr élèves : ',{b:true}), R(g.nbEleves||''), R('        Abs : ',{b:true}), R(g.absents||'')], {size:10})]) ] }
+      ] },
+      { t:'table', border:true, cols:[64,36], mb:0, rows: rows }
+    ];
+    return { type:'observation', rtl:false, margin:12, size:10, fontCss:"'Times New Roman',Times,serif", fontDocx:'Times New Roman', blocks: blocks };
+  }
+  /* ---- Grilles « Collèges Pionniers » (modèle ministériel) ---- */
+  function offObservationPionnier(d, task){
+    var variante = d.variante;
+    var titreSeance = variante==='pionnier_synthese' ? ['Séance de synthèse','حصة التوليف'] : ['Séance ordinaire','حصة عادية'];
+    var etab = (task && (task.etablissementNom || etabName(task.etablissementId))) || '';
+    var scaleAr = OBS_PIONNIER_SCALE_AR.slice();
+    var head = { cells:[ C([P([R("Domaines d'observation",{b:true})],{size:10, align:'center'})], {v:'middle', shade:'F2F2F2'}),
+      C([P([R("Critères et indicateurs d'évaluation",{b:true})],{size:10, align:'center'})], {v:'middle', shade:'F2F2F2'}) ]
+      .concat(scaleAr.map(function(l){ return C([P([R(l,{b:true, font:"'Traditional Arabic','Sakkal Majalla',serif"})],{size:9.5, align:'center', dir:'rtl'})], {v:'middle', shade:'F2F2F2'}); })) };
+    var rows = [head];
+    (d.domaines||[]).forEach(function(dom){
+      dom.criteres.forEach(function(c, i){
+        var cells = [];
+        if(i===0) cells.push(C([P([R(dom.nom,{b:true})],{size:10, align:'center'})], {rowspan: dom.criteres.length, v:'middle'}));
+        cells.push(C([P(c.nom, {size:10})], {v:'middle'}));
+        OBS_PIONNIER_SCALE.forEach(function(lvl){ cells.push(C([P([R('',{box:true, checked: c.note===lvl, size:11})],{align:'center'})], {v:'middle'})); });
+        rows.push({ cantSplit:true, cells: cells });
+      });
+    });
+    var blocks = [
+      P([R('Collèges Pionniers',{u:true})], {align:'center', size:10.5, font:'Franklin Gothic Book'}),
+      P('GRILLE D’OBSERVATION (26/27)', {align:'center', size:13}),
+      P(titreSeance[0], {align:'center', size:10.5}),
+      P([R(titreSeance[1], {font:"'Traditional Arabic','Sakkal Majalla',serif"})], {align:'center', size:13, after:6}),
+      { t:'table', border:false, cols:[50,50], mb:2, rows:[
+        { cells:[ C([P([R('Enseignant(e) : ',{b:true}), R(d.enseignantNom||'')],{size:10}), P([R('Établissement : ',{b:true}), R(etab)],{size:10})]),
+                  C([P([R('Classe : ',{b:true}), R(d.classe||''), R('    Date : ',{b:true}), R(fmtDate(d.date))],{size:10}), P([R('Matière : ',{b:true}), R(d.matiere||''), R('    Durée : ',{b:true}), R(d.duree||'')],{size:10})]) ] }
+      ] },
+      { t:'table', border:true, cols:[17,59,8,8,8], rows: rows },
+      P([R("Appréciations d'ensemble et orientations",{b:true})], {align:'center', size:11, before:8, after:4}),
+      { t:'table', border:true, cols:[100], rows:[ { h:40, cells:[ C(paragraphsOf(d.appreciationGlobale).map(function(t){ return P(t, {size:10.5, after:3, align:'justify'}); })) ] } ] },
+      { t:'table', border:false, cols:[50,50], mt:6, rows:[ { cells:[ C([P("Signature de l'inspecteur(trice)",{size:10}), {t:'sigimg'}]), C([P("Signature de l'enseignant(e)",{size:10, align:'right'})]) ] } ] }
+    ];
+    return { type:'observation', rtl:false, margin:14, size:10.5, fontCss:"'Times New Roman',Times,serif", fontDocx:'Times New Roman', blocks: blocks };
+  }
+  /* ---- Rapport d'inspection ---- */
+  function civiliteOf(d){
+    if(d.civilite) return d.civilite;
+    var ens = state.enseignants.find(function(x){ return x.nom===d.enseignantNom; });
+    return (ens && ens.genre==='F') ? 'Mme.' : (ens && ens.genre==='H') ? 'M.' : '';
+  }
+  function rapportInspectionTexte(d){
+    if(d.texte && d.texte.trim()) return d.texte;
+    return [d.constats, d.recommandations].filter(function(x){ return x && x.trim(); }).join('\n\n');
+  }
+  function offRapportInspection(d, task){
+    var pf = offProfil();
+    var civ = civiliteOf(d);
+    var fem = civ==='Mme.' || civ==='Mlle';
+    var note = (d.note||'').trim();
+    var noteTxt = note ? (/\/\s*20$/.test(note) ? note : note+'/20') : '……/20';
+    var body = paragraphsOf(rapportInspectionTexte(d)).map(function(t){ return P(richRuns(t), {align:'justify', indent:12, after:6, size:11, line:1.15}); });
+    var redacteur = d.redacteur || pf.nomSignature || ('M. '+pf.nom);
+    var blocks = [
+      { t:'table', border:false, cols:[50,50], mb:0, rows:[ { cells:[
+        C([{t:'img', key:'rapport', w:68, align:'left'}], {pad:0}),
+        C([P([R('Etablissement : ',{b:true}), R(d.lieu||'')],{size:10.5}), P([R('Localité : ',{b:true}), R(d.localite||'')],{size:10.5}),
+           P([R('Classe : ',{b:true}), R(d.classe||'')],{size:10.5}), P([R('Manuel : ',{b:true}), R(d.manuel||'')],{size:10.5})], {pad:0})
+      ] } ] },
+      P([R("RAPPORT D’INSPECTION", {b:true, u:true})], {align:'center', size:16, before:14, after:10}),
+      { t:'table', border:false, cols:[60,40], width:70, center:true, mb:0, rows:[
+        { cells:[ C([P([R("Nom et prénom de l’enseignant"+(fem?'e':''),{i:true})],{size:9.5, align:'center'})]), C([P([R('PPR',{i:true})],{size:9.5, align:'center'})]) ] },
+        { cells:[ C([P([R((civ?civ+' ':'')+(d.enseignantNom||''),{b:true})],{size:11.5, align:'center'})]), C([P([R(d.ppr||'',{b:true})],{size:11.5, align:'center'})]) ] }
+      ] },
+      { t:'table', border:false, cols:[18,41,41], mt:3, mb:4, rows:[
+        { cells:[ C([P('')]), C([P('Nationalité : '+(d.nationalite||'Marocaine'),{size:10.5})]), C([P('Cadre : '+(d.cadre||''),{size:10.5})]) ] },
+        { cells:[ C([P('')]), C([P('Précédente inspection : '+(d.precInspection||''),{size:10.5})]), C([P('Note : '+(d.precNote||''),{size:10.5})]) ] },
+        { cells:[ C([P('')]), C([P('Par : '+(d.par||'Nous-même'),{size:10.5})]), C([P('')]) ] }
+      ] }
+    ].concat(body.length ? body : [P('', {size:11})]).concat([
+      P([R("Note d’inspection : "+noteTxt, {b:true})], {size:12, before:6, borderTop:true}),
+      { t:'table', border:false, cols:[30,20,26,24], mt:2, rows:[
+        { cells:[ C([P('')]), C([P('')]), C([P('')]), C([P("Lu et pris connaissance",{size:10.5, align:'center'})]) ] },
+        { cells:[ C([P('Rapport établi par :',{size:10.5}), P(redacteur,{size:10.5}), P('Le '+(fmtDate(d.date)||''),{size:10.5}), {t:'sigimg'}]),
+                  C([P('M. le directeur\nprovincial',{size:10.5, align:'center'})]),
+                  C([P('M. Le chef d’établissement',{size:10.5, align:'center'})]),
+                  C([P(fem ? 'L’intéressée' : 'L’intéressé',{size:10.5, align:'center'})]) ] }
+      ] }
+    ]);
+    return { type:'rapport_inspection', rtl:false, margin:16, size:11, fontCss:"Calibri,Carlito,'Segoe UI',Arial,sans-serif", fontDocx:'Calibri', blocks: blocks };
+  }
+  /* ---- Bordereau d'envoi (ورقة إرسال) ---- */
+  function arDestinataire(v){
+    var s = String(v||'').trim();
+    if(!s || /^monsieur le directeur provincial$/i.test(s)) return 'المدير الإقليمي';
+    return s;
+  }
+  function offBordereau(d, task){
+    var pf = offProfil();
+    var rows = [{ cells:[ C([P([R('الموضوع',{b:true})],{align:'center', size:12})], {shade:'FFFFFF'}), C([P([R('العدد',{b:true})],{align:'center', size:12})]), C([P([R('ملاحظات',{b:true})],{align:'center', size:12})]) ] }];
+    (d.pieces||[]).forEach(function(p){
+      rows.push({ cantSplit:true, cells:[ C([P(p.designation||'', {size:12})]), C([P(p.nombre||'', {size:12, align:'center'})]), C([P(p.observation||'', {size:12})]) ] });
+    });
+    var nv = (d.tableauxValides||[]).length, nnv = (d.tableauxNonValides||[]).length;
+    if(nv) rows.push({ cells:[ C([P('جداول الحصص المصادق عليها', {size:12})]), C([P(String(nv), {size:12, align:'center'})]), C([P('انظر اللائحة المرفقة', {size:11})]) ] });
+    if(nnv) rows.push({ cells:[ C([P('جداول الحصص غير المصادق عليها', {size:12})]), C([P(String(nnv), {size:12, align:'center'})]), C([P('انظر اللائحة المرفقة مع الملاحظات', {size:11})]) ] });
+    var filler = Math.max(30, 110 - (rows.length-1)*9);
+    rows.push({ h: filler, cells:[ C([P(d.observations ? '' : '')]), C([P('')]), C([P(d.observations||'', {size:11})]) ] });
+    var blocks = [
+      {t:'img', key:'ministere', w:108, align:'center'},
+      P([R('الأكاديمية الجهوية للتربية و التكوين',{b:true})], {align:'center', size:9.5, before:2}),
+      P([R('جهة '+(pf.academieAr||'فاس- مكناس'),{b:true})], {align:'center', size:9.5}),
+      P([R('المديرية الإقليمية ب'+(pf.provinceAr||'صفرو'),{b:true})], {align:'center', size:9.5, after:16}),
+      P('من السيد : '+(pf.nomAr||pf.nom||''), {size:11}),
+      P('مفتش مادة : '+(pf.matiereAr||'اللغة الفرنسية'), {size:11, after:14}),
+      P('إلى السيد : '+(arDestinataire(d.destinataire) || dots('',70)), {size:11, align:'center', after:4}),
+      d.reference ? P('المرجع : '+d.reference, {size:10.5, align:'center'}) : P('', {size:4}),
+      P([R('ورقة إرسال',{b:true})], {align:'center', size:22, before:10, after:12}),
+      { t:'table', border:true, cols:[38,16,46], rows: rows }
+    ];
+    function annex(title, list, withObs){
+      var rr = [{ cells:[ C([P([R('المؤسسة',{b:true})],{align:'center', size:11})]), C([P([R('اسم الأستاذ(ة)',{b:true})],{align:'center', size:11})]), C([P([R('رقم التأجير',{b:true})],{align:'center', size:11})]) ]
+        .concat(withObs ? [C([P([R('الملاحظات',{b:true})],{align:'center', size:11})])] : []) }];
+      list.slice().sort(function(a,b){ return (a.etablissement||'').localeCompare(b.etablissement||''); }).forEach(function(r){
+        rr.push({ cantSplit:true, cells:[ C([P(r.etablissement||'',{size:11})]), C([P(r.enseignant||'',{size:11})]), C([P(r.ppr||'',{size:11, align:'center'})]) ].concat(withObs ? [C([P(r.observation||'',{size:10.5})])] : []) });
+      });
+      blocks.push(P([R(title,{b:true})], {size:12, before:12, after:4}));
+      blocks.push({ t:'table', border:true, cols: withObs ? [26,28,14,32] : [36,40,24], rows: rr });
+    }
+    blocks.push(P('التوقيع', {size:11, align:'left', before:14}));
+    blocks.push({t:'sigimg', align:'left'});
+    if(nv) annex('لائحة جداول الحصص المصادق عليها', d.tableauxValides, false);
+    if(nnv) annex('لائحة جداول الحصص غير المصادق عليها', d.tableauxNonValides, true);
+    return { type:'bordereau', rtl:true, margin:15, size:11, fontCss:"Arial,'Traditional Arabic',sans-serif", fontDocx:'Arial', blocks: blocks };
+  }
+  /* ---- Lettre d'information (رسالة إخبارية) ---- */
+  function offLettre(d, task){
+    var pf = offProfil();
+    var cycle = pf.cycleAr || (/الإعدادي/.test(pf.grade||'') ? 'الثانوي الإعدادي' : 'الثانوي التأهيلي');
+    var matiere = pf.matiereAr || 'اللغة الفرنسية';
+    var dest = arDestinataire(d.destinataire);
+    var destLines = /المدير الإقليمي/.test(dest)
+      ? ['إلى السيد المدير الإقليمي', 'لوزارة التربية الوطنية والتعليم الأولي والرياضة', 'مديرية '+(pf.provinceAr||'صفرو')]
+      : ['إلى السيد '+dest];
+    var corps = String(d.corps||'').trim();
+    if(corps && !/^و?بعد/.test(corps)) corps = 'وبعد، '+corps;
+    var bodyParas = paragraphsOf(corps).map(function(t){ return P(t, {align:'justify', size:16, indent:10, after:4, line:1.15}); });
+    var blocks = [
+      {t:'img', key:'lettre', w:82, align:'center'},
+      P([R('تفتيش مادة '+matiere+' - '+cycle+' -',{b:true})], {size:14, before:2}),
+      P([R('المفتشية الإقليمية',{b:true})], {size:13}),
+      P([R('مصلحة الشؤون التربوية',{b:true})], {size:13, after:10}),
+      P([R('من السيد',{b:true})], {size:16}),
+      P([R((pf.nomAr||pf.nom||'')+' مفتش تربوي لمادة '+matiere,{b:true})], {size:16, after:10})
+    ].concat(destLines.map(function(l, i){ return P([R(l,{b:true})], {size: i===0 ? 18 : 16, align:'center'}); })).concat([
+      P([R('الموضوع: ',{b:true}), R(d.objet||'',{b:true})], {size:17, align:'center', before:12, after:12}),
+      P([R('سلام تام بوجود مولانا الإمام.',{b:true})], {size:17, indent:10, after:8})
+    ]).concat(bodyParas.length ? bodyParas : [P('', {size:16})]);
+    if(d.invites && d.invites.length){
+      var rr = [{ cells:[ C([P([R('الاسم الكامل',{b:true})],{align:'center', size:13})]), C([P([R('رقم التأجير',{b:true})],{align:'center', size:13})]), C([P([R('المؤسسة',{b:true})],{align:'center', size:13})]) ] }];
+      d.invites.forEach(function(iv){ rr.push({ cantSplit:true, cells:[ C([P(iv.nom||'',{size:13})]), C([P(iv.ppr||'',{size:13, align:'center'})]), C([P(iv.etablissementNom||'',{size:13})]) ] }); });
+      blocks.push(P([R('الأساتذة المدعوون',{b:true})], {size:14, before:8, after:4}));
+      blocks.push({ t:'table', border:true, cols:[40,20,40], rows: rr });
+    }
+    blocks = blocks.concat([
+      P([R('والسلام',{b:true})], {size:17, align:'center', before:10, after:8}),
+      { t:'table', border:false, cols:[50,50], rows:[ { cells:[ C([P('')]), C([P([R('مفتش '+matiere,{b:true})],{size:15, align:'center'}), P([R('التعليم '+cycle,{b:true})],{size:15, align:'center'}), {t:'sigimg', align:'center'},
+        d.date ? P(fmtDate(d.date), {size:13, align:'center'}) : P('')]) ] } ] }
+    ]);
+    var footer = [
+      P([R('مصلحة الشؤون التربوية',{b:true})], {size:11, align:'center', borderTop:true}),
+      P([R(pf.piedPageAr || 'ص ب: 187 طريق المنزل. الهاتف: 0535661490 - الفاكس: 0535661492 - البريد الإلكتروني: dpmenfpsefrou2017@gmail.com',{b:true})], {size:10, align:'center'})
+    ];
+    return { type:'lettre_information', rtl:true, margin:16, size:16, fontCss:"'Sakkal Majalla','Traditional Arabic','Amiri',serif", fontDocx:'Sakkal Majalla', blocks: blocks, footer: footer };
+  }
+  /* Modèle officiel du document, ou null pour les types qui gardent le rendu générique. */
+  function buildOfficialDoc(d, task){
+    if(d.type==='observation'){
+      if(d.variante==='sefrou') return offObservationSefrou(d, task);
+      if(d.variante==='pionnier_ordinaire' || d.variante==='pionnier_synthese') return offObservationPionnier(d, task);
+      return null;
+    }
+    if(d.type==='rapport_inspection') return offRapportInspection(d, task);
+    if(d.type==='bordereau') return offBordereau(d, task);
+    if(d.type==='lettre_information') return offLettre(d, task);
+    return null;
+  }
+
   /* ================= print ================= */
   function printHTML(bodyHtml, rtl){
     $('printRoot').innerHTML = '<div class="p-page" dir="'+(rtl?'rtl':'ltr')+'" lang="'+(rtl?'ar':'fr')+'">'+bodyHtml+'</div>';
@@ -4139,6 +4777,8 @@
   }
   function doPrint(){
     var d = state.draftDoc, task = state.tasks.find(function(t){ return t.id===d.taskId; });
+    var off = buildOfficialDoc(d, task);
+    if(off){ printOfficial(off); return; }
     printFromSpec(buildDocSpec(d, task));
   }
 
@@ -5482,6 +6122,14 @@
         '<div class="field-row"><div class="field"><label for="pAcademie">Académie régionale</label><input type="text" id="pAcademie" value="'+esc(p.academieRegionale)+'"></div>'+
         '<div class="field"><label for="pProvince">Province / Nyaba</label><input type="text" id="pProvince" value="'+esc(p.province)+'"></div></div>'+
         '<div class="field"><label for="pNbEncadres">Nombre d\'encadré(e)s</label><input type="number" min="0" id="pNbEncadres" value="'+esc(p.nbEncadres)+'"></div>'+
+        '<div class="section-label" style="margin-top:6px;">Documents officiels (rapport d\'inspection, ورقة إرسال, رسالة إخبارية)</div>'+
+        '<div class="field"><label for="pNomSig">Nom tel qu\'il apparaît sur le rapport d\'inspection</label><input type="text" id="pNomSig" value="'+esc(p.nomSignature||DEFAULT_PROFIL.nomSignature)+'" placeholder="M. El Arbi EL ADLOUNI"></div>'+
+        '<div class="field-row"><div class="field"><label for="pNomAr">الاسم الكامل</label><input type="text" id="pNomAr" dir="rtl" value="'+esc(p.nomAr||DEFAULT_PROFIL.nomAr)+'"></div>'+
+        '<div class="field"><label for="pMatAr">المادة</label><input type="text" id="pMatAr" dir="rtl" value="'+esc(p.matiereAr||DEFAULT_PROFIL.matiereAr)+'"></div></div>'+
+        '<div class="field-row"><div class="field"><label for="pCycleAr">السلك</label><input type="text" id="pCycleAr" dir="rtl" value="'+esc(p.cycleAr||'')+'" placeholder="الثانوي الإعدادي / الثانوي التأهيلي"></div>'+
+        '<div class="field"><label for="pAcadAr">الجهة</label><input type="text" id="pAcadAr" dir="rtl" value="'+esc(p.academieAr||DEFAULT_PROFIL.academieAr)+'"></div>'+
+        '<div class="field"><label for="pProvAr">المديرية الإقليمية</label><input type="text" id="pProvAr" dir="rtl" value="'+esc(p.provinceAr||DEFAULT_PROFIL.provinceAr)+'"></div></div>'+
+        '<div class="field"><label for="pPiedAr">تذييل الرسائل (العنوان، الهاتف، البريد)</label><textarea id="pPiedAr" dir="rtl" rows="2">'+esc(p.piedPageAr||DEFAULT_PROFIL.piedPageAr)+'</textarea></div>'+
         profilImageFieldHtml('logo', 'Logo / en-tête', p.logoAssetId)+
         profilImageFieldHtml('cachet', 'Cachet', p.cachetAssetId)+
         profilImageFieldHtml('signature', 'Signature', p.signatureAssetId)+
@@ -5871,6 +6519,48 @@
     return html;
   }
 
+  /* Petits champs de formulaire liés au document par data-dk (voir syncDocGenericFields). */
+  function dkField(label, key, value, o){
+    o = o || {};
+    return '<div class="field"'+(o.style?' style="'+o.style+'"':'')+'><label>'+esc(label)+'</label>'+
+      (o.area ? '<textarea data-dk="'+key+'" rows="'+(o.rows||4)+'"'+(o.id?' id="'+o.id+'"':'')+(o.dir?' dir="'+o.dir+'"':'')+(o.ph?' placeholder="'+esc(o.ph)+'"':'')+'>'+esc(value||'')+'</textarea>'
+              : '<input type="'+(o.type==='number' ? 'text" inputmode="numeric' : (o.type||'text'))+'" data-dk="'+key+'" value="'+esc(value||'')+'"'+(o.id?' id="'+o.id+'"':'')+(o.ph?' placeholder="'+esc(o.ph)+'"':'')+(o.dir?' dir="'+o.dir+'"':'')+'>')+
+      (o.after||'')+'</div>';
+  }
+  function dkRow(){ return '<div class="field-row">'+Array.prototype.slice.call(arguments).join('')+'</div>'; }
+  function aiBtnHtml(id, label, withTr){
+    return state.sampleReady ? '<div class="btn-row"><button class="btn ai sm" id="'+id+'" type="button">'+ICONS.ai+' '+label+'</button>'+(withTr?'<button class="btn ghost sm" id="'+withTr+'" type="button">'+ICONS.ai+' Traduire</button>':'')+'</div><div class="banner info" id="'+id+'Status" hidden style="margin-top:6px;"></div>' : '';
+  }
+  function sefrouEditorHtml(d){
+    var g = d.sefrou || defaultSefrouGrid(), it = g.items || {};
+    var sel = function(key){
+      var v = it[key] || '';
+      return '<select data-sefitem="'+esc(key)+'" style="border:1px solid var(--line);background:var(--surface-2);border-radius:8px;padding:6px 6px;font-size:12px;max-width:140px;">'+
+        '<option value=""'+(v?'':' selected')+'>—</option>'+SEFROU_SCALE.map(function(n){ return '<option value="'+n+'"'+(v===n?' selected':'')+'>'+n+'</option>'; }).join('')+'</select>';
+    };
+    var group = function(nom, items, prefix){
+      return '<div class="crit-card"><div class="cn" style="font-weight:700;">'+esc(nom)+'</div>'+items.map(function(x){
+        return '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 0;border-top:1px solid var(--line);font-size:12.5px;"><span>'+esc(x)+'</span>'+sel(prefix+'|'+x)+'</div>';
+      }).join('')+'</div>';
+    };
+    return '<div class="field"><label>Nature</label><div class="seg" id="sefNatureSeg"><button type="button" data-v="visite" aria-pressed="'+(g.nature==='visite')+'">Visite</button><button type="button" data-v="inspection" aria-pressed="'+(g.nature!=='visite')+'">Inspection</button></div></div>'+
+      dkRow(dkField('Année scolaire','sefrou.annee', g.annee || anneeScolaireCourante(d.date), {ph:'2026 / 2027'}), dkField('Heure','sefrou.heure', g.heure, {type:'time'}))+
+      dkRow(dkField('CIN','sefrou.cin', g.cin), dkField('Doti (PPR)','sefrou.doti', g.doti))+
+      dkRow(dkField('Échelle','sefrou.echelle', g.echelle), dkField('Échelon','sefrou.echelon', g.echelon), dkField('Localité','sefrou.localite', g.localite))+
+      '<div class="section-label" style="margin-top:4px;">Dernière inspection</div>'+
+      dkRow(dkField('Note','sefrou.noteInspPrec', g.noteInspPrec), dkField('Date','sefrou.datePrec', g.datePrec), dkField('Par','sefrou.par', g.par))+
+      '<div class="section-label" style="margin-top:4px;">Séance observée</div>'+
+      dkRow(dkField('Manuel','sefrou.manuel', g.manuel), dkField('Pages','sefrou.pages', g.pages))+
+      dkRow(dkField('Module / période','sefrou.module', g.module), dkField('Séquence','sefrou.sequence', g.sequence))+
+      dkRow(dkField('Activité','sefrou.activite', g.activite), dkField('Intitulé','sefrou.intitule', g.intitule))+
+      dkRow(dkField('Nbr élèves','sefrou.nbEleves', g.nbEleves, {type:'number'}), dkField('Absents','sefrou.absents', g.absents, {type:'number'}))+
+      dkField('Déroulement','sefrou.deroulement', g.deroulement, {area:true, rows:7, id:'dSefDer', ph:'Notes ou dictée du déroulement de la séance…', after: aiBtnHtml('btnAiSefDer', 'Rédiger/compléter avec l\'IA')})+
+      '<div class="field"><label>Échelle de maîtrise</label>'+SEFROU_GROUPS.map(function(gr){ return group(gr.nom, gr.items, gr.nom); }).join('')+'</div>'+
+      dkField('Remarques et suggestions','sefrou.remarques', g.remarques, {area:true, rows:5, id:'dSefRem', after: aiBtnHtml('btnAiSefRem', 'Proposer des remarques et suggestions')})+
+      '<div class="field"><label>Rayonnement</label>'+group('Rayonnement', SEFROU_RAYONNEMENT, 'Rayonnement')+'</div>'+
+      dkField('Appréciation globale','sefrou.appreciation', g.appreciation, {area:true, rows:4, id:'dSefApp', after: aiBtnHtml('btnAiSefApp', 'Proposer une appréciation globale')})+
+      dkField("Réalisation de l'objectif",'sefrou.realisation', g.realisation, {area:true, rows:2, ph:'Ex. Objectif atteint / partiellement atteint…'});
+  }
   /* ---- Enseignant editor ---- */
   function enseignantModalHtml(idx){
     var e = state.draftRecord;
@@ -6039,11 +6729,17 @@
         '</div>';
     } else if(m.docType==='observation'){
       var variante = d.variante || 'standard';
-      body += '<div class="field"><label>Type de grille</label><div class="seg" id="obsVarianteSeg">'+OBS_VARIANTES.map(function(o){ return '<button type="button" data-v="'+o.v+'" aria-pressed="'+(variante===o.v)+'">'+esc(o.l)+'</button>'; }).join('')+'</div>'+
+      var etObsE = (function(){ var tk = state.tasks.find(function(t){ return t.id===m.taskId; }); return tk && tk.etablissementId ? state.etablissements.find(function(x){ return x.id===tk.etablissementId; }) : null; })();
+      var pionE = !!(etObsE && etObsE.pionnier);
+      body += '<div class="field"><label>Type de séance</label><div class="seg" id="obsSeanceSeg">'+SEANCE_TYPES.map(function(o){ return '<button type="button" data-v="'+o.v+'" aria-pressed="'+((d.seance||'normale')===o.v)+'">'+esc(o.l)+'</button>'; }).join('')+'</div>'+
+        '<p style="font-size:11px;color:var(--ink-faint);margin:5px 2px 0;">'+(etObsE ? esc(etObsE.nom)+' : ' : '')+(pionE ? '<b>collège pionnier</b> — grille du ministère (séance normale = séance ordinaire, séance de consolidation = séance de synthèse).' : 'établissement non pionnier — grille de la Direction provinciale de Sefrou.')+'</p></div>'+
+        '<div class="field"><label>Type de grille</label><div class="seg" id="obsVarianteSeg">'+OBS_VARIANTES.map(function(o){ return '<button type="button" data-v="'+o.v+'" aria-pressed="'+(variante===o.v)+'">'+esc(o.l)+'</button>'; }).join('')+'</div>'+
         '<p style="font-size:11px;color:var(--ink-faint);margin:5px 2px 0;">Les grilles « Collège pionnier » sont fournies par le ministère (année 2026/27) et ne sont pas personnalisables ; seule l\'appréciation d\'ensemble se rédige librement.</p></div>'+
         '<div class="field-row"><div class="field"><label for="dEns">Enseignant(e)</label><input type="text" id="dEns" value="'+esc(d.enseignantNom)+'"></div><div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div></div>'+
         '<div class="field-row"><div class="field"><label for="dClasse">Classe</label><input type="text" id="dClasse" value="'+esc(d.classe)+'"></div><div class="field"><label for="dMat">Matière</label><input type="text" id="dMat" value="'+esc(d.matiere)+'"></div><div class="field"><label for="dDuree">Durée</label><input type="text" id="dDuree" value="'+esc(d.duree)+'" placeholder="50 min"></div></div>';
-      if(variante==='pionnier_ordinaire' || variante==='pionnier_synthese'){
+      if(variante==='sefrou'){
+        body += sefrouEditorHtml(d);
+      } else if(variante==='pionnier_ordinaire' || variante==='pionnier_synthese'){
         body += '<p style="font-size:11px;color:var(--ink-faint);margin:2px 2px 10px;">Échelle officielle : '+OBS_PIONNIER_SCALE.map(function(l,i){ return esc(l)+' ('+esc(OBS_PIONNIER_SCALE_AR[i])+')'; }).join(' · ')+'</p>'+
           (d.domaines||[]).map(function(dom, di){
             return '<div class="field"><div style="font-weight:700;font-size:13.5px;margin-bottom:6px;">'+esc(dom.nom)+'</div>'+
@@ -6084,13 +6780,18 @@
         ((d.invites && d.invites.length) ? '<div class="field"><label>Enseignant(e)s invité(e)s <span style="font-weight:400;color:var(--ink-faint);">(repris dans le document imprimé/exporté — modifiable dans la tâche)</span></label>'+
           '<div class="doc-list">'+d.invites.map(function(iv){ return '<div class="doc-row"><div class="doc-info"><div class="t">'+esc(iv.nom)+'</div><div class="s">'+(iv.ppr?'PPR '+esc(iv.ppr)+' · ':'')+esc(iv.etablissementNom||'')+'</div></div></div>'; }).join('')+'</div></div>' : '');
     } else if(m.docType==='rapport_inspection'){
-      body += '<div class="field-row"><div class="field"><label for="dEns">Enseignant(e)</label><input type="text" id="dEns" value="'+esc(d.enseignantNom)+'"></div><div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div></div>'+
-        '<div class="field-row"><div class="field"><label for="dLieu">Établissement</label><input type="text" id="dLieu" value="'+esc(d.lieu)+'"></div><div class="field"><label for="dClasse">Classe</label><input type="text" id="dClasse" value="'+esc(d.classe)+'"></div><div class="field"><label for="dMat">Matière</label><input type="text" id="dMat" value="'+esc(d.matiere)+'"></div></div>'+
-        '<div class="field"><label>Appréciation générale</label><div class="seg" id="dAppSeg">'+NOTE_SCALE.map(function(n){ return '<button type="button" data-v="'+n+'" aria-pressed="'+(d.appreciation===n)+'">'+n+'</button>'; }).join('')+'</div></div>'+
-        '<div class="field"><label for="dConstats">Constats</label><textarea id="dConstats" rows="4">'+esc(d.constats)+'</textarea>'+
-        (state.sampleReady ? '<div class="btn-row"><button class="btn ai sm" id="btnAiConstats" type="button">'+ICONS.ai+' Rédiger/compléter avec l\'IA</button></div><div class="banner info" id="aiConstatsStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>'+
-        '<div class="field"><label for="dRecom">Recommandations</label><textarea id="dRecom" rows="4">'+esc(d.recommandations)+'</textarea>'+
-        (state.sampleReady ? '<div class="btn-row"><button class="btn ai sm" id="btnAiRecom" type="button">'+ICONS.ai+' Proposer des recommandations</button><button class="btn ghost sm" id="btnTrRecom" type="button">'+ICONS.ai+' Traduire</button></div><div class="banner info" id="aiRecomStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>';
+      if(!d.texte && (d.constats || d.recommandations)) d.texte = rapportInspectionTexte(d);
+      var civ = d.civilite || civiliteOf(d);
+      body += dkRow('<div class="field"><label for="dEns">Enseignant(e)</label><input type="text" id="dEns" value="'+esc(d.enseignantNom)+'"></div>', dkField('PPR','ppr', d.ppr))+
+        '<div class="field"><label>Civilité</label><div class="seg" id="dCivSeg">'+['M.','Mme.'].map(function(c){ return '<button type="button" data-v="'+c+'" aria-pressed="'+(civ===c)+'">'+c+'</button>'; }).join('')+'</div></div>'+
+        dkRow('<div class="field"><label for="dLieu">Établissement</label><input type="text" id="dLieu" value="'+esc(d.lieu)+'"></div>', dkField('Localité','localite', d.localite))+
+        dkRow('<div class="field"><label for="dClasse">Classe</label><input type="text" id="dClasse" value="'+esc(d.classe)+'"></div>', dkField('Manuel','manuel', d.manuel))+
+        dkRow(dkField('Nationalité','nationalite', d.nationalite||'Marocaine'), dkField('Cadre','cadre', d.cadre, {ph:'Ex. Ens Sec Qualifiant'}))+
+        dkRow(dkField('Précédente inspection (année)','precInspection', d.precInspection), dkField('Note précédente','precNote', d.precNote, {ph:'Ex. 18/20'}), dkField('Par','par', d.par||'Nous-même'))+
+        dkRow('<div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div>', dkField("Note d'inspection",'note', d.note, {ph:'Ex. 19/20'}))+
+        dkField("Notes d'observation (saisie ou dictée)",'notesObs', d.notesObs, {area:true, rows:6, id:'dNotesObs', ph:'Déroulement, points forts, points à améliorer… le rapport sera rédigé à partir de ces notes.'})+
+        dkField('Texte du rapport','texte', d.texte, {area:true, rows:12, id:'dTexteRapport', after: aiBtnHtml('btnAiRapportInsp', 'Rédiger le rapport à partir des notes')})+
+        dkField('Rapport établi par','redacteur', d.redacteur || offProfil().nomSignature);
     } else if(m.docType==='plan_action'){
       body += '<div class="field-row"><div class="field"><label for="dLieu">Établissement</label><input type="text" id="dLieu" value="'+esc(d.lieu)+'"></div><div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div></div>'+
         '<div class="field"><label for="dObjet">Objet</label><input type="text" id="dObjet" value="'+esc(d.objet)+'"></div>'+
@@ -6110,7 +6811,8 @@
         '<div class="field-row"><div class="field"><label for="dObjet">Objet</label><input type="text" id="dObjet" value="'+esc(d.objet)+'"></div><div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div></div>'+
         '<div class="field"><label>Pièces jointes</label><div id="piecesList">'+(d.pieces||[]).map(function(p,i){
           return '<div class="rowline"><input type="text" data-piece="designation" data-i="'+i+'" value="'+esc(p.designation)+'" placeholder="Désignation" style="flex:2;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;">'+
-            '<input type="text" data-piece="nombre" data-i="'+i+'" value="'+esc(p.nombre)+'" placeholder="Nombre" style="width:70px;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;"><button class="rm" data-rmpiece="'+i+'" type="button">'+ICONS.trash+'</button></div>';
+            '<input type="text" data-piece="nombre" data-i="'+i+'" value="'+esc(p.nombre)+'" placeholder="Nombre" style="width:70px;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;">'+
+            '<input type="text" data-piece="observation" data-i="'+i+'" value="'+esc(p.observation||'')+'" placeholder="ملاحظات" dir="rtl" style="flex:1.4;min-width:0;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;"><button class="rm" data-rmpiece="'+i+'" type="button">'+ICONS.trash+'</button></div>';
         }).join('')+'</div><button class="addline" id="btnAddPiece" type="button">'+ICONS.plus+' Ajouter une pièce</button></div>'+
         '<div class="field"><label for="dObs">Observations</label><textarea id="dObs">'+esc(d.observations)+'</textarea></div>'+
         '<div class="field"><label>Tableaux de service validés <span style="font-weight:400;color:var(--ink-faint);">(par établissement)</span></label><div id="tsValList">'+(d.tableauxValides||[]).map(function(r,i){
@@ -6162,7 +6864,7 @@
       (rtl ? '<p style="font-size:11px;color:var(--ink-faint);margin:2px 0 6px;">Ce document est rédigé en arabe (عربي) : utilisez « Imprimer » ou « Word » pour un rendu correct — le PDF direct ne gère pas encore l\'arabe.</p>' : '')+
       '<div class="setup-actions" style="margin-top:6px;">'+
       '<button class="btn ghost sm" id="btnPrintDoc" type="button">'+ICONS.print+' Imprimer</button>'+
-      (rtl ? '' : '<button class="btn ghost sm" id="btnPdfDoc" type="button">'+ICONS.pdf+' PDF</button>')+
+      ((rtl && !{bordereau:1, lettre_information:1}[m.docType]) ? '' : '<button class="btn ghost sm" id="btnPdfDoc" type="button">'+ICONS.pdf+' PDF</button>')+
       '<button class="btn ghost sm" id="btnDocxDoc" type="button">'+ICONS.doc+' Word (.docx)</button>'+
       (d.gdocUrl ? '<a class="btn ghost sm" href="'+esc(d.gdocUrl)+'" target="_blank" rel="noopener" id="btnOpenGdoc">'+ICONS.ext+' Personnaliser sur Google Docs</a>' : '')+
       '</div>'+
@@ -6710,6 +7412,9 @@
       el=$('pMatiere'); if(el) p.matiere=el.value; el=$('pNumRem'); if(el) p.numRemuneration=el.value;
       el=$('pAcademie'); if(el) p.academieRegionale=el.value; el=$('pProvince'); if(el) p.province=el.value;
       el=$('pNbEncadres'); if(el) p.nbEncadres=el.value;
+      el=$('pNomSig'); if(el) p.nomSignature=el.value; el=$('pNomAr'); if(el) p.nomAr=el.value; el=$('pMatAr'); if(el) p.matiereAr=el.value;
+      el=$('pCycleAr'); if(el) p.cycleAr=el.value; el=$('pAcadAr'); if(el) p.academieAr=el.value; el=$('pProvAr'); if(el) p.provinceAr=el.value;
+      el=$('pPiedAr'); if(el) p.piedPageAr=el.value;
     }
     document.querySelectorAll('[data-picprofil]').forEach(function(el){
       el.onclick = function(){ syncProfilFields(); var key=el.getAttribute('data-picprofil'); profilImageTarget=key; $('file'+key.charAt(0).toUpperCase()+key.slice(1)+'Input').click(); };
@@ -6972,9 +7677,19 @@
       document.querySelectorAll('[data-tsval]').forEach(function(inp){ var i=parseInt(inp.getAttribute('data-i')); if(d.tableauxValides&&d.tableauxValides[i]) d.tableauxValides[i][inp.getAttribute('data-tsval')]=inp.value; });
       document.querySelectorAll('[data-tsnv]').forEach(function(inp){ var i=parseInt(inp.getAttribute('data-i')); if(d.tableauxNonValides&&d.tableauxNonValides[i]) d.tableauxNonValides[i][inp.getAttribute('data-tsnv')]=inp.value; });
       document.querySelectorAll('[data-aizone]').forEach(function(ta){ d.aiZoneValues = d.aiZoneValues || {}; d.aiZoneValues[ta.getAttribute('data-aizone')] = ta.value; });
+      /* Champs des modèles officiels : data-dk="champ" ou "objet.champ" (ex. sefrou.manuel). */
+      document.querySelectorAll('#overlayRoot [data-dk]').forEach(function(el){
+        var path = el.getAttribute('data-dk').split('.'), o = d;
+        for(var k=0;k<path.length-1;k++){ o[path[k]] = o[path[k]] || {}; o = o[path[k]]; }
+        o[path[path.length-1]] = el.value;
+      });
+      document.querySelectorAll('#overlayRoot [data-sefitem]').forEach(function(el){
+        d.sefrou = d.sefrou || defaultSefrouGrid(); d.sefrou.items = d.sefrou.items || {};
+        d.sefrou.items[el.getAttribute('data-sefitem')] = el.value;
+      });
     }
     var segApp = $('dAppSeg'); if(segApp) segApp.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ syncDocGenericFields(); state.draftDoc.appreciation=b.getAttribute('data-v'); render(); }; });
-    var addPiece = $('btnAddPiece'); if(addPiece) addPiece.onclick = function(){ syncDocGenericFields(); (state.draftDoc.pieces=state.draftDoc.pieces||[]).push({designation:'',nombre:'1'}); render(); };
+    var addPiece = $('btnAddPiece'); if(addPiece) addPiece.onclick = function(){ syncDocGenericFields(); (state.draftDoc.pieces=state.draftDoc.pieces||[]).push({designation:'',nombre:'1',observation:''}); render(); };
     document.querySelectorAll('[data-rmpiece]').forEach(function(el){ el.onclick=function(){ syncDocGenericFields(); state.draftDoc.pieces.splice(parseInt(el.getAttribute('data-rmpiece')),1); render(); }; });
     /* -- bordereau : tableaux de service (validés / non validés) -- */
     /* Ajout groupé (sélection multiple filtrée par établissement) : une ligne par enseignant(e)
@@ -7028,6 +7743,42 @@
       var parts = seg.getAttribute('data-obscritnote').split(':'), di=parseInt(parts[0]), ci=parseInt(parts[1]);
       seg.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ syncDocGenericFields(); state.draftDoc.domaines[di].criteres[ci].note=b.getAttribute('data-v'); render(); }; });
     });
+    var obsSeanceSeg = $('obsSeanceSeg'); if(obsSeanceSeg) obsSeanceSeg.querySelectorAll('button').forEach(function(b){
+      b.onclick = function(){
+        syncDocGenericFields();
+        var dd = state.draftDoc, mm = state.modalStack[state.modalStack.length-1];
+        var tk = state.tasks.find(function(t){ return t.id===mm.taskId; });
+        var et = tk && tk.etablissementId ? state.etablissements.find(function(x){ return x.id===tk.etablissementId; }) : null;
+        dd.seance = b.getAttribute('data-v');
+        var target = obsVarianteFor(et && et.pionnier, dd.seance);
+        if(target !== dd.variante) applyObsVariante(dd, target);
+        if(dd.sefrou && dd.seance==='consolidation' && !dd.sefrou.activite) dd.sefrou.activite = 'Séance de consolidation';
+        render();
+      };
+    });
+    var sefNat = $('sefNatureSeg'); if(sefNat) sefNat.querySelectorAll('button').forEach(function(b){ b.onclick = function(){ syncDocGenericFields(); state.draftDoc.sefrou.nature = b.getAttribute('data-v'); render(); }; });
+    var civSeg = $('dCivSeg'); if(civSeg) civSeg.querySelectorAll('button').forEach(function(b){ b.onclick = function(){ syncDocGenericFields(); state.draftDoc.civilite = b.getAttribute('data-v'); render(); }; });
+    function sefrouContext(dd){
+      var g = dd.sefrou || {}, it = g.items || {};
+      var niv = Object.keys(it).filter(function(k){ return it[k]; }).map(function(k){ return '- '+k.replace('|',' › ')+' : '+it[k]; }).join('\n');
+      return "Enseignant(e) : "+(dd.enseignantNom||'—')+" ; classe : "+(dd.classe||'—')+" ; séance : "+(dd.seance==='consolidation'?'séance de consolidation':'séance normale')+" ; activité : "+(g.activite||'—')+" ; intitulé : "+(g.intitule||'—')+
+        "\nDéroulement observé :\n"+(g.deroulement||'—')+(niv ? "\nNiveaux de maîtrise relevés :\n"+niv : '');
+    }
+    var aiSefDer = $('btnAiSefDer'); if(aiSefDer) aiSefDer.onclick = function(){ syncDocGenericFields(); var dd = state.draftDoc;
+      aiDraft(aiSefDer, $('btnAiSefDerStatus'), $('dSefDer'), "Tu es un inspecteur pédagogique de français au Maroc. Rédige le déroulement d'une séance observée (français, phrases complètes, ordre chronologique des étapes, ton factuel), pour une grille d'observation. Enseignant(e) : "+(dd.enseignantNom||'—')+", classe : "+(dd.classe||'—')+", activité : "+((dd.sefrou||{}).activite||'—')+", intitulé : "+((dd.sefrou||{}).intitule||'—')+". N'invente aucun fait absent des notes."); };
+    var aiSefRem = $('btnAiSefRem'); if(aiSefRem) aiSefRem.onclick = function(){ syncDocGenericFields();
+      aiDraft(aiSefRem, $('btnAiSefRemStatus'), $('dSefRem'), "Tu es un inspecteur pédagogique de français au Maroc. À partir de cette observation, rédige des remarques et suggestions concrètes et bienveillantes pour l'enseignant(e) (français, ton professionnel), en t'appuyant uniquement sur les faits observés :\n"+sefrouContext(state.draftDoc)); };
+    var aiSefApp = $('btnAiSefApp'); if(aiSefApp) aiSefApp.onclick = function(){ syncDocGenericFields();
+      aiDraft(aiSefApp, $('btnAiSefAppStatus'), $('dSefApp'), "Tu es un inspecteur pédagogique de français au Maroc. Rédige l'appréciation globale d'une grille d'observation (français, ton mesuré et fondé sur les faits observés) :\n"+sefrouContext(state.draftDoc)+"\nRemarques : "+((state.draftDoc.sefrou||{}).remarques||'—')); };
+    var aiRapI = $('btnAiRapportInsp'); if(aiRapI) aiRapI.onclick = function(){
+      syncDocGenericFields();
+      var dd = state.draftDoc, notes = (dd.notesObs||'').trim();
+      var ctx = "Tu es un inspecteur pédagogique de français au Maroc. Rédige le texte d'un rapport d'inspection en français, à partir des notes d'observation de l'inspecteur(trice). Enseignant(e) : "+((dd.civilite||civiliteOf(dd))+' '+(dd.enseignantNom||'—')).trim()+" ; établissement : "+(dd.lieu||'—')+" ; classe : "+(dd.classe||'—')+" ; date : "+(dd.date?fmtDate(dd.date):'—')+(dd.note ? " ; note d'inspection attribuée : "+dd.note+(/\/\s*20$/.test(dd.note)?'':'/20')+" (à mentionner dans la conclusion)" : '')+
+        ".\n\nStructure obligatoire :\n"+rapportStructure()+"\n\nN'invente aucun fait absent des notes. Renvoie uniquement le texte du rapport, paragraphes séparés par une ligne vide.";
+      if(notes) runAiPrompt(aiRapI, $('btnAiRapportInspStatus'), $('dTexteRapport'), ctx+"\n\nNotes d'observation :\n"+notes);
+      else if(($('dTexteRapport').value||'').trim()) aiDraft(aiRapI, $('btnAiRapportInspStatus'), $('dTexteRapport'), ctx);
+      else toast("Saisissez ou dictez d'abord vos notes d'observation.");
+    };
     var obsVarSeg = $('obsVarianteSeg'); if(obsVarSeg) obsVarSeg.querySelectorAll('button').forEach(function(b){
       b.onclick = function(){ syncDocGenericFields(); applyObsVariante(state.draftDoc, b.getAttribute('data-v')); render(); };
     });
@@ -7167,10 +7918,12 @@
       var m = state.modalStack[state.modalStack.length-1];
       var task = state.tasks.find(function(t){ return t.id===m.taskId; });
       var spec = buildDocSpec(state.draftDoc, task);
+      var off = buildOfficialDoc(state.draftDoc, task);
       var statusEl = $('genDocStatus');
       if(statusEl){ statusEl.hidden = false; statusEl.textContent = kind==='pdf' ? 'Génération du PDF…' : 'Génération du document Word…'; }
       if(btn) btn.disabled = true;
-      var p = kind==='pdf' ? downloadPdf(spec, docFileBase()) : downloadDocx(spec, docFileBase());
+      var p = off ? (kind==='pdf' ? downloadOfficialPdf(off, docFileBase()) : downloadOfficialDocx(off, docFileBase()))
+        : (kind==='pdf' ? downloadPdf(spec, docFileBase()) : downloadDocx(spec, docFileBase()));
       p.then(function(gdocUrl){
         /* Une fois le .docx converti en Google Doc dans Drive, on garde son URL sur le document
            (brouillon en cours + enregistrement déjà sauvegardé le cas échéant) et on redessine pour
