@@ -14,7 +14,14 @@
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
 <link rel="apple-touch-icon" sizes="180x180" href="icon-180.png">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@500;600&family=Space+Grotesk:wght@500;600;700&display=swap">
+<script>
+  /* Apparence choisie sur cet appareil (Paramètres → Apparence), appliquée avant l'affichage pour
+     éviter un flash : « futur » (thème futuriste, par défaut) ou « classique ». */
+  (function(){ var k = 'futur'; try{ k = localStorage.getItem('ci_skin') || 'futur'; }catch(e){}
+    document.documentElement.setAttribute('data-skin', k);
+    if(k==='futur'){ var m = document.querySelector('meta[name="theme-color"]'); if(m) m.setAttribute('content', '#070B16'); } })();
+</script>
 <style>
   :root{
     --bg:#F6F4EE; --surface:#FFFFFF; --surface-2:#FBF9F4;
@@ -424,6 +431,7 @@
     .p-page[dir="rtl"] .p-meta{ flex-direction:row-reverse; }
   }
 </style>
+<link rel="stylesheet" href="theme-futuriste.css">
 </head>
 <body>
 
@@ -6071,6 +6079,7 @@
       '<button class="chip" data-stab="templates" aria-pressed="'+(tab==='templates')+'">Modèles de documents</button>'+
       '<button class="chip" data-stab="referentiel" aria-pressed="'+(tab==='referentiel')+'">Régions / DP</button>'+
       '<button class="chip" data-stab="ia" aria-pressed="'+(tab==='ia')+'">Assistant IA</button>'+
+      '<button class="chip" data-stab="apparence" aria-pressed="'+(tab==='apparence')+'">Apparence</button>'+
       '<button class="chip" data-stab="notifications" aria-pressed="'+(tab==='notifications')+'">Notifications</button>'+
       '<button class="chip" data-stab="vacances" aria-pressed="'+(tab==='vacances')+'">Vacances</button></div>';
 
@@ -6143,6 +6152,13 @@
       html += referentielTabHtml();
     } else if(tab==='ia'){
       html += iaTabHtml();
+    } else if(tab==='apparence'){
+      var skin = document.documentElement.getAttribute('data-skin') || 'futur';
+      html += '<div class="section-label">Thème de l\'application sur cet appareil</div>'+
+        '<div class="seg" id="skinSeg" style="margin:6px 0 8px;">'+
+          '<button type="button" data-v="futur" aria-pressed="'+(skin==='futur')+'">Futuriste</button>'+
+          '<button type="button" data-v="classique" aria-pressed="'+(skin!=='futur')+'">Classique</button></div>'+
+        '<p style="font-size:11.5px;color:var(--ink-faint);">Futuriste : fond sombre étoilé, surfaces en verre dépoli et accents lumineux. Classique : thème d\'origine, clair ou sombre selon le réglage du téléphone. Les documents imprimés et exportés ne changent pas.</p>';
     } else if(tab==='notifications'){
       html += notificationsTabHtml();
     } else if(tab==='vacances'){
@@ -7270,6 +7286,13 @@
     }
 
     /* -- assistant IA : moteur (Gemini / IA locale), modèle local, structure du rapport -- */
+    var skinSeg = $('skinSeg'); if(skinSeg) skinSeg.querySelectorAll('button').forEach(function(b){ b.onclick = function(){
+      var k = b.getAttribute('data-v');
+      try{ localStorage.setItem('ci_skin', k); }catch(e){}
+      document.documentElement.setAttribute('data-skin', k);
+      var mt = document.querySelector('meta[name="theme-color"]'); if(mt) mt.setAttribute('content', k==='futur' ? '#070B16' : '#2F6F62');
+      render();
+    }; });
     var segReason = $('aiReasonSeg'); if(segReason) segReason.querySelectorAll('button').forEach(function(b){ b.onclick = function(){
       localAiPrefsSet({ reasoning: b.getAttribute('data-v')==='1' }); render();
     }; });
