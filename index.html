@@ -4028,7 +4028,9 @@
          buildDocSpecInner et TEACHER_DOC_TYPES plus bas). */
       /* Courrier en arabe, sur le modèle de la رسالة إخبارية de l'inspection (voir offLettre) :
          adressé à M. le Directeur provincial, objet = nature de l'activité, corps = demande de
-         convocation avec la date, l'heure et le lieu. */
+         convocation avec la date, l'heure et le lieu. Pour une visite ou une inspection, le courrier
+         informe seulement la direction : l'enseignant(e) concerné(e) n'est pas prévenu(e) (pratique de
+         l'inspecteur), le texte ne demande donc pas de l'en informer. */
       base.destinataire = 'المدير الإقليمي';
       base.objet = TT_AR[task.taskType] || task.titre; base.lieu = task.lieu||task.etablissementNom||'';
       base.invites = invites.slice();
@@ -4037,7 +4039,7 @@
       var etabsInv = []; invites.forEach(function(iv){ var n = (iv.etablissementNom||'').trim(); if(n && etabsInv.indexOf(n)<0) etabsInv.push(n); });
       base.corps = invites.length
         ? 'يشرفني أن أطلب منكم دعوة السيدات والسادة الأساتذة'+(etabsInv.length ? ' بـ'+etabsInv.map(bidiIso).join('، ') : '')+' الواردة أسماؤهم في اللائحة أسفله لحضور '+(TT_AR[task.taskType]||'لقاء تربوي')+(task.titre ? ' في موضوع: '+bidiIso(task.titre) : '')+' يوم '+quandAr+(lieuAr ? ' بمقر '+bidiIso(lieuAr) : '')+'.'
-        : 'يشرفني أن أخبركم بأنني سأقوم بـ'+(TT_AR[task.taskType]||'زيارة تربوية')+(task.enseignantNom ? ' لفائدة الأستاذ(ة) '+bidiIso(task.enseignantNom) : '')+(task.etablissementNom ? ' بمؤسسة '+bidiIso(task.etablissementNom) : '')+' يوم '+quandAr+'، والمرجو إخبار المعني(ة) بالأمر واتخاذ الترتيبات اللازمة.';
+        : 'يشرفني أن أخبركم بأنني سأقوم بـ'+(TT_AR[task.taskType]||'زيارة تربوية')+(task.enseignantNom ? ' لفائدة الأستاذ(ة) '+bidiIso(task.enseignantNom) : '')+(task.etablissementNom ? ' بمؤسسة '+bidiIso(task.etablissementNom) : '')+' يوم '+quandAr+'.';
     } else if(type==='rapport_inspection'){
       base.enseignantNom = task.enseignantNom||''; base.lieu = task.lieu||task.etablissementNom||''; base.classe=''; base.matiere='';
       base.appreciation = task.noteGlobale || ''; base.constats=''; base.recommandations='';
