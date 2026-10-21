@@ -554,7 +554,7 @@
 <input type="file" id="fileImportInput" accept=".csv,text/csv" hidden>
 <input type="file" id="filePhotoInput" accept="image/png,image/jpeg,image/webp" hidden>
 <input type="file" id="fileAttachInput" accept="image/png,image/jpeg,image/webp,application/pdf" hidden>
-<input type="file" id="fileTaskAttachInput" accept="image/png,image/jpeg,image/webp,application/pdf,.doc,.docx,.odt" hidden>
+<input type="file" id="fileTaskAttachInput" multiple hidden>
 <input type="file" id="fileLogoInput" accept="image/png,image/jpeg" hidden>
 <input type="file" id="fileCachetInput" accept="image/png,image/jpeg" hidden>
 <input type="file" id="fileSignatureInput" accept="image/png,image/jpeg" hidden>
@@ -1693,6 +1693,7 @@
               if(resp && resp.access_token){
                 driveAccessToken = resp.access_token; driveTokenExpiresAt = Date.now() + ((resp.expires_in||3300)*1000);
                 state.mcpReady = true; render();
+                setTimeout(processPendingAttachments, 3000);
                 if(cb) cb(driveAccessToken);
               } else if(eb) eb({code:'consent_required'});
             },
@@ -3350,7 +3351,7 @@
      local déjà fait par uploadAsset : si Drive n'est pas connecté, ou si l'envoi échoue pour une
      raison quelconque (hors-ligne, quota…), on résout simplement avec null sans jamais faire échouer
      l'ajout local de la pièce jointe, qui reste toujours utilisable même sans Drive. */
-  function uploadAttachmentToDrive(file){
+  function uploadAttachmentToDrive(file, pathSegs){
     if(!state.mcpReady || !file) return Promise.resolve(null);
     return new Promise(function(resolve, reject){
       var reader = new FileReader();
@@ -3359,7 +3360,8 @@
       reader.readAsDataURL(file);
     }).then(function(b64){
       return ensureAppFolder().then(function(appFolder){
-        return ensureAttachFolder(appFolder.id).catch(function(){ return null; }).then(function(attachFolder){
+        var target = (pathSegs && pathSegs.length) ? driveFolderPath(appFolder.id, pathSegs).then(function(id){ return {id:id}; }) : ensureAttachFolder(appFolder.id);
+        return target.catch(function(){ return null; }).then(function(attachFolder){
           return mcpCall('create_file', {
             title: file.name || 'piece-jointe', base64Content: b64, contentMimeType: file.type || 'application/octet-stream',
             parentId: (attachFolder && attachFolder.id) || appFolder.id, disableConversionToGoogleType: true
@@ -3376,7 +3378,7 @@
      convertToGoogleDoc est vrai (utilisé pour le .docx), Drive convertit le fichier envoyé en Google
      Doc natif au lieu de le stocker tel quel — c'est ce qui permet ensuite de l'ouvrir et de le
      personnaliser directement dans l'éditeur Google Docs, plutôt qu'un simple fichier .docx figé. */
-  function uploadBlobToDrive(blob, filename, mime, convertToGoogleDoc){
+  function uploadBlobToDrive(blob, filename, mime, convertToGoogleDoc, taskId){
     return new Promise(function(resolve, reject){
       var reader = new FileReader();
       reader.onload = function(){ resolve(String(reader.result).split(',')[1] || ''); };
@@ -3384,7 +3386,12 @@
       reader.readAsDataURL(blob);
     }).then(function(b64){
       return ensureAppFolder().then(function(appFolder){
-        return ensureDocsFolder(appFolder.id).catch(function(){ return null; }).then(function(docsFolder){
+        /* Document produit depuis une tâche : rangé dans le dossier de cette tâche (sous-dossier
+           « Documents générés »), sinon dans le dossier général « Documents générés ». */
+        var target = taskId
+          ? ensureTaskSubfolder(taskId, 'Documents générés').then(function(id){ return {id:id}; }).catch(function(){ return ensureDocsFolder(appFolder.id); })
+          : ensureDocsFolder(appFolder.id);
+        return target.catch(function(){ return null; }).then(function(docsFolder){
           return mcpCall('create_file', {
             title: filename, base64Content: b64, contentMimeType: mime || blob.type || 'application/octet-stream',
             parentId: (docsFolder && docsFolder.id) || appFolder.id,
@@ -3394,6 +3401,234 @@
       });
     });
   }
+  /* ================= pièces jointes des tâches → dossiers Google Drive structurés =================
+     Chaque tâche a son propre dossier dans le Drive de l'application, rangé par année scolaire et par
+     type de tâche :
+       Carnet d'Inspection — Données /
+         Tâches / Année 2026-2027 / Inspections / 2026-10-22 — Inspection · ALAMI Sara · Lycée Chorouk /
+           Pièces jointes /      ← fichiers joints à la tâche (tout type, plusieurs à la fois)
+           Documents générés /   ← rapports, grilles, courriers produits depuis la tâche (PDF / Word)
+         Enseignants / ALAMI Sara — 1234567 /   ← pièces jointes des fiches enseignant(e)s
+     Les fichiers joints sont d'abord gardés sur l'appareil (espace privé du navigateur, OPFS) puis
+     envoyés sur Drive dès que possible : sans connexion ou sans Drive connecté, ils restent « en
+     attente » et partent automatiquement plus tard (au retour du réseau, après connexion à Drive, ou
+     toutes les minutes tant qu'il en reste). Les gros fichiers passent par l'envoi « resumable » de
+     Drive (pas de limite de 1,5 Mo comme pour les photos). L'id du dossier de la tâche est enregistré
+     sur la tâche elle-même (task.driveFolderId) pour que tous les appareils utilisent le même dossier,
+     même si le titre de la tâche change ensuite. */
+  var TT_FOLDER = { inspection:'Inspections', visite_conseil:'Visites conseil', reunion_pedagogique:'Réunions pédagogiques',
+    cours_experimental:'Cours expérimentaux', formation:'Formations', reunion_distance:'Réunions à distance',
+    reunion_administrative:'Réunions administratives', recherche_action:'Recherches action',
+    observation_examen:"Observations d'examen", conception_examen:"Conceptions d'examen", autre:'Autres tâches' };
+  var PJ_LOCAL_DIR = 'carnet-pieces-jointes';
+  var PJ_LOCAL_MAX = 150 * 1024 * 1024;
+  var driveFolderMem = {};
+  function driveSafeName(s){ return String(s||'').replace(/[\\/:*?"<>|]+/g,' ').replace(/\s+/g,' ').trim().slice(0, 100) || 'Sans titre'; }
+  function driveQ(s){ return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+  /* Trouve ou crée un dossier nommé `name` dans `parentId` (cache mémoire + config). */
+  function driveChildFolder(parentId, name){
+    var key = parentId+'/'+name;
+    var cache = state.config.driveFolderCache || {};
+    if(driveFolderMem[key]) return Promise.resolve(driveFolderMem[key]);
+    if(cache[key]){ driveFolderMem[key] = cache[key]; return Promise.resolve(cache[key]); }
+    var q = "title = '"+driveQ(name)+"' and mimeType = 'application/vnd.google-apps.folder' and '"+parentId+"' in parents";
+    return mcpCall('search_files', {query:q, pageSize:5, excludeContentSnippets:true}).then(function(res){
+      var files = (res.payload && res.payload.files) || [];
+      if(files.length) return files[0].id;
+      return mcpCall('create_file', {title:name, contentMimeType:'application/vnd.google-apps.folder', parentId:parentId}).then(function(r){ return (r.payload||{}).id; });
+    }).then(function(id){
+      if(!id) return Promise.reject({code:'tool_error', message:'dossier non créé'});
+      driveFolderMem[key] = id;
+      var c2 = Object.assign({}, state.config.driveFolderCache||{}); c2[key] = id;
+      state.config.driveFolderCache = c2; saveLocal('config');
+      return id;
+    });
+  }
+  function driveFolderPath(rootId, segs){
+    return segs.reduce(function(p, seg){ return p.then(function(pid){ return driveChildFolder(pid, driveSafeName(seg)); }); }, Promise.resolve(rootId));
+  }
+  function driveForgetFolders(){ driveFolderMem = {}; state.config.driveFolderCache = {}; saveLocal('config'); }
+  function taskFolderName(t){
+    return (t.echeance ? String(t.echeance).slice(0,10) : 'Sans date')+' — '+(t.titre || TT_LABEL[t.taskType] || 'Tâche');
+  }
+  function taskYearFolder(t){ return 'Année '+anneeScolaireCourante(t.echeance || t.createdAt).replace(/\s*\/\s*/, '-'); }
+  /* Dossier Drive de la tâche (créé au besoin), puis sous-dossier éventuel (« Pièces jointes »,
+     « Documents générés »). */
+  function ensureTaskFolder(taskId){
+    var t = state.tasks.find(function(x){ return x.id===taskId; });
+    if(!t) return Promise.reject({code:'tool_error', message:'tâche introuvable'});
+    if(t.driveFolderId) return Promise.resolve(t.driveFolderId);
+    return ensureAppFolder().then(function(app){
+      return driveFolderPath(app.id, ['Tâches', taskYearFolder(t), TT_FOLDER[t.taskType] || 'Autres tâches', taskFolderName(t)]);
+    }).then(function(fid){
+      var cur = state.tasks.find(function(x){ return x.id===taskId; });
+      if(cur && cur.driveFolderId !== fid) recordSet('task', Object.assign({}, cur, {driveFolderId: fid}));
+      return fid;
+    });
+  }
+  function ensureTaskSubfolder(taskId, sub){
+    return ensureTaskFolder(taskId).then(function(fid){ return driveChildFolder(fid, sub); });
+  }
+  function driveFolderUrl(id){ return 'https://drive.google.com/drive/folders/'+id; }
+
+  /* ---- envoi d'un fichier (Blob) dans un dossier Drive, quelle que soit sa taille ---- */
+  function driveUploadBlob(blob, name, mime, parentId){
+    mime = mime || blob.type || 'application/octet-stream';
+    if(blob.size <= 4.5*1024*1024){
+      return new Promise(function(resolve, reject){
+        var fr = new FileReader();
+        fr.onload = function(){ resolve(String(fr.result).split(',')[1] || ''); };
+        fr.onerror = function(){ reject({code:'unsupported_type'}); };
+        fr.readAsDataURL(blob);
+      }).then(function(b64){
+        return mcpCall('create_file', { title:name, base64Content:b64, contentMimeType:mime, parentId:parentId, disableConversionToGoogleType:true });
+      }).then(function(r){ return r.payload; });
+    }
+    var meta = { name: name, parents: [parentId], mimeType: mime };
+    return driveFetch(DRIVE_UPLOAD_API+'?uploadType=resumable&fields=id,name,parents', {
+      method:'POST', headers:{ 'Content-Type':'application/json; charset=UTF-8', 'X-Upload-Content-Type': mime, 'X-Upload-Content-Length': String(blob.size) },
+      body: JSON.stringify(meta)
+    }).then(function(res){
+      var loc = res.headers.get('Location') || res.headers.get('location');
+      if(!loc) return Promise.reject({code:'tool_error', message:"envoi des gros fichiers refusé par le navigateur"});
+      return fetch(loc, { method:'PUT', headers:{ 'Content-Type': mime }, body: blob });
+    }).then(function(res){
+      if(!res.ok) return Promise.reject({code:'tool_error', message:'HTTP '+res.status});
+      return res.json();
+    }).then(function(data){ return { id:data.id, title:data.name }; });
+  }
+
+  /* ---- copie locale des pièces jointes (OPFS) ---- */
+  function pjDir(){
+    if(!navigator.storage || !navigator.storage.getDirectory) return Promise.reject(new Error('opfs'));
+    return navigator.storage.getDirectory().then(function(root){ return root.getDirectoryHandle(PJ_LOCAL_DIR, {create:true}); });
+  }
+  function pjSaveLocal(id, file){
+    if(file.size > PJ_LOCAL_MAX) return Promise.resolve(false);
+    return pjDir().then(function(dir){ return dir.getFileHandle(id, {create:true}); }).then(function(h){ return h.createWritable(); })
+      .then(function(w){ return w.write(file).then(function(){ return w.close(); }); }).then(function(){ return true; }).catch(function(){ return false; });
+  }
+  function pjReadLocal(id){
+    return pjDir().then(function(dir){ return dir.getFileHandle(id); }).then(function(h){ return h.getFile(); }).catch(function(){ return null; });
+  }
+  function pjDeleteLocal(id){ return pjDir().then(function(dir){ return dir.removeEntry(id); }).catch(function(){}); }
+
+  /* ---- ajout / envoi / suppression ---- */
+  var pjQueue = {};   // id → true pendant l'envoi
+  function taskAttachUpdate(taskId, attId, patch){
+    var t = state.tasks.find(function(x){ return x.id===taskId; });
+    if(!t) return null;
+    var list = (t.attachments||[]).map(function(a){ return a.id===attId ? Object.assign({}, a, patch) : a; });
+    var nt = Object.assign({}, t, {attachments: list});
+    recordSet('task', nt);
+    return nt;
+  }
+  function attachFilesToTask(taskId, files){
+    var t = state.tasks.find(function(x){ return x.id===taskId; });
+    if(!t || !files || !files.length) return Promise.resolve();
+    var entries = [];
+    var jobs = Array.prototype.map.call(files, function(f){
+      var e = { id: uid(), titre: f.name || 'fichier', type: f.type || '', size: f.size || 0, addedAt: new Date().toISOString(),
+        status: 'pending', driveFileId: null, driveUrl: null, local: false };
+      entries.push(e);
+      return pjSaveLocal(e.id, f).then(function(ok){ e.local = ok; return { e:e, f:f }; });
+    });
+    return Promise.all(jobs).then(function(items){
+      var cur = state.tasks.find(function(x){ return x.id===taskId; });
+      recordSet('task', Object.assign({}, cur, {attachments: (cur.attachments||[]).concat(entries)}));
+      toast(entries.length > 1 ? entries.length+' fichiers joints.' : 'Fichier joint.');
+      items.forEach(function(it){ uploadTaskAttachment(taskId, it.e.id, it.f); });
+    });
+  }
+  function uploadTaskAttachment(taskId, attId, fileOrNull, retried){
+    if(!state.mcpReady) return Promise.resolve(false);
+    if(pjQueue[attId]) return Promise.resolve(false);
+    pjQueue[attId] = true;
+    var t = state.tasks.find(function(x){ return x.id===taskId; });
+    var a = t && (t.attachments||[]).find(function(x){ return x.id===attId; });
+    if(!a || a.driveFileId){ delete pjQueue[attId]; return Promise.resolve(false); }
+    taskAttachUpdate(taskId, attId, {status:'uploading'});
+    var getFile = fileOrNull ? Promise.resolve(fileOrNull) : pjReadLocal(attId);
+    return getFile.then(function(file){
+      if(!file) return Promise.reject({code:'no_local'});
+      return ensureTaskSubfolder(taskId, 'Pièces jointes').then(function(folderId){
+        return driveUploadBlob(file, a.titre, a.type || file.type, folderId);
+      });
+    }).then(function(f){
+      delete pjQueue[attId];
+      taskAttachUpdate(taskId, attId, {status:'uploaded', driveFileId:f.id, driveUrl:'https://drive.google.com/file/d/'+f.id+'/view', error:null});
+      return true;
+    }).catch(function(err){
+      delete pjQueue[attId];
+      /* Dossier supprimé à la main sur Drive : on oublie les dossiers mémorisés et on recommence une fois. */
+      if(!retried && err && err.code==='tool_error' && /not ?found|introuvable|404/i.test(err.message||'')){
+        driveForgetFolders();
+        var cur = state.tasks.find(function(x){ return x.id===taskId; });
+        if(cur && cur.driveFolderId) recordSet('task', Object.assign({}, cur, {driveFolderId:null}));
+        return uploadTaskAttachment(taskId, attId, fileOrNull, true);
+      }
+      taskAttachUpdate(taskId, attId, {status: err && err.code==='no_local' ? 'missing' : 'pending', error: (err && (err.message||err.code)) || 'échec'});
+      return false;
+    });
+  }
+  var pjSweepRunning = false;
+  function processPendingAttachments(){
+    if(!state.mcpReady || pjSweepRunning || (navigator.onLine === false)) return Promise.resolve();
+    var todo = [];
+    state.tasks.forEach(function(t){ (t.attachments||[]).forEach(function(a){ if(a.id && !a.driveFileId && a.local && a.status!=='missing') todo.push([t.id, a.id]); }); });
+    if(!todo.length) return Promise.resolve();
+    pjSweepRunning = true;
+    return todo.reduce(function(p, it){ return p.then(function(){ return uploadTaskAttachment(it[0], it[1]); }); }, Promise.resolve())
+      .then(function(){ pjSweepRunning = false; }, function(){ pjSweepRunning = false; });
+  }
+  window.addEventListener('online', function(){ setTimeout(processPendingAttachments, 1500); });
+  setInterval(processPendingAttachments, 60000);
+  function openTaskAttachment(taskId, attId){
+    var t = state.tasks.find(function(x){ return x.id===taskId; });
+    var a = t && (t.attachments||[]).find(function(x){ return x.id===attId; });
+    if(!a) return;
+    pjReadLocal(attId).then(function(file){
+      if(file){ var url = URL.createObjectURL(file); window.open(url, '_blank', 'noopener'); setTimeout(function(){ URL.revokeObjectURL(url); }, 60000); return; }
+      if(a.driveUrl){ window.open(a.driveUrl, '_blank', 'noopener'); return; }
+      toast("Ce fichier n'est pas disponible sur cet appareil et n'a pas encore été envoyé sur Drive.");
+    });
+  }
+  function removeTaskAttachment(taskId, idx){
+    var t = state.tasks.find(function(x){ return x.id===taskId; });
+    if(!t) return;
+    var a = (t.attachments||[])[idx]; if(!a) return;
+    var nt = Object.assign({}, t, {attachments:(t.attachments||[]).slice()});
+    nt.attachments.splice(idx, 1);
+    recordSet('task', nt);
+    if(a.id) pjDeleteLocal(a.id);
+    if(a.assetId) removeAsset(a.assetId);
+    if(a.driveFileId && state.mcpReady) mcpCall('trash_file', {fileId:a.driveFileId}).catch(function(){});
+  }
+  function fmtSize(n){ n = +n||0; return n >= 1048576 ? (Math.round(n/104857.6)/10)+' Mo' : n >= 1024 ? Math.round(n/1024)+' Ko' : n ? n+' o' : ''; }
+  function attachStatusHtml(a){
+    if(a.driveFileId) return '<span style="color:var(--done);font-size:11px;">✓ sur Drive</span>';
+    if(a.status==='uploading') return '<span style="color:var(--accent);font-size:11px;">↑ envoi…</span>';
+    if(a.status==='missing') return '<span style="color:var(--danger);font-size:11px;">⚠ fichier absent de cet appareil</span>';
+    if(a.error) return '<span style="color:var(--warn);font-size:11px;" title="'+esc(a.error)+'">⏳ en attente (nouvel essai automatique)</span>';
+    return '<span style="color:var(--ink-faint);font-size:11px;">⏳ en attente d\'envoi'+(state.mcpReady?'':' (Drive non connecté)')+'</span>';
+  }
+  function taskAttachmentsHtml(t){
+    var list = t.attachments || [];
+    var html = '<div class="section-label" style="margin-top:14px;">Pièces jointes'+(list.length?' ('+list.length+')':'')+'</div>';
+    if(t.driveFolderId) html += '<p style="font-size:11.5px;margin:2px 0 6px;"><a href="'+esc(driveFolderUrl(t.driveFolderId))+'" target="_blank" rel="noopener" style="color:var(--accent);font-weight:600;">'+ICONS.ext+' Ouvrir le dossier Drive de la tâche</a></p>';
+    html += '<div id="taskAttachList">'+(list.length ? list.map(function(a, i){
+      var legacy = !a.id && a.assetId;
+      return '<div class="attach-row"><span class="t" style="white-space:normal;"><span style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc(a.titre)+'</span>'+
+        '<span style="font-size:11px;color:var(--ink-faint);">'+esc(fmtSize(a.size))+(a.size?' · ':'')+'</span>'+(legacy ? (a.driveUrl?'<span style="color:var(--done);font-size:11px;">✓ sur Drive</span>':'') : attachStatusHtml(a))+'</span>'+
+        (legacy ? '<a href="'+assetUrl(a.assetId)+'" target="_blank" rel="noopener" class="icon-btn" style="width:30px;height:30px;">'+ICONS.ext+'</a>'
+                : '<button class="icon-btn" data-opentaskattach="'+esc(a.id)+'" type="button" style="width:30px;height:30px;" title="Ouvrir">'+ICONS.ext+'</button>')+
+        '<button class="icon-btn" data-rmtaskattach="'+i+'" type="button" style="width:30px;height:30px;color:var(--danger);" title="Retirer">'+ICONS.trash+'</button></div>';
+    }).join('') : '<div class="empty" style="padding:14px 10px;">Aucune pièce jointe.</div>')+'</div>'+
+      '<button class="addline" id="btnAddTaskAttach" type="button">'+ICONS.upload+' Joindre des fichiers</button>'+
+      '<p style="font-size:11px;color:var(--ink-faint);margin:4px 2px 0;">Tout type de fichier, plusieurs à la fois. Ils sont rangés sur Google Drive dans le dossier de la tâche (Tâches › année › type › tâche › Pièces jointes)'+(state.mcpReady?'.':' dès que Drive est connecté.')+'</p>';
+    return html;
+  }
+
   function googleDocEditUrl(fileId){ return 'https://docs.google.com/document/d/'+fileId+'/edit'; }
   /* Pour un document généré à la volée (bilan, historique) — donc sans enregistrement persistant où
      accrocher un bouton durable comme dans l'éditeur de document — le lien Google Docs est affiché
@@ -4372,10 +4607,10 @@
       }, function(e){ if(host.parentNode) document.body.removeChild(host); throw e; });
     });
   }
-  function downloadOfficialPdf(off, filenameBase){
+  function downloadOfficialPdf(off, filenameBase, taskId){
     return officialToPdfBlob(off).then(function(blob){
       return saveBlob(filenameBase+'.pdf', blob).then(function(){
-        if(state.mcpReady) uploadBlobToDrive(blob, filenameBase+'.pdf', 'application/pdf').catch(function(e){ console.warn('drive upload (pdf) failed', e); });
+        if(state.mcpReady) uploadBlobToDrive(blob, filenameBase+'.pdf', 'application/pdf', false, taskId).catch(function(e){ console.warn('drive upload (pdf) failed', e); });
       });
     }).then(function(){ toast('PDF enregistré.'); }).catch(function(err){
       console.warn('pdf officiel', err);
@@ -4473,12 +4708,12 @@
       return d.Packer.toBlob(docx);
     });
   }
-  function downloadOfficialDocx(off, filenameBase){
+  function downloadOfficialDocx(off, filenameBase, taskId){
     var gdocUrl = null;
     return officialToDocxBlob(off).then(function(blob){
       return saveBlob(filenameBase+'.docx', blob).then(function(){
         if(!state.mcpReady) return null;
-        return uploadBlobToDrive(blob, filenameBase+'.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', true)
+        return uploadBlobToDrive(blob, filenameBase+'.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', true, taskId)
           .then(function(res){ if(res && res.payload && res.payload.id) gdocUrl = googleDocEditUrl(res.payload.id); })
           .catch(function(e){ console.warn('drive upload (docx) failed', e); });
       });
@@ -5051,11 +5286,11 @@
     }
     return doc.output('blob');
   }
-  function downloadPdf(spec, filenameBase){
+  function downloadPdf(spec, filenameBase, taskId){
     return ensureJsPDF().then(function(){ return specToPdfBlob(spec); })
       .then(function(blob){
         return saveBlob(filenameBase+'.pdf', blob).then(function(){
-          if(state.mcpReady) uploadBlobToDrive(blob, filenameBase+'.pdf', 'application/pdf').catch(function(e){ console.warn('drive upload (pdf) failed', e); });
+          if(state.mcpReady) uploadBlobToDrive(blob, filenameBase+'.pdf', 'application/pdf', false, taskId).catch(function(e){ console.warn('drive upload (pdf) failed', e); });
         });
       })
       .then(function(){ toast('PDF enregistré.'); })
@@ -5134,13 +5369,13 @@
      Google Docs obtenue (ou null si Drive n'est pas connecté ou si l'envoi a échoué), pour que
      l'appelant puisse afficher un lien « Ouvrir dans Google Docs » plutôt qu'un simple message qui
      disparaît. */
-  function downloadDocx(spec, filenameBase){
+  function downloadDocx(spec, filenameBase, taskId){
     var gdocUrl = null;
     return ensureDocx().then(function(){ return specToDocxBlob(spec); })
       .then(function(blob){
         return saveBlob(filenameBase+'.docx', blob).then(function(){
           if(!state.mcpReady) return null;
-          return uploadBlobToDrive(blob, filenameBase+'.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', true)
+          return uploadBlobToDrive(blob, filenameBase+'.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', true, taskId)
             .then(function(res){ if(res && res.payload && res.payload.id) gdocUrl = googleDocEditUrl(res.payload.id); })
             .catch(function(e){ console.warn('drive upload (docx) failed', e); });
         });
@@ -6028,9 +6263,7 @@
       '</div>'+
       (docs.length ? '<div class="doc-list">'+docs.map(function(d){ return '<div class="doc-row" data-opendoc="'+d.id+'" style="cursor:pointer;"><div class="doc-ico">'+ICONS.doc+'</div>'+
         '<div class="doc-info"><div class="t">'+esc(DOC_TYPE_INFO[d.type].label)+(d.beneficiaireNom?' — '+esc(d.beneficiaireNom):'')+'</div><div class="s">'+fmtDate(d.date)+'</div></div></div>'; }).join('')+'</div>' : '<div class="empty">Aucun document généré pour cette tâche.</div>')+
-      '<div class="section-label" style="margin-top:14px;">Documents de travail utilisés <span style="font-weight:400;color:var(--ink-faint);">(pièces jointes)</span></div>'+
-      '<div id="taskAttachList">'+(attachments.length ? attachments.map(function(a,i){ return '<div class="attach-row"><span class="t">'+esc(a.titre)+(a.driveUrl?' <a href="'+esc(a.driveUrl)+'" target="_blank" rel="noopener" style="font-size:10.5px;color:var(--ink-faint);">(sur Drive)</a>':'')+'</span><a href="'+assetUrl(a.assetId)+'" target="_blank" rel="noopener" class="icon-btn" style="width:30px;height:30px;">'+ICONS.ext+'</a><button class="icon-btn" data-rmtaskattach="'+i+'" style="width:30px;height:30px;color:var(--danger);">'+ICONS.trash+'</button></div>'; }).join('') : '<div class="empty">Aucun document de travail joint.</div>')+'</div>'+
-      '<button class="addline" id="btnAddTaskAttach" type="button">'+ICONS.upload+' Joindre un document de travail</button>'+
+      taskAttachmentsHtml(t)+
       '<div class="btn-row" style="margin-top:16px;"><button class="btn ghost" id="btnEditTask" type="button">Modifier</button><button class="btn danger" id="btnDeleteTask2" type="button">Supprimer</button></div>'+
       '</div></div>';
     return html;
@@ -7046,13 +7279,14 @@
     };
     document.querySelectorAll('[data-rmtaskattach]').forEach(function(el){ el.onclick = function(){
       var m = state.modalStack[state.modalStack.length-1];
-      var t2 = state.tasks.find(function(x){ return x.id===m.taskId; });
-      if(!t2) return;
-      var idx = parseInt(el.getAttribute('data-rmtaskattach'));
-      var nt = Object.assign({}, t2, {attachments:(t2.attachments||[]).slice()});
-      nt.attachments.splice(idx,1);
-      recordSet('task', nt);
+      if(!confirm('Retirer cette pièce jointe ? Elle sera aussi mise à la corbeille de Google Drive.')) return;
+      removeTaskAttachment(m.taskId, parseInt(el.getAttribute('data-rmtaskattach')));
     }; });
+    document.querySelectorAll('[data-opentaskattach]').forEach(function(el){ el.onclick = function(){
+      var m = state.modalStack[state.modalStack.length-1];
+      openTaskAttachment(m.taskId, el.getAttribute('data-opentaskattach'));
+    }; });
+
 
     /* -- settings -- */
     document.querySelectorAll('[data-stab]').forEach(function(el){ el.onclick=function(){ var m=state.modalStack[state.modalStack.length-1]; m.tab=el.getAttribute('data-stab'); render(); }; });
@@ -7978,8 +8212,9 @@
       var statusEl = $('genDocStatus');
       if(statusEl){ statusEl.hidden = false; statusEl.textContent = kind==='pdf' ? 'Génération du PDF…' : 'Génération du document Word…'; }
       if(btn) btn.disabled = true;
-      var p = off ? (kind==='pdf' ? downloadOfficialPdf(off, docFileBase()) : downloadOfficialDocx(off, docFileBase()))
-        : (kind==='pdf' ? downloadPdf(spec, docFileBase()) : downloadDocx(spec, docFileBase()));
+      var tid = task ? task.id : null;
+      var p = off ? (kind==='pdf' ? downloadOfficialPdf(off, docFileBase(), tid) : downloadOfficialDocx(off, docFileBase(), tid))
+        : (kind==='pdf' ? downloadPdf(spec, docFileBase(), tid) : downloadDocx(spec, docFileBase(), tid));
       p.then(function(gdocUrl){
         /* Une fois le .docx converti en Google Doc dans Drive, on garde son URL sur le document
            (brouillon en cours + enregistrement déjà sauvegardé le cas échéant) et on redessine pour
@@ -8032,7 +8267,7 @@
       state.programmeAnnuel.attachments.push(entry);
       programmeAnnuelSet(state.programmeAnnuel);
       toast('Fichier joint.');
-      uploadAttachmentToDrive(f).then(function(drive){
+      uploadAttachmentToDrive(f, ['Programme annuel']).then(function(drive){
         if(!drive) return;
         entry.driveFileId = drive.driveFileId; entry.driveUrl = drive.driveUrl;
         programmeAnnuelSet(state.programmeAnnuel);
@@ -8046,7 +8281,8 @@
       var entry = {assetId:res.id, titre:f.name, type:res.contentType, driveFileId:null, driveUrl:null};
       state.draftRecord.attachments.push(entry);
       render(); toast('Fichier joint.');
-      uploadAttachmentToDrive(f).then(function(drive){
+      var dr = state.draftRecord || {};
+      uploadAttachmentToDrive(f, ['Enseignants', (dr.nom || 'Sans nom')+(dr.ppr ? ' — '+dr.ppr : '')]).then(function(drive){
         if(!drive) return;
         entry.driveFileId = drive.driveFileId; entry.driveUrl = drive.driveUrl;
         render();
@@ -8072,25 +8308,9 @@
      enseignant ci-dessus, mais ciblant la tâche en cours via taskAttachTargetId plutôt que
      state.draftRecord, puisque ce bouton vit dans le détail de tâche (pas un formulaire d'édition). */
   $('fileTaskAttachInput').onchange = function(){
-    var f = this.files[0]; this.value=''; var tid = taskAttachTargetId; taskAttachTargetId = null;
-    if(!f || !tid) return;
-    uploadAsset(f).then(function(res){
-      var t2 = state.tasks.find(function(x){ return x.id===tid; });
-      if(!t2) return;
-      var nt = Object.assign({}, t2, {attachments:(t2.attachments||[]).concat([{assetId:res.id, titre:f.name, type:res.contentType, driveFileId:null, driveUrl:null}])});
-      recordSet('task', nt);
-      toast('Document de travail joint.');
-      uploadAttachmentToDrive(f).then(function(drive){
-        if(!drive) return;
-        var t3 = state.tasks.find(function(x){ return x.id===tid; });
-        if(!t3) return;
-        var idx = (t3.attachments||[]).findIndex(function(a){ return a.assetId===res.id; });
-        if(idx<0) return;
-        var nt2 = Object.assign({}, t3, {attachments: t3.attachments.slice()});
-        nt2.attachments[idx] = Object.assign({}, nt2.attachments[idx], {driveFileId:drive.driveFileId, driveUrl:drive.driveUrl});
-        recordSet('task', nt2);
-      });
-    }).catch(function(err){ toast(assetsErrorMessage(err)); });
+    var files = Array.prototype.slice.call(this.files||[]); this.value=''; var tid = taskAttachTargetId; taskAttachTargetId = null;
+    if(!files.length || !tid) return;
+    attachFilesToTask(tid, files);
   };
   function profilImageOnChange(){
     return function(){
