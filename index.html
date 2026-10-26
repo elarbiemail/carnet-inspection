@@ -3977,7 +3977,15 @@
   }
 
   /* ================= modal stack ================= */
-  function closeTopModal(){ state.modalStack.pop(); render(); }
+  function closeTopModal(){
+    var top = state.modalStack.pop();
+    /* Rapport créé sans tâche (« Nouveau rapport d'inspection ») : la tâche support créée à l'ouverture
+       est supprimée si la fenêtre est fermée sans que le rapport ait été enregistré. */
+    if(top && top.type==='docedit' && top.autoTaskId && !state.documents.some(function(x){ return x.taskId===top.autoTaskId; })){
+      recordDelete('task', top.autoTaskId);
+    }
+    render();
+  }
   function pushModal(m){ state.modalStack.push(m); render(); }
 
   function openTaskEditor(task){
@@ -4342,10 +4350,95 @@
     }
     return base;
   }
+  /* ---- Rapport d'inspection ↔ base des enseignant(e)s ----
+     fillRapportFromEns : reprend la fiche choisie dans la base (nom, PPR, cadre, civilité, établissement)
+     et la précédente inspection (année + note) d'après le dernier rapport d'inspection enregistré pour
+     ce/cette même enseignant(e).
+     upsertEnsFromRapport : crée la fiche si l'enseignant(e) saisi(e) dans le rapport n'existe pas
+     encore (recherche par lien, puis PPR, puis nom) ; sinon, overwrite=false ne complète que les cases
+     vides de la fiche, overwrite=true y reporte toutes les valeurs non vides du rapport. */
+  function rapportDocEnsId(x){
+    if(x.enseignantId) return x.enseignantId;
+    var t = state.tasks.find(function(tk){ return tk.id===x.taskId; });
+    return t ? t.enseignantId : null;
+  }
+  function fillRapportFromEns(d, r){
+    d.enseignantId = r.id;
+    d.enseignantNom = ensNameLang('fr', r.id, r.nom);
+    if(r.ppr) d.ppr = r.ppr;
+    if(r.cadre) d.cadre = r.cadre;
+    if(r.genre) d.civilite = r.genre==='F' ? 'Mme.' : 'M.';
+    if(r.etablissementId) d.lieu = etabNameLang('fr', r.etablissementId, etabName(r.etablissementId));
+    var prev = state.documents.filter(function(x){
+      return x.type==='rapport_inspection' && x.id!==d.id && rapportDocEnsId(x)===r.id && x.date && (!d.date || x.date < d.date);
+    }).sort(function(a,b){ return b.date.localeCompare(a.date); })[0];
+    if(prev){
+      d.precInspection = prev.date.slice(0,4);
+      if(prev.note) d.precNote = prev.note + (/\/\s*20$/.test(prev.note) ? '' : '/20');
+      d.par = 'Nous-même';
+    }
+  }
+  function findEnsForRapport(d){
+    var nom = (d.enseignantNom||'').trim(), ppr = (d.ppr||'').trim();
+    return (d.enseignantId && state.enseignants.find(function(x){ return x.id===d.enseignantId; }))
+      || (ppr && state.enseignants.find(function(x){ return x.ppr && String(x.ppr).trim()===ppr; }))
+      || (nom && state.enseignants.find(function(x){ return [x.nom, x.nomFr, x.nomAr].some(function(n){ return n && n.trim().toLowerCase()===nom.toLowerCase(); }); }))
+      || null;
+  }
+  function upsertEnsFromRapport(d, overwrite){
+    var nom = (d.enseignantNom||'').trim();
+    if(!nom) return Promise.resolve(null);
+    var civ = d.civilite || '';
+    var vals = { ppr:(d.ppr||'').trim(), cadre:(d.cadre||'').trim(), genre: civ==='Mme.' ? 'F' : civ==='M.' ? 'H' : '' };
+    var etId = (d.lieu||'').trim() ? findOrCreateEtab(d.lieu.trim(), null) : null;
+    var ex = findEnsForRapport(d);
+    if(!ex){
+      var rec = { id: uid(), nom: nom, etablissementId: etId, matiere: d.matiere||'', cycle:'', ppr: vals.ppr, genre: vals.genre,
+        cadre: vals.cadre, statut:'titulaire', sessionTitularisation:'', telephone:'', email:'', photoAssetId:null, horaire:[], attachments:[], notes:'' };
+      d.enseignantId = rec.id;
+      return recordSet('enseignant', rec).then(function(){ return {rec:rec, created:true}; });
+    }
+    var upd = Object.assign({}, ex), changed = false;
+    Object.keys(vals).forEach(function(k){ if(vals[k] && (overwrite ? upd[k]!==vals[k] : !upd[k])){ upd[k] = vals[k]; changed = true; } });
+    if(etId && (overwrite ? upd.etablissementId!==etId : !upd.etablissementId)){ upd.etablissementId = etId; changed = true; }
+    if(overwrite && nom!==upd.nom && nom!==upd.nomFr && nom!==upd.nomAr){ upd.nom = nom; changed = true; }
+    d.enseignantId = ex.id;
+    return (changed ? recordSet('enseignant', upd) : Promise.resolve()).then(function(){ return {rec:upd, created:false, changed:changed}; });
+  }
+  /* Nouveau rapport d'inspection sans passer par une tâche : une tâche « Inspection » (réalisée, datée
+     du jour) est créée pour le porter — le rapport reste ainsi rangé, synchronisé et exportable comme
+     les autres ; elle est retirée si le rapport n'est finalement pas enregistré (voir closeTopModal). */
+  function openNewRapportInspection(ens){
+    var task = { id: uid(), titre:"Inspection", statut:'realisee', priorite:'moyenne', taskType:'inspection',
+      enseignantId: ens ? ens.id : null, enseignantNom: ens ? ens.nom : '', etablissementId: ens ? ens.etablissementId||null : null,
+      etablissementNom: ens ? etabName(ens.etablissementId)||'' : '', heureDebut:'', heureFin:'', lieu:'', lienConnexion:'',
+      echeance: todayStr(), description:'', docTitre:'', docUrl:'', noteGlobale:'', notificationEnvoyee:false, invites:[], attachments:[], autoRapport:true };
+    if(ens) task.titre = 'Inspection – '+ens.nom;
+    recordSet('task', task).then(function(){
+      var d = buildDefaultDoc(task, 'rapport_inspection');
+      if(ens) fillRapportFromEns(d, ens);
+      state.draftDoc = d;
+      pushModal({type:'docedit', docType:'rapport_inspection', taskId: task.id, isNew:true, autoTaskId: task.id});
+    });
+  }
   function saveDoc(){
     var d = state.draftDoc;
     d.updatedAt = nowIso();
-    recordSet('document', d).then(function(){ closeTopModal(); toast('Document enregistré.'); });
+    var pre = Promise.resolve(null);
+    if(d.type==='rapport_inspection' && (d.enseignantNom||'').trim()) pre = upsertEnsFromRapport(d, false);
+    pre.then(function(res){
+      var task = state.tasks.find(function(t){ return t.id===d.taskId; });
+      if(task && res && res.rec && (!task.enseignantId || task.autoRapport)){
+        var tu = Object.assign({}, task, { enseignantId: res.rec.id, enseignantNom: res.rec.nom,
+          etablissementId: res.rec.etablissementId || task.etablissementId, etablissementNom: etabName(res.rec.etablissementId) || task.etablissementNom });
+        if(task.autoRapport){ tu.titre = 'Inspection – '+res.rec.nom; if(d.date) tu.echeance = d.date; }
+        recordSet('task', tu);
+      }
+      return recordSet('document', d).then(function(){
+        closeTopModal();
+        toast(res && res.created ? "Rapport enregistré · fiche de "+res.rec.nom+" ajoutée à la base." : 'Document enregistré.');
+      });
+    });
   }
 
   /* ================= import / export ================= */
@@ -7168,7 +7261,7 @@
         .filter(Boolean).join(' ').toLowerCase();
       return hay.indexOf(q)>=0;
     });
-    var html = '<div class="btn-row" style="margin-bottom:8px;"><button class="btn ghost sm" id="btnDocsGoTmpl" type="button">'+ICONS.doc+' Personnaliser les modèles de documents</button></div>';
+    var html = '<div class="btn-row" style="margin-bottom:8px;"><button class="btn primary sm" id="btnNewRapportInsp" type="button">'+ICONS.plus+' Nouveau rapport d\'inspection</button><button class="btn ghost sm" id="btnDocsGoTmpl" type="button">'+ICONS.doc+' Personnaliser les modèles de documents</button></div>';
     html += '<div class="search-row"><input type="text" id="docGenSearchInput" placeholder="Rechercher un document…" value="'+esc(state.docsGenQuery)+'"></div>';
     html += '<div class="chips" style="flex-wrap:wrap;">'+chipBtn('all','Tous', filterType)+
       Object.keys(DOC_TYPE_INFO).map(function(k){ return chipBtn(k, DOC_TYPE_INFO[k].label, filterType); }).join('')+'</div>';
@@ -7180,6 +7273,7 @@
       html += '<div class="doc-list">'+docs.map(genDocRowHtml).join('')+'</div>';
     }
     host.innerHTML = html;
+    var newRap = $('btnNewRapportInsp'); if(newRap) newRap.onclick = function(){ openNewRapportInspection(null); };
     var goTmpl = $('btnDocsGoTmpl'); if(goTmpl) goTmpl.onclick = function(){ pushModal({type:'settings', tab:'templates'}); };
     var si = $('docGenSearchInput'); if(si) si.oninput = function(){ state.docsGenQuery = si.value; render(); setTimeout(function(){ var el=$('docGenSearchInput'); if(el){ el.focus(); el.selectionStart=el.selectionEnd=el.value.length; } },0); };
     host.querySelectorAll('[data-genfilter]').forEach(function(el){ el.onclick = function(){ state.docsGenFilter = el.getAttribute('data-genfilter'); render(); }; });
@@ -8335,7 +8429,13 @@
     } else if(m.docType==='rapport_inspection'){
       if(!d.texte && (d.constats || d.recommandations)) d.texte = rapportInspectionTexte(d);
       var civ = d.civilite || civiliteOf(d);
+      var ensLinked = findEnsForRapport(d);
       body += dkRow('<div class="field"><label for="dEns">Enseignant(e)</label><input type="text" id="dEns" value="'+esc(d.enseignantNom)+'"></div>', dkField('PPR','ppr', d.ppr))+
+        '<div class="btn-row" style="margin:-4px 0 4px;"><button class="btn ghost sm" id="btnRapPickEns" type="button">'+ICONS.users+' Choisir dans la base</button>'+
+          '<button class="btn ghost sm" id="btnRapSaveEns" type="button">'+ICONS.plus+' '+(ensLinked ? 'Mettre à jour la fiche' : 'Ajouter à la base')+'</button></div>'+
+        '<p style="font-size:11.5px;color:var(--ink-faint);margin:0 0 10px;">'+(ensLinked
+          ? 'Lié à la fiche de '+esc(ensLinked.nom)+(ensLinked.ppr ? ' (PPR '+esc(ensLinked.ppr)+')' : '')+'.'
+          : ((d.enseignantNom||'').trim() ? 'Enseignant(e) absent(e) de la base : sa fiche sera créée à l\'enregistrement du rapport.' : 'Choisissez l\'enseignant(e) dans la base, ou saisissez ses informations : sa fiche sera créée à l\'enregistrement.'))+'</p>'+
         '<div class="field"><label>Civilité</label><div class="seg" id="dCivSeg">'+['M.','Mme.'].map(function(c){ return '<button type="button" data-v="'+c+'" aria-pressed="'+(civ===c)+'">'+c+'</button>'; }).join('')+'</div></div>'+
         dkRow('<div class="field"><label for="dLieu">Établissement</label><input type="text" id="dLieu" value="'+esc(d.lieu)+'"></div>', dkField('Localité','localite', d.localite))+
         dkRow('<div class="field"><label for="dClasse">Classe</label><input type="text" id="dClasse" value="'+esc(d.classe)+'"></div>', dkField('Manuel','manuel', d.manuel))+
@@ -9339,6 +9439,18 @@
       };
     });
     var sefNat = $('sefNatureSeg'); if(sefNat) sefNat.querySelectorAll('button').forEach(function(b){ b.onclick = function(){ syncDocGenericFields(); state.draftDoc.sefrou.nature = b.getAttribute('data-v'); render(); }; });
+    var rapPick = $('btnRapPickEns'); if(rapPick) rapPick.onclick = function(){
+      syncDocGenericFields(); var dd = state.draftDoc;
+      openEnsPicker({ etabId: etabIdByName(dd.lieu), title:"Enseignant(e) inspecté(e)", onPick: function(r){ fillRapportFromEns(state.draftDoc, r); } });
+    };
+    var rapSave = $('btnRapSaveEns'); if(rapSave) rapSave.onclick = function(){
+      syncDocGenericFields(); var dd = state.draftDoc;
+      if(!(dd.enseignantNom||'').trim()){ toast("Saisissez d'abord le nom de l'enseignant(e)."); return; }
+      upsertEnsFromRapport(dd, true).then(function(res){
+        toast(res.created ? 'Fiche de '+res.rec.nom+' ajoutée à la base.' : res.changed ? 'Fiche de '+res.rec.nom+' mise à jour.' : 'La fiche est déjà à jour.');
+        render();
+      });
+    };
     var civSeg = $('dCivSeg'); if(civSeg) civSeg.querySelectorAll('button').forEach(function(b){ b.onclick = function(){ syncDocGenericFields(); state.draftDoc.civilite = b.getAttribute('data-v'); render(); }; });
     function sefrouContext(dd){
       var g = dd.sefrou || {}, it = g.items || {};
