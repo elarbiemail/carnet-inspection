@@ -572,7 +572,7 @@
   <button type="button" id="btnUpdateNow">Actualiser</button>
 </div>
 <div id="printRoot"></div>
-<input type="file" id="fileImportInput" accept=".csv,text/csv" hidden>
+<input type="file" id="fileImportInput" accept=".csv,text/csv,.xlsx,.xls,.ods,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" hidden>
 <input type="file" id="filePhotoInput" accept="image/png,image/jpeg,image/webp" hidden>
 <input type="file" id="fileAttachInput" accept="image/png,image/jpeg,image/webp,application/pdf" hidden>
 <input type="file" id="fileTaskAttachInput" multiple hidden>
@@ -4317,7 +4317,7 @@
       base.civilite = ensR ? (ensR.genre==='F' ? 'Mme.' : ensR.genre==='H' ? 'M.' : '') : '';
       base.localite = offProfil().province || ''; base.manuel = ''; base.nationalite = 'Marocaine';
       base.precInspection = ''; base.precNote = ''; base.par = 'Nous-même'; base.note = '';
-      base.notesObs = ''; base.texte = ''; base.redacteur = offProfil().nomSignature || '';
+      base.notesObs = ''; base.pistesObs = ''; base.texte = ''; base.redacteur = offProfil().nomSignature || '';
     } else if(type==='bordereau'){
       base.destinataire = 'المدير الإقليمي'; base.reference=''; base.objet = task.titre;
       base.pieces = [{designation: task.titre, nombre:'1', observation:''}]; base.observations='';
@@ -4406,34 +4406,140 @@
     var ne = {id:uid(), nom:name, zoneId: zoneName2?findOrCreateZone(zoneName2):null, type:'public', cycle:'primaire', adresse:'', telephone:'', latitude:'', longitude:'', pionnier:false, notes:''};
     recordSet('etablissement', ne); return ne.id;
   }
+  /* Import des listes (enseignant(e)s / établissements) depuis un fichier CSV OU Excel (.xlsx/.xls).
+     Excel : lecture par SheetJS, chargé à la demande depuis le CDN (première feuille du classeur, ligne 1
+     = en-têtes). Les en-têtes sont reconnus avec souplesse (majuscules, accents, synonymes usuels des
+     listes administratives : « Nom et prénom », « Matricule »/« SOM » pour le PPR, « Discipline » pour
+     la matière, « Grade » pour le cadre, « Sexe » pour le genre…) ; colonnes « Nom » + « Prénom »
+     séparées réunies en un seul nom. Un(e) enseignant(e) déjà présent(e) (même PPR, sinon même nom)
+     est mis(e) à jour au lieu d'être dupliqué(e) : seules les cases non vides du fichier remplacent
+     les valeurs existantes. */
+  function ensureSheetJS(){
+    if(window.XLSX) return Promise.resolve();
+    return loadScript('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
+  }
+  function normHeader(h){
+    return String(h==null?'':h).trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'')
+      .replace(/[’'`]/g,' ').replace(/[^a-z0-9؀-ۿ]+/g,' ').trim();
+  }
+  var IMPORT_HEADER_SYNONYMS = {
+    nom_complet: ['nom et prenom','nom prenom','nom complet','nom et prenoms','prenom et nom','nom & prenom','الاسم الكامل','الاسم و النسب','الاسم والنسب'],
+    nom: ['nom','name','enseignant','enseignante','enseignant e','professeur','النسب','الاسم العائلي'],
+    prenom: ['prenom','prenoms','الاسم الشخصي','الاسم'],
+    ppr: ['ppr','matricule','som','n som','numero som','num som','n ppr','numero ppr','رقم التاجير','رقم التأجير','الرقم المالي'],
+    etablissement: ['etablissement','nom etablissement','ecole','lycee','college','etab','المؤسسة'],
+    matiere: ['matiere','discipline','specialite','المادة','التخصص'],
+    cycle: ['cycle','niveau','السلك'],
+    cadre: ['cadre','grade','الإطار','الاطار','الدرجة'],
+    statut: ['statut','situation','الوضعية'],
+    genre: ['genre','sexe','الجنس'],
+    session_titularisation: ['session titularisation','session de titularisation'],
+    telephone: ['telephone','tel','gsm','portable','mobile','الهاتف'],
+    email: ['email','e mail','mail','courriel','البريد الإلكتروني'],
+    notes: ['notes','remarques','observations','ملاحظات'],
+    zone: ['zone','commune','secteur','الجماعة'],
+    type: ['type'],
+    adresse: ['adresse','العنوان'],
+    latitude: ['latitude','lat'], longitude: ['longitude','lng','lon']
+  };
+  function canonHeader(h){
+    var n = normHeader(h); if(!n) return '';
+    for(var k in IMPORT_HEADER_SYNONYMS){
+      if(k===n.replace(/ /g,'_')) return k;
+      if(IMPORT_HEADER_SYNONYMS[k].indexOf(n)>=0) return k;
+    }
+    return n.replace(/ /g,'_');
+  }
+  function normalizeImportRows(rows, kind){
+    return rows.map(function(r){
+      var o = {};
+      Object.keys(r).forEach(function(h){
+        var k = canonHeader(h), v = r[h]==null ? '' : String(r[h]).trim();
+        if(k && v && !o[k]) o[k] = v;
+      });
+      if(kind==='enseignants'){
+        if(!o.nom && o.nom_complet) o.nom = o.nom_complet;
+        else if(o.nom && o.prenom && !o.nom_complet) o.nom = o.nom+' '+o.prenom;
+        else if(!o.nom && o.prenom) o.nom = o.prenom;
+        if(o.genre){ var g = normHeader(o.genre); o.genre = /^(f|femme|feminin|female|انثى|أنثى)$/.test(g) ? 'F' : /^(h|m|homme|masculin|male|ذكر)$/.test(g) ? 'H' : o.genre; }
+        if(o.ppr) o.ppr = o.ppr.replace(/\.0+$/,'');
+      }
+      return o;
+    });
+  }
+  function readImportFile(file){
+    var isXls = /\.(xlsx|xlsm|xls|ods)$/i.test(file.name||'') || /spreadsheet|excel/.test(file.type||'');
+    if(!isXls){
+      return new Promise(function(resolve, reject){
+        var reader = new FileReader();
+        reader.onload = function(){ resolve(csvToObjects(String(reader.result))); };
+        reader.onerror = function(){ reject(new Error('read')); };
+        reader.readAsText(file, 'utf-8');
+      });
+    }
+    return ensureSheetJS().catch(function(){ throw new Error('lib'); }).then(function(){
+      return file.arrayBuffer();
+    }).then(function(buf){
+      var wb = XLSX.read(buf, {type:'array'});
+      var ws = wb.Sheets[wb.SheetNames[0]];
+      /* Ligne d'en-têtes : la première ligne contenant « nom » (les listes administratives ont
+         souvent un titre ou un en-tête ministériel au-dessus du tableau). */
+      var grid = XLSX.utils.sheet_to_json(ws, {header:1, defval:'', raw:false});
+      var hi = 0;
+      for(var i=0;i<Math.min(grid.length,15);i++){
+        if(grid[i].some(function(c){ var k = canonHeader(c); return k==='nom' || k==='nom_complet'; })){ hi = i; break; }
+      }
+      var head = grid[hi] || [], out = [];
+      for(var r=hi+1;r<grid.length;r++){
+        var row = grid[r], o = {}, any = false;
+        head.forEach(function(h, idx){ if(String(h).trim()){ o[h] = row[idx]; if(String(row[idx]||'').trim()) any = true; } });
+        if(any) out.push(o);
+      }
+      return out;
+    });
+  }
   function importCSVFile(file, kind){
-    var reader = new FileReader();
-    reader.onload = function(){
-      var objs = csvToObjects(String(reader.result));
+    readImportFile(file).then(function(raw){
+      var objs = normalizeImportRows(raw, kind);
       if(!objs.length){ toast('Fichier vide ou illisible.'); return; }
-      var count = 0;
+      var added = 0, updated = 0;
       if(kind==='enseignants'){
         objs.forEach(function(o){
           if(!o.nom) return;
-          var etId = findOrCreateEtab(o.etablissement, null);
+          var existing = (o.ppr && state.enseignants.find(function(x){ return x.ppr && String(x.ppr).trim()===o.ppr; }))
+            || state.enseignants.find(function(x){ return (x.nom||'').trim().toLowerCase()===o.nom.toLowerCase(); });
+          var etId = o.etablissement ? findOrCreateEtab(o.etablissement, null) : null;
+          if(existing){
+            var upd = Object.assign({}, existing);
+            if(etId) upd.etablissementId = etId;
+            ['matiere','cycle','ppr','cadre','telephone','email'].forEach(function(k){ if(o[k]) upd[k] = o[k]; });
+            if(o.genre) upd.genre = parseEnsGenre(o.genre);
+            if(o.statut) upd.statut = parseEnsStatut(o.statut);
+            if(['s1','s2'].indexOf(o.session_titularisation)>=0) upd.sessionTitularisation = o.session_titularisation;
+            if(o.notes) upd.notes = o.notes;
+            recordSet('enseignant', upd); updated++;
+            return;
+          }
           recordSet('enseignant', { id: uid(), nom:o.nom, etablissementId: etId, matiere:o.matiere||'', cycle:o.cycle||'', ppr:o.ppr||'', genre: parseEnsGenre(o.genre),
             cadre:o.cadre||'', statut: parseEnsStatut(o.statut), sessionTitularisation: ['s1','s2'].indexOf(o.session_titularisation)>=0 ? o.session_titularisation : '',
             telephone:o.telephone||'', email:o.email||'', photoAssetId:null, horaire:[], attachments:[], notes:o.notes||'' });
-          count++;
+          added++;
         });
       } else {
         objs.forEach(function(o){
           if(!o.nom) return;
+          if(state.etablissements.find(function(x){ return (x.nom||'').trim().toLowerCase()===o.nom.toLowerCase(); })) return;
           var zId = findOrCreateZone(o.zone);
           recordSet('etablissement', { id: uid(), nom:o.nom, zoneId:zId, type:parseEtabType(o.type), cycle:parseEtabCycle(o.cycle), adresse:o.adresse||'', telephone:o.telephone||'', latitude:o.latitude||'', longitude:o.longitude||'', notes:o.notes||'' });
-          count++;
+          added++;
         });
       }
-      toast(count+' enregistrement(s) importé(s).');
+      if(!added && !updated) toast("Aucune ligne importée : vérifiez que le fichier a une colonne « Nom ».");
+      else toast(added+' ajouté(s)'+(updated ? ', '+updated+' mis à jour' : '')+'.');
       render();
-    };
-    reader.onerror = function(){ toast('Échec de la lecture du fichier.'); };
-    reader.readAsText(file, 'utf-8');
+    }).catch(function(err){
+      toast(err && err.message==='lib' ? "Lecture Excel impossible hors ligne : connectez-vous une fois, ou enregistrez le fichier en CSV." : 'Échec de la lecture du fichier.');
+    });
   }
 
   /* ================= MODÈLES OFFICIELS (mise en page fidèle aux documents fournis) =================
@@ -6854,7 +6960,7 @@
         }).join('')+'</select></div>'+
         '<div class="search-row"><input type="text" id="ensSearchInput" placeholder="Rechercher un(e) enseignant(e)…" value="'+esc(state.ensQuery)+'"></div>';
     }
-    html += '<div class="setup-actions"><button class="btn ghost sm" id="btnExportEns" type="button">Exporter CSV</button><button class="btn ghost sm" id="btnImportEns" type="button">Importer CSV</button><button class="btn ghost sm" id="btnNamesEns" type="button">'+ICONS.ai+' Compléter les noms ar / fr</button></div>';
+    html += '<div class="setup-actions"><button class="btn ghost sm" id="btnExportEns" type="button">Exporter CSV</button><button class="btn ghost sm" id="btnImportEns" type="button">Importer CSV / Excel</button><button class="btn ghost sm" id="btnNamesEns" type="button">'+ICONS.ai+' Compléter les noms ar / fr</button></div>';
     /* Un seul bouton « Fiches à distance » (au lieu de trois boutons séparés) ouvre le hub qui
        regroupe l'import d'une fiche par IA (photo/PDF), le lien à distance (Google Form ou lien simple)
        et l'import des réponses reçues — voir ficheHubModalHtml/openFicheHubModal (suppression des
@@ -6942,7 +7048,7 @@
   function renderEtabsSubview(host){
     var html = '';
     html += '<div class="setup-actions"><button class="btn primary sm" id="btnAddEtab2" type="button">+ Établissement</button>'+
-      '<button class="btn ghost sm" id="btnExportEtab" type="button">Exporter CSV</button><button class="btn ghost sm" id="btnImportEtab" type="button">Importer CSV</button>'+
+      '<button class="btn ghost sm" id="btnExportEtab" type="button">Exporter CSV</button><button class="btn ghost sm" id="btnImportEtab" type="button">Importer CSV / Excel</button>'+
       '<button class="btn ghost sm" id="btnNamesEtab" type="button">'+ICONS.ai+' Compléter les noms ar / fr</button></div>';
     if(!state.zones.length && !state.etablissements.length){
       html += '<div class="empty">Aucune zone ni établissement. Créez d\'abord une zone dans l\'onglet « Zones », puis ajoutez des établissements.</div>';
@@ -8236,7 +8342,8 @@
         dkRow(dkField('Nationalité','nationalite', d.nationalite||'Marocaine'), dkField('Cadre','cadre', d.cadre, {ph:'Ex. Ens Sec Qualifiant'}))+
         dkRow(dkField('Précédente inspection (année)','precInspection', d.precInspection), dkField('Note précédente','precNote', d.precNote, {ph:'Ex. 18/20'}), dkField('Par','par', d.par||'Nous-même'))+
         dkRow('<div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div>', dkField("Note d'inspection",'note', d.note, {ph:'Ex. 19/20'}))+
-        dkField("Notes d'observation (saisie ou dictée)",'notesObs', d.notesObs, {area:true, rows:6, id:'dNotesObs', ph:'Déroulement, points forts, points à améliorer… le rapport sera rédigé à partir de ces notes.'})+
+        dkField("Observations de classe (saisie ou dictée)",'notesObs', d.notesObs, {area:true, rows:6, id:'dNotesObs', ph:'Déroulement, gestion de la classe, démarche, supports, participation, points forts, points à améliorer…'})+
+        dkField("Pistes d'amélioration",'pistesObs', d.pistesObs, {area:true, rows:4, id:'dPistesObs', ph:'Une piste par ligne : ex. varier les modalités de travail, formuler l\'objectif de la séance au tableau…'})+
         dkField('Texte du rapport','texte', d.texte, {area:true, rows:12, id:'dTexteRapport', after: aiBtnHtml('btnAiRapportInsp', 'Rédiger le rapport à partir des notes')})+
         dkField('Rapport établi par','redacteur', d.redacteur || offProfil().nomSignature);
     } else if(m.docType==='plan_action'){
@@ -9247,12 +9354,14 @@
       aiDraft(aiSefApp, $('btnAiSefAppStatus'), $('dSefApp'), "Tu es un inspecteur pédagogique de français au Maroc. Rédige l'appréciation globale d'une grille d'observation (français, ton mesuré et fondé sur les faits observés) :\n"+sefrouContext(state.draftDoc)+"\nRemarques : "+((state.draftDoc.sefrou||{}).remarques||'—')); };
     var aiRapI = $('btnAiRapportInsp'); if(aiRapI) aiRapI.onclick = function(){
       syncDocGenericFields();
-      var dd = state.draftDoc, notes = (dd.notesObs||'').trim();
+      var dd = state.draftDoc, notes = (dd.notesObs||'').trim(), pistes = (dd.pistesObs||'').trim();
       var ctx = "Tu es un inspecteur pédagogique de français au Maroc. Rédige le texte d'un rapport d'inspection en français, à partir des notes d'observation de l'inspecteur(trice). Enseignant(e) : "+((dd.civilite||civiliteOf(dd))+' '+(dd.enseignantNom||'—')).trim()+" ; établissement : "+(dd.lieu||'—')+" ; classe : "+(dd.classe||'—')+" ; date : "+(dd.date?fmtDate(dd.date):'—')+(dd.note ? " ; note d'inspection attribuée : "+dd.note+(/\/\s*20$/.test(dd.note)?'':'/20')+" (à mentionner dans la conclusion)" : '')+
         ".\n\nStructure obligatoire :\n"+rapportStructure()+"\n\nN'invente aucun fait absent des notes. Renvoie uniquement le texte du rapport, paragraphes séparés par une ligne vide.";
-      if(notes) runAiPrompt(aiRapI, $('btnAiRapportInspStatus'), $('dTexteRapport'), ctx+"\n\nNotes d'observation :\n"+notes);
+      if(pistes) ctx += "\n\nL'inspecteur(trice) a noté les pistes d'amélioration ci-dessous : développe-les en recommandations concrètes et bienveillantes, dans le paragraphe des points à améliorer ou dans la conclusion, sans en ajouter d'autres non fondées sur les notes.\nPistes d'amélioration :\n"+pistes;
+      if(notes) runAiPrompt(aiRapI, $('btnAiRapportInspStatus'), $('dTexteRapport'), ctx+"\n\nObservations de classe :\n"+notes);
       else if(($('dTexteRapport').value||'').trim()) aiDraft(aiRapI, $('btnAiRapportInspStatus'), $('dTexteRapport'), ctx);
-      else toast("Saisissez ou dictez d'abord vos notes d'observation.");
+      else if(pistes) runAiPrompt(aiRapI, $('btnAiRapportInspStatus'), $('dTexteRapport'), ctx);
+      else toast("Saisissez ou dictez d'abord vos observations de classe.");
     };
     var obsVarSeg = $('obsVarianteSeg'); if(obsVarSeg) obsVarSeg.querySelectorAll('button').forEach(function(b){
       b.onclick = function(){ syncDocGenericFields(); applyObsVariante(state.draftDoc, b.getAttribute('data-v')); render(); };
