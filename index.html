@@ -51,6 +51,8 @@
     --danger:#B14A3D; --danger-soft:#F6E3DF;
     --done:#3F7D53; --done-soft:#E3EFE4;
     --violet:#5B5A9C; --violet-soft:#E7E6F2;
+    --g-f:#A8436F; --g-f-soft:#F6E2EB; --g-h:#2F64A0; --g-h-soft:#E1EAF5;
+    --pub:#3F5B8C; --pub-soft:#E3E8F2; --prive:#9A5426; --prive-soft:#F5E6DA;
     --radius:14px; --radius-sm:9px;
     --shadow:0 1px 2px rgba(30,42,58,.07), 0 6px 20px rgba(30,42,58,.07);
     --font-ui:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
@@ -66,6 +68,8 @@
       --danger:#D97C6C; --danger-soft:#3B2420;
       --done:#7BC090; --done-soft:#1F3123;
       --violet:#9C9BE0; --violet-soft:#2A2A45;
+      --g-f:#E68DB3; --g-f-soft:#3D2230; --g-h:#7FB0EA; --g-h-soft:#1E2E44;
+      --pub:#9DB3E0; --pub-soft:#232E45; --prive:#E3A273; --prive-soft:#3D2A1C;
       --shadow:0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.3);
     }
   }
@@ -78,6 +82,8 @@
     --danger:#D97C6C; --danger-soft:#3B2420;
     --done:#7BC090; --done-soft:#1F3123;
     --violet:#9C9BE0; --violet-soft:#2A2A45;
+    --g-f:#E68DB3; --g-f-soft:#3D2230; --g-h:#7FB0EA; --g-h-soft:#1E2E44;
+    --pub:#9DB3E0; --pub-soft:#232E45; --prive:#E3A273; --prive-soft:#3D2A1C;
     --shadow:0 1px 2px rgba(0,0,0,.3), 0 6px 20px rgba(0,0,0,.3);
   }
   *{box-sizing:border-box;}
@@ -262,6 +268,19 @@
   .avatar{ width:38px; height:38px; border-radius:50%; background:var(--accent-soft); color:var(--accent); flex-shrink:0;
     display:flex; align-items:center; justify-content:center; font-weight:700; font-size:13.5px; overflow:hidden; }
   .avatar img{ width:100%; height:100%; object-fit:cover; }
+  /* Couleurs de la liste des enseignant(e)s (genre, cycle) et des établissements (public / privé). */
+  .avatar.g-F{ background:var(--g-f-soft); color:var(--g-f); box-shadow:0 0 0 2px var(--g-f); }
+  .avatar.g-H{ background:var(--g-h-soft); color:var(--g-h); box-shadow:0 0 0 2px var(--g-h); }
+  .avatar.t-public{ background:var(--pub-soft); color:var(--pub); }
+  .avatar.t-prive{ background:var(--prive-soft); color:var(--prive); }
+  .tag{ display:inline-block; padding:1px 7px; border-radius:99px; font-size:10.5px; font-weight:700; letter-spacing:.02em; margin-right:5px; vertical-align:1px; }
+  .tag.cyc-primaire{ background:var(--done-soft); color:var(--done); }
+  .tag.cyc-college{ background:var(--warn-soft); color:var(--warn); }
+  .tag.cyc-qualifiant{ background:var(--violet-soft); color:var(--violet); }
+  .tag.t-public{ background:var(--pub-soft); color:var(--pub); }
+  .tag.t-prive{ background:var(--prive-soft); color:var(--prive); }
+  .chip .dot{ display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; vertical-align:0; }
+  .list-filters{ display:flex; flex-direction:column; gap:7px; margin:4px 0 10px; }
   .rec-info{ flex:1; min-width:0; }
   .rec-info .t{ font-size:13.5px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .rec-info .s{ font-size:11.5px; color:var(--ink-faint); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -1491,7 +1510,7 @@
     syncing: false, syncError: null,
     modalStack: [], draftTask: null, draftRecord: null, draftDoc: null,
     setupBusy: false, setupError: null, driveSetupError: null, geminiKeyError: null,
-    ensQuery: '', ensEtabFilter: '', ensHoraireMode: false, horaireJour: 'Lundi', horaireHeure: '09:00',
+    ensQuery: '', ensEtabFilter: '', ensCycleFilter: '', ensGenreFilter: '', etabTypeFilter: '', ensHoraireMode: false, horaireJour: 'Lundi', horaireHeure: '09:00',
     bilanPeriod: 'mois', bilanCustomFrom: '', bilanCustomTo: '',
     subEtab: 'zones', subDocs: 'generes', docsGenQuery: '', docsGenFilter: 'all', searchQuery: '',
     pickTarget: null, // {kind:'enseignant'|'etablissement'|'zone', onPick}
@@ -7072,13 +7091,23 @@
       }).join('')+'</div>' : '<div class="empty">Personne en séance à ce créneau.</div>';
     } else {
       var q = state.ensQuery.toLowerCase();
-      var list = state.enseignants.filter(function(e){ return (!state.ensEtabFilter || e.etablissementId===state.ensEtabFilter) && (!q || e.nom.toLowerCase().indexOf(q)>=0 || (e.matiere||'').toLowerCase().indexOf(q)>=0 || String(e.ppr||'').indexOf(q)>=0); })
+      var base = state.enseignants.filter(function(e){ return (!state.ensEtabFilter || e.etablissementId===state.ensEtabFilter) && (!q || e.nom.toLowerCase().indexOf(q)>=0 || (e.matiere||'').toLowerCase().indexOf(q)>=0 || String(e.ppr||'').indexOf(q)>=0); });
+      var byGenre = base.filter(function(e){ return !state.ensGenreFilter || e.genre===state.ensGenreFilter; });
+      var byCycle = base.filter(function(e){ return !state.ensCycleFilter || ensCycle(e)===state.ensCycleFilter; });
+      html += '<div class="list-filters"><div class="chips">'+filterChip('data-enscyc','','Tous les cycles',state.ensCycleFilter,byGenre.length)+
+          ENS_CYCLES.map(function(c){ return filterChip('data-enscyc', c.v, c.l, state.ensCycleFilter, byGenre.filter(function(e){ return ensCycle(e)===c.v; }).length, '--'+({primaire:'done',college:'warn',qualifiant:'violet'})[c.v]); }).join('')+'</div>'+
+        '<div class="chips">'+filterChip('data-ensgen','','Tous',state.ensGenreFilter,byCycle.length)+
+          filterChip('data-ensgen','F','Femmes',state.ensGenreFilter,byCycle.filter(function(e){ return e.genre==='F'; }).length,'--g-f')+
+          filterChip('data-ensgen','H','Hommes',state.ensGenreFilter,byCycle.filter(function(e){ return e.genre==='H'; }).length,'--g-h')+'</div></div>';
+      var list = byGenre.filter(function(e){ return !state.ensCycleFilter || ensCycle(e)===state.ensCycleFilter; })
         .sort(function(a,b){ return a.nom.localeCompare(b.nom); });
       html += !list.length ? '<div class="empty">'+(state.enseignants.length ? 'Aucun(e) enseignant(e) ne correspond à ce filtre.' : 'Aucun enseignant enregistré. Touchez « + » pour en ajouter un.')+'</div>' :
         '<div class="rec-list">'+list.map(function(e){ return ensRowHtml(e, [e.matiere, etabName(e.etablissementId), etabZoneHierLine(e.etablissementId)].filter(Boolean).join(' · ')); }).join('')+'</div>';
     }
     host.innerHTML = html;
     var ef = $('ensEtabFilter'); if(ef) ef.onchange = function(){ state.ensEtabFilter = ef.value; render(); };
+    host.querySelectorAll('[data-enscyc]').forEach(function(el){ el.onclick = function(){ state.ensCycleFilter = el.getAttribute('data-enscyc'); render(); }; });
+    host.querySelectorAll('[data-ensgen]').forEach(function(el){ el.onclick = function(){ state.ensGenreFilter = el.getAttribute('data-ensgen'); render(); }; });
     var si = $('ensSearchInput'); if(si) si.oninput = function(){ state.ensQuery = si.value; render(); setTimeout(function(){ var el=$('ensSearchInput'); if(el){ el.focus(); el.selectionStart=el.selectionEnd=el.value.length; } },0); };
     var jseg = $('horJourSeg'); if(jseg) jseg.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ state.horaireJour=b.getAttribute('data-v'); render(); }; });
     var hh = $('horHeure'); if(hh) hh.onchange = function(){ state.horaireHeure = hh.value; render(); };
@@ -7100,6 +7129,24 @@
     var z = state.zones.find(function(x){ return x.id===et.zoneId; });
     return z ? [z.academieRegionale, z.directionProvinciale].filter(Boolean).join(' · ') : '';
   }
+  /* Cycle d'enseignement d'un(e) enseignant(e) : choix explicite de la fiche (cycleEns), sinon déduit
+     des niveaux saisis (TC/1BAC/2BAC → qualifiant ; 1AC…3AC → collégial ; CE/CM… → primaire), sinon
+     du cycle de son établissement (indéterminé pour un établissement collégial + qualifiant). */
+  var ENS_CYCLES = [{v:'primaire', l:'Primaire'}, {v:'college', l:'Secondaire collégial'}, {v:'qualifiant', l:'Secondaire qualifiant'}];
+  var ENS_CYCLE_SHORT = {primaire:'Primaire', college:'Collégial', qualifiant:'Qualifiant'};
+  function ensCycle(e){
+    if(e.cycleEns) return e.cycleEns;
+    var t = ' '+String(e.cycle||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'')+' ';
+    if(/\b(tc|tronc|[12] ?bac|bac|qualif|lycee)\b/.test(t)) return 'qualifiant';
+    if(/\b([123] ?ac|asc|apic|college|colleg)/.test(t)) return 'college';
+    if(/\b(primaire|cp|ce ?[1-6]?|cm ?[12]?|[1-6] ?ap)\b/.test(t)) return 'primaire';
+    var et = state.etablissements.find(function(x){ return x.id===e.etablissementId; });
+    return et && ['primaire','college','qualifiant'].indexOf(et.cycle)>=0 ? et.cycle : '';
+  }
+  function etabTypeOf(id){ var et = state.etablissements.find(function(x){ return x.id===id; }); return et ? (et.type==='prive' ? 'prive' : 'public') : ''; }
+  function filterChip(attr, v, label, active, n, dotVar){
+    return '<button type="button" class="chip" '+attr+'="'+v+'" aria-pressed="'+(active===v)+'">'+(dotVar ? '<span class="dot" style="background:var('+dotVar+')"></span>' : '')+esc(label)+' <span style="opacity:.6;font-weight:500;">'+n+'</span></button>';
+  }
   function ensRowHtml(e, sub){
     var av = e.photoAssetId ? '<img src="'+assetUrl(e.photoAssetId)+'" alt="">' : initials(e.nom);
     var tags = [e.statut==='stagiaire' ? 'Stagiaire' : '', e.cadre].filter(Boolean).join(' · ');
@@ -7107,8 +7154,10 @@
       '<a href="'+telHref(e.telephone)+'" class="icon-btn" data-actstop="1" title="Appeler" style="width:28px;height:28px;color:var(--brand);">'+ICONS.phone+'</a>'+
       '<a href="'+waHref(e.telephone, waGreeting(e.nom))+'" target="_blank" rel="noopener" class="icon-btn" data-actstop="1" title="Écrire sur WhatsApp" style="width:28px;height:28px;color:var(--brand);">'+ICONS.chat+'</a>'+
       '</div>') : '';
-    return '<div class="rec-row" data-id="'+e.id+'"><div class="avatar">'+av+'</div>'+
-      '<div class="rec-info"><div class="t">'+esc(e.nom)+'</div><div class="s">'+(tags?esc(tags)+' · ':'')+esc(sub||'')+'</div></div>'+contactBtns+'</div>';
+    var cyc = ensCycle(e), tp = etabTypeOf(e.etablissementId);
+    var badges = (cyc ? '<span class="tag cyc-'+cyc+'">'+ENS_CYCLE_SHORT[cyc]+'</span>' : '')+(tp==='prive' ? '<span class="tag t-prive">Privé</span>' : '');
+    return '<div class="rec-row" data-id="'+e.id+'"><div class="avatar'+(e.genre==='F'||e.genre==='H' ? ' g-'+e.genre : '')+'" title="'+esc(GENRE_ENS_LABEL[e.genre]||'')+'">'+av+'</div>'+
+      '<div class="rec-info"><div class="t">'+esc(e.nom)+'</div><div class="s">'+badges+(tags?esc(tags)+' · ':'')+esc(sub||'')+'</div></div>'+contactBtns+'</div>';
   }
 
   /* ---- Établissements ---- */
@@ -7146,11 +7195,17 @@
     if(!state.zones.length && !state.etablissements.length){
       html += '<div class="empty">Aucune zone ni établissement. Créez d\'abord une zone dans l\'onglet « Zones », puis ajoutez des établissements.</div>';
     } else {
+      var tf = state.etabTypeFilter;
+      var nPub = state.etablissements.filter(function(e){ return e.type!=='prive'; }).length, nPriv = state.etablissements.length - nPub;
+      html += '<div class="list-filters"><div class="chips">'+filterChip('data-etabtype','','Tous',tf,state.etablissements.length)+
+        filterChip('data-etabtype','public','Public',tf,nPub,'--pub')+filterChip('data-etabtype','prive','Privé',tf,nPriv,'--prive')+'</div></div>';
+      var etabOk = function(e){ return !tf || (tf==='prive' ? e.type==='prive' : e.type!=='prive'); };
       var groups = state.zones.slice().sort(function(a,b){ return a.nom.localeCompare(b.nom); });
-      var noZone = state.etablissements.filter(function(e){ return !e.zoneId || !state.zones.find(function(z){ return z.id===e.zoneId; }); });
+      var noZone = state.etablissements.filter(function(e){ return etabOk(e) && (!e.zoneId || !state.zones.find(function(z){ return z.id===e.zoneId; })); });
       groups.forEach(function(z){
         html += '<div class="zone-head"><span>'+esc(z.nom)+(zoneHierLine(z)?' · '+esc(zoneHierLine(z)):'')+'</span><span class="line"></span><button class="icon-btn" data-editzone="'+z.id+'" style="width:26px;height:26px;">'+ICONS.doc.replace(/width="17" height="17"/,'width="13" height="13"')+'</button></div>';
-        var ets = state.etablissements.filter(function(e){ return e.zoneId===z.id; });
+        var ets = state.etablissements.filter(function(e){ return e.zoneId===z.id && etabOk(e); })
+          .sort(function(a,b){ return ((a.type==='prive')-(b.type==='prive')) || (a.nom||'').localeCompare(b.nom||''); });
         html += ets.length ? '<div class="rec-list">'+ets.map(etabRowHtml).join('')+'</div>' : '<div class="empty" style="padding:10px;">Aucun établissement.</div>';
       });
       if(noZone.length){
@@ -7158,6 +7213,7 @@
       }
     }
     host.innerHTML = html;
+    host.querySelectorAll('[data-etabtype]').forEach(function(el){ el.onclick = function(){ state.etabTypeFilter = el.getAttribute('data-etabtype'); render(); }; });
     var bae = $('btnAddEtab2'); if(bae) bae.onclick = function(){ openEtablissementEditor(null); };
     var bxe = $('btnExportEtab'); if(bxe) bxe.onclick = function(){ exportCSV('etablissements'); };
     var bie = $('btnImportEtab'); if(bie) bie.onclick = function(){ importTarget='etablissements'; $('fileImportInput').click(); };
@@ -7168,10 +7224,11 @@
   }
   function etabRowHtml(e){
     var nEns = state.enseignants.filter(function(x){ return x.etablissementId===e.id; }).length;
-    var tags = [ETAB_CYCLE_LABEL[e.cycle], ETAB_TYPE_LABEL[e.type]].filter(Boolean).join(' · ');
+    var tp = e.type==='prive' ? 'prive' : 'public';
+    var tags = ETAB_CYCLE_LABEL[e.cycle] || '';
     var mapLink = (e.latitude && e.longitude) ? ' · <a href="https://www.google.com/maps?q='+encodeURIComponent(e.latitude+','+e.longitude)+'" target="_blank" rel="noopener" class="etab-maplink" data-mapstop="1" style="color:var(--brand);">'+ICONS.pin+' Carte</a>' : '';
-    return '<div class="rec-row" data-id="'+e.id+'"><div class="avatar">'+ICONS.folder+'</div>'+
-      '<div class="rec-info"><div class="t">'+esc(e.nom)+'</div><div class="s">'+(tags?esc(tags)+' · ':'')+nEns+' enseignant(s)'+(e.adresse?' · '+esc(e.adresse):'')+mapLink+'</div></div></div>';
+    return '<div class="rec-row" data-id="'+e.id+'"><div class="avatar t-'+tp+'">'+ICONS.folder+'</div>'+
+      '<div class="rec-info"><div class="t">'+esc(e.nom)+'</div><div class="s"><span class="tag t-'+tp+'">'+(tp==='prive'?'Privé':'Public')+'</span>'+(tags?esc(tags)+' · ':'')+nEns+' enseignant(s)'+(e.adresse?' · '+esc(e.adresse):'')+mapLink+'</div></div></div>';
   }
 
   /* ---- Bilan ---- */
@@ -8210,7 +8267,9 @@
       bilingualFieldsHtml('e', e, 'ens')+
       '<div class="field"><label>Établissement</label><button type="button" class="pickbtn" id="btnPickEtab2"><span class="'+(etabName(e.etablissementId)?'':'ph')+' t">'+esc(etabName(e.etablissementId)||'Choisir un établissement…')+'</span></button></div>'+
       '<div class="field-row"><div class="field"><label for="eMatiere">Matière</label><input type="text" id="eMatiere" value="'+esc(e.matiere)+'"></div>'+
-      '<div class="field"><label for="eCycle">Cycle</label><input type="text" id="eCycle" value="'+esc(e.cycle)+'" placeholder="TC / 1BAC / 2BAC"></div></div>'+
+      '<div class="field"><label for="eCycle">Niveaux</label><input type="text" id="eCycle" value="'+esc(e.cycle)+'" placeholder="TC / 1BAC / 2BAC"></div></div>'+
+      '<div class="field"><label>Cycle d\'enseignement</label><div class="seg" id="eCycleEnsSeg"><button type="button" data-v="" aria-pressed="'+(!e.cycleEns)+'">Auto'+(!e.cycleEns && ensCycle(e) ? ' ('+ENS_CYCLE_SHORT[ensCycle(e)]+')' : '')+'</button>'+
+        ENS_CYCLES.map(function(c){ return '<button type="button" data-v="'+c.v+'" aria-pressed="'+(e.cycleEns===c.v)+'">'+ENS_CYCLE_SHORT[c.v]+'</button>'; }).join('')+'</div></div>'+
       '<div class="field"><label for="ePpr">PPR</label><input type="text" id="ePpr" value="'+esc(e.ppr)+'" placeholder="Numéro PPR" autocapitalize="off"></div>'+
       '<div class="field-row"><div class="field"><label for="eTel">Téléphone</label><input type="tel" id="eTel" value="'+esc(e.telephone)+'"></div>'+
       '<div class="field"><label for="eEmail">Email</label><input type="email" id="eEmail" value="'+esc(e.email)+'"></div></div>'+
@@ -8520,9 +8579,17 @@
       '<button class="btn ghost sm" id="btnPrintDoc" type="button">'+ICONS.print+' Imprimer</button>'+
       '<button class="btn ghost sm" id="btnPdfDoc" type="button">'+ICONS.pdf+' PDF</button>'+
       '<button class="btn ghost sm" id="btnDocxDoc" type="button">'+ICONS.doc+' Word (.docx)</button>'+
-      (d.gdocUrl ? '<a class="btn ghost sm" href="'+esc(d.gdocUrl)+'" target="_blank" rel="noopener" id="btnOpenGdoc">'+ICONS.ext+' Personnaliser sur Google Docs</a>' : '')+
       '</div>'+
-      (state.mcpReady && !d.gdocUrl ? '<p style="font-size:11px;color:var(--ink-faint);margin-top:6px;">Touchez « Word » : une copie modifiable sera aussi créée dans Google Docs (dossier « Documents générés » de votre Drive).</p>' : '')+
+      '<div class="section-label" style="margin-top:12px;">Google Docs</div>'+
+      '<div class="setup-actions" style="margin-top:6px;">'+
+      (d.gdocUrl
+        ? '<a class="btn primary sm" href="'+esc(d.gdocUrl)+'" target="_blank" rel="noopener" id="btnOpenGdoc">'+ICONS.ext+' Éditer sur Google Docs</a>'+
+          '<button class="btn ghost sm" id="btnGdocDoc" type="button">'+ICONS.doc+' Nouvelle version Google Docs</button>'
+        : '<button class="btn primary sm" id="btnGdocDoc" type="button">'+ICONS.ext+' Éditer sur Google Docs</button>')+
+      '</div>'+
+      '<p style="font-size:11px;color:var(--ink-faint);margin-top:6px;">'+(state.mcpReady
+        ? (d.gdocUrl ? 'Le Google Doc garde vos modifications. « Nouvelle version » crée une autre copie à partir du texte actuel du carnet.' : 'Crée une copie modifiable du document (avec son en-tête) dans le dossier « Documents générés » de votre Drive, puis l\'ouvre.')
+        : 'Connectez Google Drive (Réglages → Synchronisation) pour éditer vos documents sur Google Docs.')+'</p>'+
       '<div class="banner info" id="genDocStatus" hidden style="margin-top:8px;"></div>'+
       '</div></div>';
   }
@@ -9153,6 +9220,7 @@
     }
     if($('eNomAr')) wireBilingualFields(syncEnsFields);
     var segStatutEns = $('eStatutSeg'); if(segStatutEns) segStatutEns.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ syncEnsFields(); state.draftRecord.statut=b.getAttribute('data-v'); render(); }; });
+    var segCycEns = $('eCycleEnsSeg'); if(segCycEns) segCycEns.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ syncEnsFields(); state.draftRecord.cycleEns=b.getAttribute('data-v'); render(); }; });
     var segGenreEns = $('eGenreSeg'); if(segGenreEns) segGenreEns.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ syncEnsFields(); state.draftRecord.genre=b.getAttribute('data-v'); render(); }; });
     var selSession = $('eSession'); if(selSession) selSession.onchange = function(){ syncEnsFields(); state.draftRecord.sessionTitularisation=selSession.value; render(); };
     var btnPlanStag = $('btnPlanStagiaire');
@@ -9638,6 +9706,41 @@
     }
     var pdfBtn = $('btnPdfDoc'); if(pdfBtn) pdfBtn.onclick = function(){ runGenFile('pdf', pdfBtn); };
     var docxBtn = $('btnDocxDoc'); if(docxBtn) docxBtn.onclick = function(){ runGenFile('docx', docxBtn); };
+    /* Édition sur Google Docs : le document (en-tête officiel compris) est généré en .docx puis envoyé
+       dans Drive avec conversion en Google Doc natif — sans téléchargement local — et ouvert. La
+       fenêtre est ouverte dès le toucher (sinon le navigateur bloque l'ouverture après l'envoi), puis
+       dirigée vers le Google Doc ; le lien reste enregistré sur le document. */
+    var gdocBtn = $('btnGdocDoc'); if(gdocBtn) gdocBtn.onclick = function(){
+      syncDocGenericFields();
+      if(!state.mcpReady){ toast('Connectez d\'abord Google Drive dans Réglages → Synchronisation.'); return; }
+      var m = state.modalStack[state.modalStack.length-1];
+      var task = state.tasks.find(function(t){ return t.id===m.taskId; });
+      var off = buildOfficialDoc(state.draftDoc, task);
+      var statusEl = $('genDocStatus');
+      var win = null; try{ win = window.open('', '_blank'); }catch(e){}
+      if(statusEl){ statusEl.hidden = false; statusEl.textContent = 'Création du Google Doc…'; }
+      gdocBtn.disabled = true;
+      var blobP = off ? officialToDocxBlob(off) : ensureDocx().then(function(){ return specToDocxBlob(buildDocSpec(state.draftDoc, task)); });
+      blobP.then(function(blob){
+        return uploadBlobToDrive(blob, docFileBase()+'.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', true, task ? task.id : null);
+      }).then(function(res){
+        var id = res && res.payload && res.payload.id;
+        if(!id) throw new Error('upload');
+        var url = googleDocEditUrl(id);
+        state.draftDoc.gdocUrl = url;
+        var saved = state.documents.find(function(x){ return x.id===state.draftDoc.id; });
+        if(saved){ saved.gdocUrl = url; saveLocal('documents'); }
+        if(win && !win.closed){ try{ win.location.href = url; }catch(e){ win = null; } }
+        render();
+        var st2 = $('genDocStatus');
+        if(st2){ st2.hidden = false; st2.innerHTML = 'Google Doc créé. <a href="'+esc(url)+'" target="_blank" rel="noopener" style="font-weight:600;">Ouvrir dans Google Docs →</a>'; }
+      }).catch(function(err){
+        if(win && !win.closed) try{ win.close(); }catch(e){}
+        gdocBtn.disabled = false;
+        if(statusEl) statusEl.hidden = true;
+        toast(err && /load-failed/.test(err.message||'') ? 'Impossible de charger le générateur Word (vérifiez la connexion).' : 'Échec de la création du Google Doc. Vérifiez la connexion à Google Drive.');
+      });
+    };
   }
 
   /* ================= file inputs (photo / attach / import) ================= */
