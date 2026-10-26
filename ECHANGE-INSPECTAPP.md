@@ -43,7 +43,12 @@ latitude, longitude, zone {carnetId|inspectappId, nom}, updatedAt`
 
 **Enseignant(e)** : `carnetId, inspectappId, nom, nomAr, nomFr, ppr, genre (F|H), matiere, cycle,
 cadre, statut (titulaire|stagiaire…), sessionTitularisation, telephone, email,
+horaire [{jour (Lundi…Samedi), debut HH:MM, fin HH:MM, classe, matiere, salle}], notes,
 etablissement {carnetId|inspectappId, codeMassar, nom}, updatedAt`
+
+`horaire` n'est repris que si la fiche locale n'a pas d'horaire (ou si l'élément reçu est plus
+récent). `notes` (facultatif à l'envoi) : chaque ligne reçue absente des notes locales y est
+ajoutée à la fin ; les notes existantes ne sont jamais remplacées.
 
 **Tâche** :
 

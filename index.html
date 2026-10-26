@@ -4734,7 +4734,8 @@
         zone: e.zoneId ? { carnetId:e.zoneId, nom:zoneName(e.zoneId) } : null, updatedAt:e.updatedAt||'' }; }),
       enseignants: state.enseignants.map(function(e){ return { carnetId:e.id, inspectappId:xchExtId(e)||undefined, nom:e.nom, nomAr:nameInLang(e, e.nom, 'ar', 'ens'), nomFr:nameInLang(e, e.nom, 'fr', 'ens'),
         ppr:e.ppr||'', genre:e.genre||'', matiere:e.matiere||'', cycle:e.cycle||'', cadre:e.cadre||'', statut:e.statut||'', sessionTitularisation:e.sessionTitularisation||'',
-        telephone:e.telephone||'', email:e.email||'', etablissement: xchEtabRef(e.etablissementId), updatedAt:e.updatedAt||'' }; }),
+        telephone:e.telephone||'', email:e.email||'', horaire:(e.horaire||[]).map(function(sl){ return { jour:sl.jour, debut:sl.debut, fin:sl.fin, classe:sl.classe||'', matiere:sl.matiere||'', salle:sl.salle||'' }; }),
+        etablissement: xchEtabRef(e.etablissementId), updatedAt:e.updatedAt||'' }; }),
       taches: state.tasks.map(function(t){
         var hasCar = state.documents.some(function(d){ return d.taskId===t.id && d.type==='demande_voiture'; });
         return { carnetId:t.id, inspectappId:xchExtId(t)||undefined, type: XCH_TYPE_OUT[t.taskType] || 'Other', typeCarnet: t.taskType, statut: XCH_STATUS_OUT[t.statut] || 'Planned', statutCarnet: t.statut,
@@ -4832,6 +4833,18 @@
       var genre = /^(f|femme|female|feminin|féminin|mme|madame)$/i.test(e.genre||'') ? 'F' : /^(h|m|homme|male|masculin|m\.|monsieur)$/i.test(e.genre||'') ? 'H' : '';
       var ch = xchMerge(loc, { nomAr: e.nomAr && isArabicText(e.nomAr) ? e.nomAr : undefined, nomFr: e.nomFr && !isArabicText(e.nomFr) ? e.nomFr : undefined,
         ppr:e.ppr, genre:genre, matiere:e.matiere, cycle:e.cycle, cadre:e.cadre, statut:e.statut, sessionTitularisation:e.sessionTitularisation, telephone:e.telephone, email:e.email, etablissementId: etId || undefined }, e, isNew || xchNewer(e, loc));
+      /* Horaire hebdomadaire : repris seulement si la fiche locale n'en a pas encore (ou si l'élément
+         reçu est plus récent) — un emploi du temps saisi à la main n'est jamais écrasé par un import ancien. */
+      var hor = Array.isArray(e.horaire) ? e.horaire.filter(function(sl){ return sl && sl.jour && sl.debut && sl.fin; })
+        .map(function(sl){ return { jour:String(sl.jour), debut:String(sl.debut), fin:String(sl.fin), classe:String(sl.classe||''), matiere:String(sl.matiere||''), salle:String(sl.salle||'') }; }) : [];
+      if(hor.length && (!(loc.horaire||[]).length || xchNewer(e, loc)) && JSON.stringify(loc.horaire||[])!==JSON.stringify(hor)){ loc.horaire = hor; ch = true; }
+      /* Notes : les lignes reçues (ex. relevé d'une fiche personnelle) sont AJOUTÉES à la fin des notes
+         locales, une seule fois — rien n'est retiré de ce que l'inspecteur a écrit. */
+      if(e.notes){
+        var have = String(loc.notes||'');
+        var add = String(e.notes).split(/\n/).map(function(l){ return l.trim(); }).filter(function(l){ return l && have.indexOf(l)<0; });
+        if(add.length){ loc.notes = (have ? have.replace(/\s+$/,'')+'\n' : '')+add.join('\n'); ch = true; }
+      }
       ch = xchSetExt(loc, e) || ch;
       if(isNew){ rep.enseignants.add++; put('enseignants', loc, true); } else if(ch){ rep.enseignants.upd++; put('enseignants', loc); }
     });
