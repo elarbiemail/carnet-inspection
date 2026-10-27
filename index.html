@@ -7011,6 +7011,7 @@
     if(!chartsAfterFirst) html += chartsHtml;
     (spec.tables||[]).forEach(function(tb, ti){
       if(tb.heading) html += '<div class="p-section"><h3>'+esc(tb.heading)+'</h3></div>';
+      if(tb.note) html += '<p style="white-space:pre-line;margin:0 0 8px;">'+esc(tb.note)+'</p>';
       html += '<table class="p-table"><thead><tr>'+tb.headers.map(function(h){ return '<th>'+esc(h)+'</th>'; }).join('')+'</tr></thead><tbody>';
       (tb.rows.length ? tb.rows : [tb.headers.map(function(){ return '—'; })]).forEach(function(r){ html += '<tr>'+r.map(function(c){ return '<td>'+esc(c)+'</td>'; }).join('')+'</tr>'; });
       html += '</tbody></table>';
@@ -7168,6 +7169,25 @@
      Bilan et l'historique d'un(e) enseignant(e)) — une catégorie officielle par table, les groupes
      et leurs lignes empilés à l'intérieur (le nom du type d'activité n'apparaît que sur sa première
      ligne, pour éviter de le répéter inutilement). */
+  function paProfilIntro(){
+    var p = state.templates.profil || DEFAULT_PROFIL;
+    return "Tu es inspecteur(trice) pédagogique"+(p.matiere?" de "+p.matiere:"")+" au Maroc"+(p.province?" (direction provinciale de "+p.province+")":"")+". ";
+  }
+  function paRowPrompt(c, g, r){
+    return paProfilIntro()+"Rédige une courte description (2 à 4 phrases) d'une activité de ton programme annuel de travail : "+
+      "objectif, public visé, modalités de mise en œuvre et résultat attendu. Ton administratif, sans titre ni puces, sans inventer de chiffres. "+
+      "Rédige dans la langue de l'intitulé de l'activité. Retourne uniquement la description.\n\n"+
+      "Axe : "+String(c.titre||'').replace(/\s+/g,' ')+((c.description||'').trim() ? "\nOrientation de l'axe : "+c.description.trim().replace(/\s+/g,' ') : '')+
+      "\nType d'activité : "+(g.typeActivite||'')+"\nIntitulé : "+(r.sujet||'')+"\nCalendrier prévu : "+paMoisText(r.mois);
+  }
+  function paCatPrompt(c){
+    return paProfilIntro()+"Rédige la description (un paragraphe de 4 à 6 phrases) d'un axe de ton programme annuel de travail : finalités de l'axe, "+
+      "priorités, démarche retenue et résultats attendus, en t'appuyant uniquement sur les activités listées. Ton administratif, sans titre ni puces, "+
+      "sans inventer de chiffres ni d'activités. Rédige dans la langue de l'intitulé de l'axe. Retourne uniquement la description.\n\n"+
+      "Axe : "+String(c.titre||'').replace(/\s+/g,' ')+"\nActivités prévues :\n"+(c.groups||[]).map(function(g){
+        return '- '+(g.typeActivite||'')+' : '+(g.rows||[]).map(function(r){ return (r.sujet||'')+' ('+paMoisText(r.mois)+')'; }).join(' ; ');
+      }).join('\n');
+  }
   function paMoisText(mois){
     var parts = MOIS_SCOLAIRES.filter(function(k){ return mois && mois[k]; }).map(function(k){ return MOIS_SCOLAIRES_LABELS[k]+' ('+mois[k]+')'; });
     return parts.length ? parts.join(', ') : 'non planifié';
@@ -7175,7 +7195,7 @@
   /* Résumé texte du programme saisi, donné à l'IA pour rédiger le préambule. */
   function paContextText(pa){
     return (pa.categories||[]).map(function(cat){
-      return '# '+(cat.titre||'').replace(/\s+/g,' ')+'\n'+(cat.groups||[]).map(function(g){
+      return '# '+(cat.titre||'').replace(/\s+/g,' ')+'\n'+((cat.description||'').trim() ? 'Orientation : '+cat.description.trim().replace(/\s+/g,' ')+'\n' : '')+(cat.groups||[]).map(function(g){
         return '- '+(g.typeActivite||'')+' :\n'+(g.rows||[]).map(function(r){
           return '   • '+(r.sujet||'')+' — calendrier : '+paMoisText(r.mois)+(r.description&&r.description.trim() ? ' — description : '+r.description.trim().replace(/\s+/g,' ') : '');
         }).join('\n');
@@ -7193,7 +7213,7 @@
           rows.push([i===0 ? (g.typeActivite||'') : '', r.sujet||''].concat(MOIS_SCOLAIRES.map(function(k){ return String((r.mois&&r.mois[k])||0); })));
         });
       });
-      return { heading: cat.titre, headers: headers, rows: rows };
+      return { heading: cat.titre, note: (cat.description||'').trim(), headers: headers, rows: rows };
     });
     /* Descriptions des activités : regroupées par catégorie après les tableaux (un tableau de
        12 colonnes n'a pas la place d'accueillir un texte libre lisible). */
@@ -7321,6 +7341,7 @@
     (spec.tables||[]).forEach(function(tb, ti){
       if(y > 265){ doc.addPage(); y = 18; }
       if(tb.heading){ doc.setFont('helvetica','bold'); doc.setFontSize(11); doc.setTextColor(20); doc.text(tb.heading, margin, y); y += 5.5; doc.setFont('helvetica','normal'); }
+      if(tb.note){ doc.setFontSize(10); doc.setTextColor(45); var nl = doc.splitTextToSize(tb.note, maxW); if(y + nl.length*5 > 280){ doc.addPage(); y = 18; } doc.text(nl, margin, y); y += nl.length*5 + 3; }
       doc.autoTable({ startY:y, margin:{left:margin,right:margin}, head:[tb.headers],
         body: tb.rows.length ? tb.rows : [tb.headers.map(function(){ return '—'; })],
         styles:{fontSize:9, cellPadding:2.4, textColor:30}, headStyles:{fillColor:[47,111,98], textColor:255}, theme:'grid' });
@@ -7412,6 +7433,7 @@
     var chartsAfterFirst = !!(spec.tables && spec.tables[0] && spec.tables[0].heading==='Indicateurs');
     (spec.tables||[]).forEach(function(tb, ti){
       if(tb.heading) children.push(new d.Paragraph({ bidirectional:rtl, alignment:align, spacing:{before:160, after:80}, children:[ new d.TextRun({text:tb.heading, bold:true, size:24, rightToLeft:rtl}) ] }));
+      if(tb.note) tb.note.split('\n').forEach(function(line){ children.push(new d.Paragraph({ bidirectional:rtl, alignment:align, spacing:{after:60}, children:[ new d.TextRun({text:line, size:20, rightToLeft:rtl}) ] })); });
       var headerRow = new d.TableRow({ tableHeader:true, children: tb.headers.map(function(h){
         return new d.TableCell({ shading:{fill:'2F6F62'}, children:[ new d.Paragraph({bidirectional:rtl, alignment: rtl?d.AlignmentType.CENTER:undefined, children:[new d.TextRun({text:h, bold:true, color:'FFFFFF', size:19, rightToLeft:rtl})]}) ] });
       }) });
@@ -9080,7 +9102,7 @@
       '<div class="rowline"><input type="text" class="pa-sujet-input" data-ci="'+ci+'" data-gi="'+gi+'" data-ri="'+ri+'" value="'+esc(row.sujet)+'" placeholder="Intitulé de l\'activité" style="flex:1;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:8px 9px;font-size:12.5px;">'+
       '<button class="rm" data-rmparow="'+ci+':'+gi+':'+ri+'" type="button">'+ICONS.trash+'</button></div>'+
       '<textarea class="pa-desc-input" id="paDesc_'+ci+'_'+gi+'_'+ri+'" data-ci="'+ci+'" data-gi="'+gi+'" data-ri="'+ri+'" rows="2" dir="auto" placeholder="Description de l\'activité (objectifs, public visé, modalités, résultats attendus…)" style="width:100%;margin-top:6px;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:7px 9px;font-size:12px;resize:vertical;">'+esc(row.description||'')+'</textarea>'+
-      (state.sampleReady ? '<div class="btn-row" style="margin-top:4px;"><button class="btn ai sm" data-aipadesc="'+ci+':'+gi+':'+ri+'" type="button">'+ICONS.ai+' '+(row.description?'Enrichir la description':'Proposer une description')+'</button></div><div class="banner info" id="paDesc_'+ci+'_'+gi+'_'+ri+'Status" hidden style="margin-top:6px;"></div>' : '')+
+      '<div class="btn-row" style="margin-top:4px;"><button class="btn ai sm" data-aipadesc="'+ci+':'+gi+':'+ri+'" type="button">'+ICONS.ai+' '+(row.description?'Enrichir la description':'Proposer une description')+'</button></div><div class="banner info" id="paDesc_'+ci+'_'+gi+'_'+ri+'Status" hidden style="margin-top:6px;"></div>'+
       paMonthsInputsHtml(ci,gi,ri,row.mois)+
     '</div>';
   }
@@ -9093,13 +9115,31 @@
     '</div>';
   }
   function paCategoryHtml(ci, cat){
-    return '<div class="setup-card" data-pacat="'+ci+'" style="margin-top:14px;">'+
-      '<div class="field-row" style="align-items:flex-end;"><div class="field" style="flex:1;margin-bottom:0;"><label>Catégorie ('+(ci+1)+')</label>'+
-      '<textarea class="pa-cat-input" data-ci="'+ci+'" rows="2" dir="rtl" style="font-size:13px;">'+esc(cat.titre)+'</textarea></div>'+
+    var nbRows = 0, nbVides = (cat.description||'').trim() ? 0 : 1;
+    (cat.groups||[]).forEach(function(g){ (g.rows||[]).forEach(function(r){ nbRows++; if(!(r.description||'').trim()) nbVides++; }); });
+    return '<div class="setup-card" data-pacat="'+ci+'" style="margin-top:10px;">'+
+      '<div class="field-row" style="align-items:flex-end;"><div class="field" style="flex:1;margin-bottom:0;"><label>Intitulé de la catégorie</label>'+
+      '<textarea class="pa-cat-input" data-ci="'+ci+'" rows="2" dir="auto" style="font-size:13px;">'+esc(cat.titre)+'</textarea></div>'+
       '<button class="btn danger sm" data-rmpacat="'+ci+'" type="button">Supprimer</button></div>'+
+      '<div class="field" style="margin-top:10px;"><label for="paCatDesc_'+ci+'">Description de la catégorie</label>'+
+      '<textarea class="pa-catdesc-input" id="paCatDesc_'+ci+'" data-ci="'+ci+'" rows="4" dir="auto" placeholder="Finalités de cet axe, priorités, démarche retenue… (imprimée sous le titre de la catégorie)">'+esc(cat.description||'')+'</textarea>'+
+      '<div class="btn-row" style="margin-top:4px;"><button class="btn ai sm" data-aipacat="'+ci+'" type="button">'+ICONS.ai+' '+(cat.description?'Enrichir la description':'Proposer une description')+'</button>'+
+      '<button class="btn ghost sm" data-trpacat="'+ci+'" type="button">'+ICONS.ai+' Traduire</button></div>'+
+      '<div class="banner info" id="paCatDesc_'+ci+'Status" hidden style="margin-top:6px;"></div></div>'+
+      '<div class="banner info" style="margin-top:4px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;"><span style="flex:1;min-width:160px;font-size:12px;">'+nbRows+' activité(s) · '+nbVides+' description(s) à rédiger dans cet onglet</span>'+
+      '<button class="btn primary sm" data-aipabatch="'+ci+'" type="button"'+(nbVides?'':' disabled')+'>'+ICONS.ai+' Générer les descriptions manquantes</button></div>'+
+      '<div class="banner info" id="paBatch_'+ci+'Status" hidden style="margin-top:6px;"></div>'+
       (cat.groups||[]).map(function(g,gi){ return paGroupHtml(ci,gi,g); }).join('')+
       '<button class="addline" data-addpagroup="'+ci+'" type="button">'+ICONS.plus+' Ajouter un type d\'activité</button>'+
     '</div>';
+  }
+  /* Onglet affiché dans l'éditeur du programme annuel : -1 = « Préambule », sinon l'index de la
+     catégorie. Simple variable d'interface (non persistée) : les champs des onglets masqués ne sont
+     pas dans le DOM, d'où syncPaInputs() avant chaque changement d'onglet. */
+  var paTabIdx = -1;
+  function paTabLabel(cat, ci){
+    var t = String(cat.titre||'').replace(/\s+/g,' ').trim() || ('Catégorie '+(ci+1));
+    return t.length > 34 ? t.slice(0, 32)+'…' : t;
   }
   function programmeAnnuelTabHtml(){
     var pa = state.programmeAnnuel || defaultProgrammeAnnuel();
@@ -9108,10 +9148,17 @@
     /* Préambule (تقديم) : texte libre imprimé avant les tableaux ; l'assistant IA le rédige — ou
        enrichit le brouillon déjà saisi — à partir des catégories, types d'activité, intitulés,
        descriptions et calendrier saisis manuellement ci-dessous (voir paContextText). */
-    html += '<div class="field"><label for="paPreambule">Préambule</label><textarea id="paPreambule" rows="6" dir="auto" placeholder="Contexte, orientations, priorités de l\'année, démarche d\'encadrement… (ou laissez l\'IA le proposer à partir des activités saisies)">'+esc(pa.preambule||'')+'</textarea>'+
-      aiBtnHtml('btnAiPaPre', pa.preambule ? 'Enrichir le préambule' : 'Proposer un préambule', 'btnTrPaPre')+'</div>';
-    html += '<div id="paCatList">'+(pa.categories||[]).map(function(c,ci){ return paCategoryHtml(ci,c); }).join('')+'</div>';
-    html += '<div class="btn-row" style="margin-top:10px;"><button class="btn ghost sm" id="btnAddPaCat" type="button">'+ICONS.plus+' Ajouter une catégorie</button></div>';
+    var cats = pa.categories||[];
+    if(paTabIdx >= cats.length) paTabIdx = cats.length - 1;
+    html += '<div class="pa-tabs" style="display:flex;gap:6px;overflow-x:auto;padding:4px 0 8px;margin:4px 0 2px;border-bottom:1px solid var(--line);-webkit-overflow-scrolling:touch;">'+
+      '<button class="chip" type="button" data-patab="-1" aria-pressed="'+(paTabIdx===-1)+'" style="flex:none;">Préambule</button>'+
+      cats.map(function(c,ci){ return '<button class="chip" type="button" data-patab="'+ci+'" aria-pressed="'+(paTabIdx===ci)+'" dir="auto" style="flex:none;white-space:nowrap;" title="'+esc(c.titre)+'">'+esc(paTabLabel(c,ci))+'</button>'; }).join('')+
+      '<button class="chip" type="button" id="btnAddPaCat" style="flex:none;">'+ICONS.plus+' Catégorie</button></div>';
+    if(paTabIdx === -1) html += '<div class="field" style="margin-top:10px;"><label for="paPreambule">Préambule</label><textarea id="paPreambule" rows="8" dir="auto" placeholder="Contexte, orientations, priorités de l\'année, démarche d\'encadrement… (ou laissez l\'IA le proposer à partir des activités saisies)">'+esc(pa.preambule||'')+'</textarea>'+
+      '<div class="btn-row"><button class="btn ai sm" id="btnAiPaPre" type="button">'+ICONS.ai+' '+(pa.preambule ? 'Enrichir le préambule' : 'Proposer un préambule')+'</button><button class="btn ghost sm" id="btnTrPaPre" type="button">'+ICONS.ai+' Traduire</button></div>'+
+      '<div class="banner info" id="btnAiPaPreStatus" hidden style="margin-top:8px;"></div>'+
+      '<p style="font-size:11px;color:var(--ink-faint);margin-top:6px;">L\'IA s\'appuie sur les catégories, leurs descriptions et les activités saisies dans les autres onglets.</p></div>';
+    html += '<div id="paCatList">'+(paTabIdx >= 0 && cats[paTabIdx] ? paCategoryHtml(paTabIdx, cats[paTabIdx]) : '')+'</div>';
     html += '<div class="setup-actions" style="margin-top:14px;"><button class="btn ghost sm" id="btnPrintProgramme" type="button">'+ICONS.print+' Imprimer</button>'+
       '<button class="btn ghost sm" id="btnDocxProgramme" type="button">Word</button></div>'+
       '<div class="banner info" id="progGenStatus" hidden style="margin-top:8px;"></div>';
@@ -10129,6 +10176,9 @@
           var r = g && g.rows[parseInt(inp.getAttribute('data-ri'))]; if(r) r.sujet = inp.value;
         });
         var elP = $('paPreambule'); if(elP) state.programmeAnnuel.preambule = elP.value;
+        document.querySelectorAll('.pa-catdesc-input').forEach(function(inp){
+          var c = state.programmeAnnuel.categories[parseInt(inp.getAttribute('data-ci'))]; if(c) c.description = inp.value;
+        });
         document.querySelectorAll('.pa-desc-input').forEach(function(inp){
           var c = state.programmeAnnuel.categories[parseInt(inp.getAttribute('data-ci'))];
           var g = c && c.groups[parseInt(inp.getAttribute('data-gi'))];
@@ -10141,7 +10191,10 @@
           if(r) r.mois[inp.getAttribute('data-mk')] = parseInt(inp.value,10) || 0;
         });
       }
-      document.querySelectorAll('[data-rmpacat]').forEach(function(el){ el.onclick=function(){ syncPaInputs(); state.programmeAnnuel.categories.splice(parseInt(el.getAttribute('data-rmpacat')),1); render(); }; });
+      document.querySelectorAll('[data-rmpacat]').forEach(function(el){ el.onclick=function(){ syncPaInputs(); var rci = parseInt(el.getAttribute('data-rmpacat')), rc = state.programmeAnnuel.categories[rci];
+        if(!confirm('Supprimer la catégorie « '+String(rc&&rc.titre||'').trim()+' » et toutes ses activités ?')) return;
+        state.programmeAnnuel.categories.splice(rci,1); paTabIdx = Math.min(rci, state.programmeAnnuel.categories.length-1); render(); }; });
+      document.querySelectorAll('[data-patab]').forEach(function(el){ el.onclick = function(){ syncPaInputs(); paTabIdx = parseInt(el.getAttribute('data-patab')); render(); }; });
       document.querySelectorAll('[data-rmpagroup]').forEach(function(el){ el.onclick=function(){
         syncPaInputs(); var parts=el.getAttribute('data-rmpagroup').split(':'); var c=state.programmeAnnuel.categories[parseInt(parts[0])]; if(c) c.groups.splice(parseInt(parts[1]),1); render();
       }; });
@@ -10172,14 +10225,60 @@
         var c = state.programmeAnnuel.categories[parseInt(parts[0])], g = c && c.groups[parseInt(parts[1])], r = g && g.rows[parseInt(parts[2])];
         if(!r) return;
         var id = 'paDesc_'+parts.join('_');
-        var p = state.templates.profil || DEFAULT_PROFIL;
-        aiDraft(el, $(id+'Status'), $(id),
-          "Tu es inspecteur(trice) pédagogique"+(p.matiere?" de "+p.matiere:"")+" au Maroc. Rédige une courte description (2 à 4 phrases) d'une activité de ton programme annuel de travail : "+
-          "objectif, public visé, modalités de mise en œuvre et résultat attendu. Ton administratif, sans titre ni puces, sans inventer de chiffres. "+
-          "Rédige dans la langue de l'intitulé de l'activité.\n\n"+
-          "Axe : "+(c.titre||'')+"\nType d'activité : "+(g.typeActivite||'')+"\nIntitulé : "+(r.sujet||'')+"\nCalendrier prévu : "+paMoisText(r.mois));
+        aiDraft(el, $(id+'Status'), $(id), paRowPrompt(c, g, r));
       }; });
-      var addPaCat = $('btnAddPaCat'); if(addPaCat) addPaCat.onclick = function(){ syncPaInputs(); state.programmeAnnuel.categories.push(paCategory('عنوان جديد', [])); render(); };
+      document.querySelectorAll('[data-aipacat]').forEach(function(el){ el.onclick = function(){
+        syncPaInputs();
+        var ci = el.getAttribute('data-aipacat'), c = state.programmeAnnuel.categories[parseInt(ci)]; if(!c) return;
+        aiDraft(el, $('paCatDesc_'+ci+'Status'), $('paCatDesc_'+ci), paCatPrompt(c));
+      }; });
+      document.querySelectorAll('[data-trpacat]').forEach(function(el){ el.onclick = function(){
+        syncPaInputs(); var ci = el.getAttribute('data-trpacat');
+        aiTranslate(el, $('paCatDesc_'+ci+'Status'), $('paCatDesc_'+ci));
+      }; });
+      /* Génération en série : rédige, l'une après l'autre, la description de la catégorie (si vide)
+         puis celles de toutes ses activités encore vides ; chaque texte est inscrit dans son champ dès
+         qu'il arrive, et le programme est enregistré à la fin (ou à l'interruption) pour ne rien perdre. */
+      document.querySelectorAll('[data-aipabatch]').forEach(function(el){ el.onclick = function(){
+        syncPaInputs();
+        if(!aiUsable() || (aiEffectiveProvider()==='local' && !localModelReady())){ toast(geminiErrorMessage({code:'not_configured'})); return; }
+        var ci = parseInt(el.getAttribute('data-aipabatch')), c = state.programmeAnnuel.categories[ci]; if(!c) return;
+        var jobs = [];
+        if(!(c.description||'').trim()) jobs.push({ target:c, field:'paCatDesc_'+ci, prompt:paCatPrompt(c), label:'description de la catégorie' });
+        (c.groups||[]).forEach(function(g, gi){ (g.rows||[]).forEach(function(r, ri){
+          if(!(r.description||'').trim()) jobs.push({ target:r, field:'paDesc_'+ci+'_'+gi+'_'+ri, prompt:paRowPrompt(c, g, r), label:r.sujet||g.typeActivite||'activité' });
+        }); });
+        if(!jobs.length){ toast('Toutes les descriptions de cet onglet sont déjà rédigées.'); return; }
+        var st = $('paBatch_'+ci+'Status'), done = 0, failed = 0;
+        el.disabled = true; localAiKeepAwake(true);
+        function show(msg, cls){ if(!st) st = $('paBatch_'+ci+'Status'); if(st){ st.hidden = false; st.className = 'banner '+(cls||'info'); st.textContent = msg; } }
+        function finish(){
+          localAiKeepAwake(false);
+          syncPaInputs();
+          programmeAnnuelSet(state.programmeAnnuel);
+          toast(done+' description(s) générée(s)'+(failed?' · '+failed+' échec(s)':'')+' et enregistrée(s).');
+        }
+        function next(k){
+          if(k >= jobs.length){ finish(); return; }
+          var j = jobs[k];
+          show('Génération '+(k+1)+'/'+jobs.length+' avec '+aiEngineLabel()+' : '+j.label+'…');
+          geminiGenerate(j.prompt, 1).then(function(text){
+            text = String(text||'').trim();
+            if(text){
+              var fld = $(j.field); if(fld && !fld.value.trim()) fld.value = text;
+              if(!(j.target.description||'').trim()) j.target.description = text;
+              done++;
+            }
+            next(k+1);
+          }).catch(function(err){
+            failed++;
+            if(err && err.code==='not_configured'){ show(geminiErrorMessage(err), 'err'); finish(); return; }
+            next(k+1);
+          });
+        }
+        next(0);
+      }; });
+      var addPaCat = $('btnAddPaCat'); if(addPaCat) addPaCat.onclick = function(){ syncPaInputs(); state.programmeAnnuel.categories.push(paCategory('عنوان جديد', [])); paTabIdx = state.programmeAnnuel.categories.length-1; render(); };
       var savePa = $('btnSaveProgramme'); if(savePa) savePa.onclick = function(){
         syncPaInputs();
         state.programmeAnnuel.anneeScolaire = (state.programmeAnnuel.anneeScolaire||'').trim();
