@@ -1510,7 +1510,7 @@
     syncing: false, syncError: null,
     modalStack: [], draftTask: null, draftRecord: null, draftDoc: null,
     setupBusy: false, setupError: null, driveSetupError: null, geminiKeyError: null,
-    ensQuery: '', ensEtabFilter: '', ensCycleFilter: '', ensGenreFilter: '', etabTypeFilter: '', ensHoraireMode: false, horaireJour: 'Lundi', horaireHeure: '09:00',
+    selMode: '', selIds: {}, ensQuery: '', ensEtabFilter: '', ensCycleFilter: '', ensGenreFilter: '', etabTypeFilter: '', ensHoraireMode: false, horaireJour: 'Lundi', horaireHeure: '09:00',
     bilanPeriod: 'mois', bilanCustomFrom: '', bilanCustomTo: '',
     subEtab: 'zones', subDocs: 'generes', docsGenQuery: '', docsGenFilter: 'all', searchQuery: '',
     pickTarget: null, // {kind:'enseignant'|'etablissement'|'zone', onPick}
@@ -2883,6 +2883,8 @@
   function matchEtablissementByName(name){
     var n = String(name||'').trim().toLowerCase();
     if(!n) return null;
+    var byAny = findEtabByAnyName(name);
+    if(byAny) return byAny.id;
     var found = state.etablissements.find(function(et){
       var en = String(et.nom||'').trim().toLowerCase();
       return en && (en===n || en.indexOf(n)>=0 || n.indexOf(en)>=0);
@@ -4579,9 +4581,30 @@
     var nz = {id:uid(), nom:name, directionProvinciale:'', notes:''};
     recordSet('zone', nz); return nz.id;
   }
+  /* Retrouve un établissement de la base à partir d'un nom ou d'un code venu d'un import : nom, nom
+     arabe, nom français ou code MASSAR identiques, puis même nom translittéré (etabDupKey), puis
+     correspondance arabe ↔ français probable (etabDupScore ≥ 0,75, sans ex aequo). C'est ce qui
+     empêche un import de recréer « ثانوية بئر أنزران التأهيلية » à côté de « Lycée Bir Anzarane ». */
+  function findEtabByAnyName(name, code){
+    var n = String(name||'').trim().toLowerCase(), c = String(code||'').trim().toUpperCase();
+    if(c){ var bc = state.etablissements.find(function(x){ return x.codeMassar && String(x.codeMassar).toUpperCase()===c; }); if(bc) return bc; }
+    if(!n) return null;
+    var ex = state.etablissements.find(function(x){ return [x.nom, x.nomAr, x.nomFr].some(function(v){ return v && String(v).trim().toLowerCase()===n; }); });
+    if(ex) return ex;
+    var k = etabDupKey(name);
+    if(k && k.length>=3){
+      var bk = state.etablissements.filter(function(x){ return [x.nom, x.nomAr, x.nomFr].some(function(v){ return v && etabDupKey(v)===k; }); });
+      if(bk.length===1) return bk[0];
+    }
+    var probe = { id:'__probe', nom:name };
+    var sc = state.etablissements.map(function(x){ return { e:x, s:etabDupScore(probe, x) }; }).sort(function(a,b){ return b.s-a.s; });
+    var cross = function(x){ return /[\u0600-\u06FF]/.test(name)!==/[\u0600-\u06FF]/.test(x.nom||''); };
+    if(sc[0] && sc[0].s>=0.75 && cross(sc[0].e) && !(sc[1] && sc[1].s===sc[0].s)) return sc[0].e;
+    return null;
+  }
   function findOrCreateEtab(name, zoneName2){
     if(!name) return null;
-    var e = state.etablissements.find(function(x){ return x.nom.toLowerCase()===name.toLowerCase(); });
+    var e = findEtabByAnyName(name);
     if(e) return e.id;
     var ne = {id:uid(), nom:name, zoneId: zoneName2?findOrCreateZone(zoneName2):null, type:'public', cycle:'primaire', adresse:'', telephone:'', latitude:'', longitude:'', pionnier:false, notes:''};
     recordSet('etablissement', ne); return ne.id;
@@ -4678,16 +4701,66 @@
       return out;
     });
   }
+  /* Contrôle de conformité avant tout import de liste : le fichier doit correspondre à la liste visée
+     (une liste d'enseignant(e)s importée par erreur dans les établissements créait un « établissement »
+     par enseignant(e)), puis un bilan est montré AVANT d'écrire quoi que ce soit : fiches reconnues dans
+     la base, fiches nouvelles, établissements reconnus sous un autre nom, établissements à créer. */
+  function importLooksLikeTeachers(objs){
+    var n = objs.filter(function(o){ return o.ppr || o.genre || o.cadre || o.matiere || o.statut; }).length;
+    return objs.length && n >= Math.max(1, objs.length*0.4);
+  }
+  function importPlan(objs, kind){
+    var p = { add:[], upd:[], skip:0, etabKnown:{}, etabNew:{}, dupPpr:[] };
+    if(kind==='enseignants'){
+      var seen = {};
+      objs.forEach(function(o){
+        if(!o.nom){ p.skip++; return; }
+        if(o.ppr){ if(seen[o.ppr]) p.dupPpr.push(o.ppr); seen[o.ppr] = 1; }
+        var ex = (o.ppr && state.enseignants.find(function(x){ return x.ppr && String(x.ppr).trim()===o.ppr; }))
+          || state.enseignants.find(function(x){ return [x.nom, x.nomAr, x.nomFr].some(function(v){ return v && v.trim().toLowerCase()===o.nom.toLowerCase(); }); });
+        (ex ? p.upd : p.add).push(o.nom);
+        if(o.etablissement){ var et = findEtabByAnyName(o.etablissement); if(et) p.etabKnown[o.etablissement] = et.nom; else p.etabNew[o.etablissement] = 1; }
+      });
+    } else {
+      objs.forEach(function(o){
+        if(!o.nom){ p.skip++; return; }
+        var et = findEtabByAnyName(o.nom, o.code_massar || o.code);
+        if(et){ p.upd.push(o.nom); if(et.nom!==o.nom) p.etabKnown[o.nom] = et.nom; } else p.add.push(o.nom);
+      });
+    }
+    return p;
+  }
+  function importPlanText(p, kind){
+    var lbl = kind==='enseignants' ? 'enseignant(e)s' : 'établissements';
+    var lines = [p.add.length+' '+lbl+' nouveaux'+(p.add.length ? ' : '+p.add.slice(0,8).join(', ')+(p.add.length>8?'…':'') : ''),
+      p.upd.length+' déjà dans la base (complétés, pas de doublon)'];
+    var kn = Object.keys(p.etabKnown).filter(function(k){ return p.etabKnown[k]!==k; });
+    if(kn.length) lines.push('Établissements reconnus sous leur nom de la base : '+kn.slice(0,6).map(function(k){ return k+' → '+p.etabKnown[k]; }).join(' ; ')+(kn.length>6?'…':''));
+    var nw = Object.keys(p.etabNew);
+    if(nw.length) lines.push('Établissements absents de la base, qui seront créés : '+nw.slice(0,8).join(', ')+(nw.length>8?'…':''));
+    if(p.dupPpr.length) lines.push('Attention : PPR en double dans le fichier : '+p.dupPpr.join(', '));
+    if(p.skip) lines.push(p.skip+' ligne(s) sans nom ignorée(s)');
+    return lines.join('\n');
+  }
   function importCSVFile(file, kind){
     readImportFile(file).then(function(raw){
       var objs = normalizeImportRows(raw, kind);
       if(!objs.length){ toast('Fichier vide ou illisible.'); return; }
+      if(kind==='etablissements' && importLooksLikeTeachers(objs)){
+        if(!confirm("Ce fichier ressemble à une liste d'enseignant(e)s (colonnes PPR, genre, cadre, matière…), pas à une liste d'établissements.\n\nL'importer dans les ENSEIGNANT(E)S à la place ?\n(Annuler = ne rien importer)")) return;
+        kind = 'enseignants'; objs = normalizeImportRows(raw, kind);
+      } else if(kind==='enseignants' && !objs.some(function(o){ return o.ppr || o.etablissement || o.matiere || o.genre; }) && objs.some(function(o){ return o.type || o.adresse || o.zone; })){
+        if(!confirm("Ce fichier ressemble à une liste d'établissements (colonnes type, adresse, zone…).\n\nL'importer dans les ÉTABLISSEMENTS à la place ?\n(Annuler = ne rien importer)")) return;
+        kind = 'etablissements'; objs = normalizeImportRows(raw, kind);
+      }
+      var plan = importPlan(objs, kind);
+      if(!confirm('Vérification avant import :\n\n'+importPlanText(plan, kind)+'\n\nImporter ?')) return;
       var added = 0, updated = 0;
       if(kind==='enseignants'){
         objs.forEach(function(o){
           if(!o.nom) return;
           var existing = (o.ppr && state.enseignants.find(function(x){ return x.ppr && String(x.ppr).trim()===o.ppr; }))
-            || state.enseignants.find(function(x){ return (x.nom||'').trim().toLowerCase()===o.nom.toLowerCase(); });
+            || state.enseignants.find(function(x){ return [x.nom, x.nomAr, x.nomFr].some(function(v){ return v && v.trim().toLowerCase()===o.nom.toLowerCase(); }); });
           var etId = o.etablissement ? findOrCreateEtab(o.etablissement, null) : null;
           if(existing){
             var upd = Object.assign({}, existing);
@@ -4708,7 +4781,14 @@
       } else {
         objs.forEach(function(o){
           if(!o.nom) return;
-          if(state.etablissements.find(function(x){ return (x.nom||'').trim().toLowerCase()===o.nom.toLowerCase(); })) return;
+          var known = findEtabByAnyName(o.nom, o.code_massar || o.code);
+          if(known){
+            var ch = false;
+            if(/[\u0600-\u06FF]/.test(o.nom) && !known.nomAr){ known.nomAr = o.nom; ch = true; }
+            ['adresse','telephone','latitude','longitude'].forEach(function(k){ if(o[k] && !known[k]){ known[k] = o[k]; ch = true; } });
+            if(ch){ recordSet('etablissement', known); updated++; }
+            return;
+          }
           var zId = findOrCreateZone(o.zone);
           recordSet('etablissement', { id: uid(), nom:o.nom, zoneId:zId, type:parseEtabType(o.type), cycle:parseEtabCycle(o.cycle), adresse:o.adresse||'', telephone:o.telephone||'', latitude:o.latitude||'', longitude:o.longitude||'', notes:o.notes||'' });
           added++;
@@ -4841,7 +4921,8 @@
     var keys = [ref.nom, ref.nomAr, ref.nomFr].filter(Boolean).map(xchKey);
     return xchFindBy(state.etablissements, ref, function(){
       return (ref.codeMassar && state.etablissements.find(function(x){ return x.codeMassar && x.codeMassar.toUpperCase()===String(ref.codeMassar).toUpperCase(); }))
-        || (keys.length && state.etablissements.find(function(x){ return [x.nom, x.nomAr, x.nomFr].filter(Boolean).some(function(n){ return keys.indexOf(xchKey(n))>=0; }); })) || null;
+        || (keys.length && state.etablissements.find(function(x){ return [x.nom, x.nomAr, x.nomFr].filter(Boolean).some(function(n){ return keys.indexOf(xchKey(n))>=0; }); }))
+        || [ref.nom, ref.nomAr, ref.nomFr].filter(Boolean).map(function(n){ return findEtabByAnyName(n); }).filter(Boolean)[0] || null;
     });
   }
   function xchFindEns(ref, etabId){
@@ -7166,7 +7247,8 @@
         }).join('')+'</select></div>'+
         '<div class="search-row"><input type="text" id="ensSearchInput" placeholder="Rechercher un(e) enseignant(e)…" value="'+esc(state.ensQuery)+'"></div>';
     }
-    html += '<div class="setup-actions"><button class="btn ghost sm" id="btnExportEns" type="button">Exporter CSV</button><button class="btn ghost sm" id="btnImportEns" type="button">Importer CSV / Excel</button><button class="btn ghost sm" id="btnNamesEns" type="button">'+ICONS.ai+' Compléter les noms ar / fr</button></div>';
+    html += '<div class="setup-actions"><button class="btn ghost sm" id="btnExportEns" type="button">Exporter CSV</button><button class="btn ghost sm" id="btnImportEns" type="button">Importer CSV / Excel</button><button class="btn ghost sm" id="btnNamesEns" type="button">'+ICONS.ai+' Compléter les noms ar / fr</button>'+
+      '<button class="btn ghost sm" id="btnSelEns" type="button">'+(state.selMode==='ens' ? 'Quitter la sélection' : 'Sélectionner / supprimer')+'</button></div>';
     /* Un seul bouton « Fiches à distance » (au lieu de trois boutons séparés) ouvre le hub qui
        regroupe l'import d'une fiche par IA (photo/PDF), le lien à distance (Google Form ou lien simple)
        et l'import des réponses reçues — voir ficheHubModalHtml/openFicheHubModal (suppression des
@@ -7195,6 +7277,7 @@
           filterChip('data-ensgen','H','Hommes',state.ensGenreFilter,byCycle.filter(function(e){ return e.genre==='H'; }).length,'--g-h')+'</div></div>';
       var list = byGenre.filter(function(e){ return !state.ensCycleFilter || ensCycle(e)===state.ensCycleFilter; })
         .sort(function(a,b){ return a.nom.localeCompare(b.nom); });
+      if(state.selMode==='ens') html += selBarHtml('ens', list.map(function(e){ return e.id; }), '');
       html += !list.length ? '<div class="empty">'+(state.enseignants.length ? 'Aucun(e) enseignant(e) ne correspond à ce filtre.' : 'Aucun enseignant enregistré. Touchez « + » pour en ajouter un.')+'</div>' :
         '<div class="rec-list">'+list.map(function(e){ return ensRowHtml(e, [e.matiere, etabName(e.etablissementId), etabZoneHierLine(e.etablissementId)].filter(Boolean).join(' · ')); }).join('')+'</div>';
     }
@@ -7209,10 +7292,12 @@
     var bi = $('btnImportEns'); if(bi) bi.onclick = function(){ importTarget='enseignants'; $('fileImportInput').click(); };
     var bne2 = $('btnNamesEns'); if(bne2) bne2.onclick = function(){ completeMissingNames('ens', bne2); };
     var bfh = $('btnFicheHub'); if(bfh) bfh.onclick = openFicheHubModal;
+    var bsn = $('btnSelEns'); if(bsn) bsn.onclick = function(){ selToggleMode('ens'); };
     host.querySelectorAll('[data-actstop]').forEach(function(el){ el.onclick = function(ev){ ev.stopPropagation(); }; });
     host.querySelectorAll('.rec-row').forEach(function(el){
       el.onclick = function(){ var e = state.enseignants.find(function(x){ return x.id===el.getAttribute('data-id'); }); if(e) openEnseignantEditor(e); };
     });
+    if(state.selMode==='ens') wireSelBar(host, 'ens');
   }
   /* Fait remonter la hiérarchie (académie régionale · direction provinciale) de l'établissement d'un
      enseignant jusqu'à sa fiche, pour que le lien zone → établissement → enseignant reste visible
@@ -7250,8 +7335,121 @@
       '</div>') : '';
     var cyc = ensCycle(e), tp = etabTypeOf(e.etablissementId);
     var badges = (cyc ? '<span class="tag cyc-'+cyc+'">'+ENS_CYCLE_SHORT[cyc]+'</span>' : '')+(tp==='prive' ? '<span class="tag t-prive">Privé</span>' : '');
-    return '<div class="rec-row" data-id="'+e.id+'"><div class="avatar'+(e.genre==='F'||e.genre==='H' ? ' g-'+e.genre : '')+'" title="'+esc(GENRE_ENS_LABEL[e.genre]||'')+'">'+av+'</div>'+
+    var sm = state.selMode==='ens' && !state.ensHoraireMode;
+    return '<div class="rec-row" data-id="'+e.id+'"'+(sm ? ' data-sel="1"' : '')+'>'+(sm ? selBox(e.id) : '')+'<div class="avatar'+(e.genre==='F'||e.genre==='H' ? ' g-'+e.genre : '')+'" title="'+esc(GENRE_ENS_LABEL[e.genre]||'')+'">'+av+'</div>'+
       '<div class="rec-info"><div class="t">'+esc(e.nom)+'</div><div class="s">'+badges+(tags?esc(tags)+' · ':'')+esc(sub||'')+'</div></div>'+contactBtns+'</div>';
+  }
+
+  /* ---- Sélection multiple (suppression / fusion par lot) ----
+     state.selMode vaut 'etab' ou 'ens' quand la liste correspondante est en mode sélection ; un toucher
+     sur une ligne coche/décoche au lieu d'ouvrir la fiche. Suppression groupée en une seule écriture,
+     avec un tombstone par fiche (voir recordDelete) pour que la suppression gagne aussi les autres
+     appareils. Supprimer un établissement ne supprime jamais ses enseignant(e)s : ils sont seulement
+     détachés (sans établissement). */
+  function selCount(){ return Object.keys(state.selIds).filter(function(k){ return state.selIds[k]; }).length; }
+  function selToggleMode(mode){ state.selMode = state.selMode===mode ? '' : mode; state.selIds = {}; render(); }
+  function bulkDelete(kind, ids){
+    var coll = kind==='etab' ? 'etablissements' : 'enseignants', set = {}, stamp = nowIso();
+    ids.forEach(function(id){ set[id] = 1; });
+    state.tombstones[coll] = state.tombstones[coll] || {};
+    ids.forEach(function(id){ state.tombstones[coll][id] = stamp; });
+    state[coll] = state[coll].filter(function(x){ return !set[x.id]; });
+    var detached = 0;
+    if(kind==='etab'){
+      state.enseignants.forEach(function(e){ if(e.etablissementId && set[e.etablissementId]){ e.etablissementId = null; e.updatedAt = stamp; detached++; } });
+      state.tasks.forEach(function(t){ if(t.etablissementId && set[t.etablissementId]){ t.etablissementId = null; t.updatedAt = stamp; } });
+      saveLocal('enseignants'); saveLocal('tasks');
+    } else {
+      state.tasks.forEach(function(t){ if(t.enseignantId && set[t.enseignantId]){ t.enseignantId = null; t.updatedAt = stamp; } });
+      saveLocal('tasks');
+    }
+    saveLocal(coll); saveLocal('tombstones');
+    state.selIds = {}; state.selMode = '';
+    render();
+    return detached;
+  }
+  /* Établissements créés en bloc par le dernier import (même minute de création, aucun enseignant(e)
+     rattaché(e)) — pour annuler d'un geste un import fait dans la mauvaise liste. */
+  function lastImportBatchEtabs(){
+    var groups = {};
+    state.etablissements.forEach(function(e){ var k = String(e.createdAt||'').slice(0,16); if(k) (groups[k] = groups[k] || []).push(e); });
+    var keys = Object.keys(groups).filter(function(k){ return groups[k].length>=5; }).sort();
+    if(!keys.length) return { at:'', list:[] };
+    var k = keys[keys.length-1];
+    return { at:k, list: groups[k].filter(function(e){ return !state.enseignants.some(function(x){ return x.etablissementId===e.id; }); }) };
+  }
+  /* « Établissements » qui portent en fait le nom d'un(e) enseignant(e) de la base. */
+  function etabsNamedLikeTeachers(){
+    var names = {};
+    state.enseignants.forEach(function(x){ [x.nom, x.nomAr, x.nomFr].forEach(function(v){ if(v) names[String(v).trim().toLowerCase()] = 1; }); });
+    return state.etablissements.filter(function(e){ return names[String(e.nom||'').trim().toLowerCase()] && !state.enseignants.some(function(x){ return x.etablissementId===e.id; }); });
+  }
+  /* Paires de doublons arabe / français : chaque fiche en arabe seul avec sa meilleure fiche française
+     probable, à condition que ce choix soit réciproque (aucune autre fiche arabe ne lui ressemble plus). */
+  function etabDupPairs(){
+    var isArOnly = function(x){ return /[\u0600-\u06FF]/.test(x.nom||'') && !x.nomFr; };
+    var pairs = [], used = {};
+    state.etablissements.filter(isArOnly).forEach(function(a){
+      var c = etabDupCandidates(a).filter(function(x){ return x.likely; })[0];
+      if(!c || used[c.e.id]) return;
+      var back = etabDupCandidates(c.e).filter(function(x){ return x.likely; })[0];
+      if(!back || back.e.id!==a.id) return;
+      used[c.e.id] = 1; pairs.push({ keep:c.e, drop:a });
+    });
+    return pairs;
+  }
+  function mergeAllDupPairs(pairs){
+    var p = Promise.resolve(), n = 0, ens = 0;
+    pairs.forEach(function(pr){ p = p.then(function(){ return mergeEtablissements(pr.keep.id, pr.drop.id).then(function(m){ if(m){ n++; ens += m.enseignants; } }); }); });
+    return p.then(function(){ render(); toast(n+' doublon(s) fusionné(s), '+ens+' enseignant(e)(s) rattaché(e)(s) à la fiche française.'); });
+  }
+  function selBarHtml(mode, visibleIds, extra){
+    var n = selCount();
+    return '<div class="setup-card" style="position:sticky;top:0;z-index:5;padding:10px 12px;margin-bottom:10px;">'+
+      '<div style="font-weight:700;margin-bottom:8px;">'+n+' sélectionné(s)</div>'+
+      '<div class="setup-actions" style="margin:0;">'+
+      '<button class="btn ghost sm" id="selAll" type="button" data-ids="'+visibleIds.join(',')+'">Tout ('+visibleIds.length+')</button>'+
+      '<button class="btn ghost sm" id="selNone" type="button">Aucun</button>'+(extra||'')+
+      (mode==='etab' && n>=2 ? '<button class="btn ghost sm" id="selMerge" type="button">Fusionner</button>' : '')+
+      '<button class="btn danger sm" id="selDelete" type="button"'+(n?'':' disabled')+'>Supprimer</button>'+
+      '<button class="btn primary sm" id="selDone" type="button">Terminer</button></div></div>';
+  }
+  function wireSelBar(host, mode){
+    var all = $('selAll'); if(all) all.onclick = function(){ (all.getAttribute('data-ids')||'').split(',').filter(Boolean).forEach(function(id){ state.selIds[id] = true; }); render(); };
+    var none = $('selNone'); if(none) none.onclick = function(){ state.selIds = {}; render(); };
+    var done = $('selDone'); if(done) done.onclick = function(){ selToggleMode(mode); };
+    host.querySelectorAll('[data-selpick]').forEach(function(b){ b.onclick = function(){ state.selIds = {}; (b.getAttribute('data-selpick')||'').split(',').filter(Boolean).forEach(function(id){ state.selIds[id] = true; }); render(); }; });
+    var del = $('selDelete'); if(del) del.onclick = function(){
+      var ids = Object.keys(state.selIds).filter(function(k){ return state.selIds[k]; });
+      if(!ids.length) return;
+      if(mode==='etab'){
+        var nEns = state.enseignants.filter(function(e){ return ids.indexOf(e.etablissementId)>=0; }).length;
+        var names = state.etablissements.filter(function(e){ return ids.indexOf(e.id)>=0; }).map(function(e){ return e.nom; });
+        if(!confirm('Supprimer '+ids.length+' établissement(s) ?\n\n'+names.slice(0,12).join('\n')+(names.length>12?'\n…':'')+(nEns ? '\n\n'+nEns+' enseignant(e)(s) rattaché(e)(s) seront conservé(e)s mais détaché(e)s de leur établissement.' : ''))) return;
+        bulkDelete('etab', ids); toast(ids.length+' établissement(s) supprimé(s).');
+      } else {
+        var nm = state.enseignants.filter(function(e){ return ids.indexOf(e.id)>=0; }).map(function(e){ return e.nom; });
+        if(!confirm('Supprimer '+ids.length+' enseignant(e)(s) ?\n\n'+nm.slice(0,12).join('\n')+(nm.length>12?'\n…':''))) return;
+        bulkDelete('ens', ids); toast(ids.length+' enseignant(e)(s) supprimé(e)(s).');
+      }
+    };
+    var mg = $('selMerge'); if(mg) mg.onclick = function(){
+      var sel = state.etablissements.filter(function(e){ return state.selIds[e.id]; });
+      if(sel.length<2) return;
+      var cnt = function(e){ return state.enseignants.filter(function(x){ return x.etablissementId===e.id; }).length; };
+      sel.sort(function(a,b){ return ((/[\u0600-\u06FF]/.test(a.nom))-(/[\u0600-\u06FF]/.test(b.nom))) || (b.zoneId?1:0)-(a.zoneId?1:0) || cnt(b)-cnt(a); });
+      var keep = sel[0], drops = sel.slice(1);
+      if(!confirm('Fusionner dans « '+keep.nom+' » :\n\n'+drops.map(function(d){ return '• '+d.nom; }).join('\n')+'\n\nLeurs enseignant(e)s, tâches et documents passent sur « '+keep.nom+' », puis ces fiches sont supprimées.')) return;
+      state.selMode = ''; state.selIds = {};
+      mergeAllDupPairs(drops.map(function(d){ return { keep:keep, drop:d }; }));
+    };
+    host.querySelectorAll('.rec-row[data-sel]').forEach(function(el){
+      el.onclick = function(ev){ ev.stopPropagation(); var id = el.getAttribute('data-id'); state.selIds[id] = !state.selIds[id]; render(); };
+    });
+  }
+  function selBox(id){
+    var on = !!state.selIds[id];
+    return '<span aria-hidden="true" style="flex:none;width:22px;height:22px;border-radius:6px;border:2px solid '+(on?'var(--brand)':'var(--line)')+';background:'+(on?'var(--brand)':'transparent')+';color:#fff;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;">'+(on?'✓':'')+'</span>';
   }
 
   /* ---- Établissements ---- */
@@ -7285,7 +7483,23 @@
     var html = '';
     html += '<div class="setup-actions"><button class="btn primary sm" id="btnAddEtab2" type="button">+ Établissement</button>'+
       '<button class="btn ghost sm" id="btnExportEtab" type="button">Exporter CSV</button><button class="btn ghost sm" id="btnImportEtab" type="button">Importer CSV / Excel</button>'+
-      '<button class="btn ghost sm" id="btnNamesEtab" type="button">'+ICONS.ai+' Compléter les noms ar / fr</button></div>';
+      '<button class="btn ghost sm" id="btnNamesEtab" type="button">'+ICONS.ai+' Compléter les noms ar / fr</button>'+
+      '<button class="btn ghost sm" id="btnSelEtab" type="button">'+(state.selMode==='etab' ? 'Quitter la sélection' : 'Sélectionner / supprimer')+'</button></div>';
+    var dupPairs = state.selMode ? [] : etabDupPairs();
+    if(dupPairs.length){
+      html += '<div class="banner info" style="margin-bottom:10px;display:block;"><div style="font-weight:700;margin-bottom:4px;">'+dupPairs.length+' établissement(s) en double (arabe / français)</div>'+
+        '<div style="font-size:12px;margin-bottom:8px;">'+dupPairs.slice(0,5).map(function(p){ return esc(p.drop.nom)+' → '+esc(p.keep.nom); }).join('<br>')+(dupPairs.length>5?'<br>…':'')+'</div>'+
+        '<button class="btn primary sm" id="btnMergeAllDup" type="button">Fusionner les '+dupPairs.length+' doublons</button></div>';
+    }
+    var selVisible = [];
+    if(state.selMode==='etab'){
+      var tf0 = state.etabTypeFilter;
+      selVisible = state.etablissements.filter(function(e){ return !tf0 || (tf0==='prive' ? e.type==='prive' : e.type!=='prive'); }).map(function(e){ return e.id; });
+      var lb = lastImportBatchEtabs(), lt = etabsNamedLikeTeachers(), extra = '';
+      if(lt.length) extra += '<button class="btn ghost sm" type="button" data-selpick="'+lt.map(function(e){ return e.id; }).join(',')+'">Noms d\'enseignant(e)s ('+lt.length+')</button>';
+      if(lb.list.length) extra += '<button class="btn ghost sm" type="button" data-selpick="'+lb.list.map(function(e){ return e.id; }).join(',')+'">Créés au dernier import, '+esc(fmtWhen(lb.at+':00'))+' ('+lb.list.length+')</button>';
+      html += selBarHtml('etab', selVisible, extra);
+    }
     if(!state.zones.length && !state.etablissements.length){
       html += '<div class="empty">Aucune zone ni établissement. Créez d\'abord une zone dans l\'onglet « Zones », puis ajoutez des établissements.</div>';
     } else {
@@ -7312,16 +7526,22 @@
     var bxe = $('btnExportEtab'); if(bxe) bxe.onclick = function(){ exportCSV('etablissements'); };
     var bie = $('btnImportEtab'); if(bie) bie.onclick = function(){ importTarget='etablissements'; $('fileImportInput').click(); };
     var bne = $('btnNamesEtab'); if(bne) bne.onclick = function(){ completeMissingNames('etab', bne); };
+    var bse = $('btnSelEtab'); if(bse) bse.onclick = function(){ selToggleMode('etab'); };
+    var bmd = $('btnMergeAllDup'); if(bmd) bmd.onclick = function(){
+      if(!confirm('Fusionner chaque fiche en arabe dans sa fiche française ?\n\n'+dupPairs.map(function(p){ return p.drop.nom+' → '+p.keep.nom; }).join('\n')+'\n\nLes enseignant(e)s, tâches et documents passent sur la fiche française, qui garde aussi le nom arabe.')) return;
+      mergeAllDupPairs(dupPairs);
+    };
     host.querySelectorAll('[data-editzone]').forEach(function(el){ el.onclick = function(ev){ ev.stopPropagation(); var z=state.zones.find(function(x){return x.id===el.getAttribute('data-editzone');}); if(z) openZoneEditor(z); }; });
     host.querySelectorAll('[data-mapstop]').forEach(function(el){ el.onclick = function(ev){ ev.stopPropagation(); }; });
     host.querySelectorAll('.rec-row').forEach(function(el){ el.onclick = function(){ var e=state.etablissements.find(function(x){return x.id===el.getAttribute('data-id');}); if(e) openEtablissementEditor(e); }; });
+    if(state.selMode==='etab') wireSelBar(host, 'etab');
   }
   function etabRowHtml(e){
     var nEns = state.enseignants.filter(function(x){ return x.etablissementId===e.id; }).length;
     var tp = e.type==='prive' ? 'prive' : 'public';
     var tags = ETAB_CYCLE_LABEL[e.cycle] || '';
     var mapLink = (e.latitude && e.longitude) ? ' · <a href="https://www.google.com/maps?q='+encodeURIComponent(e.latitude+','+e.longitude)+'" target="_blank" rel="noopener" class="etab-maplink" data-mapstop="1" style="color:var(--brand);">'+ICONS.pin+' Carte</a>' : '';
-    return '<div class="rec-row" data-id="'+e.id+'"><div class="avatar t-'+tp+'">'+ICONS.folder+'</div>'+
+    return '<div class="rec-row" data-id="'+e.id+'"'+(state.selMode==='etab' ? ' data-sel="1"' : '')+'>'+(state.selMode==='etab' ? selBox(e.id) : '')+'<div class="avatar t-'+tp+'">'+ICONS.folder+'</div>'+
       '<div class="rec-info"><div class="t">'+esc(e.nom)+'</div><div class="s"><span class="tag t-'+tp+'">'+(tp==='prive'?'Privé':'Public')+'</span>'+(tags?esc(tags)+' · ':'')+nEns+' enseignant(s)'+(e.adresse?' · '+esc(e.adresse):'')+mapLink+'</div></div></div>';
   }
 
