@@ -1710,6 +1710,7 @@
     }catch(e){}
   }
   function saveLocal(coll){
+    if(zoneScopeDepth){ zoneScopePendingSaves[coll] = 1; return; }
     try{
       var map = {tasks:state.tasks, zones:state.zones, etablissements:state.etablissements, enseignants:state.enseignants,
         documents:state.documents, vacances:state.vacances, config:state.config, templates:state.templates, assets:state.assets,
@@ -7076,7 +7077,7 @@
       ['Établissements concernés', an.etabCount+' / '+an.etabTotal+pc(an.etabCount, an.etabTotal)],
       ['Tâches en retard', String(an.late)]
     ]}];
-    return { titre:"Bilan des activités d'inspection", meta:[['Période', fmtDate(r.from.toISOString())+' – '+fmtDate(r.to.toISOString())],['Total tâches', String(s.list.length)]],
+    return { titre:"Bilan des activités d'inspection", meta:[['Période', fmtDate(r.from.toISOString())+' – '+fmtDate(r.to.toISOString())]].concat(zoneFilterActive() ? [['Zone(s)', zoneFilterLabel()]] : []).concat([['Total tâches', String(s.list.length)]]),
       tables: ind.concat([
         {heading:'Par établissement', headers:['Établissement','Nb. tâches'], rows:Object.keys(s.byEtab).map(function(k){ return [k, String(s.byEtab[k])]; })},
         {heading:'Par type', headers:['Type','Nb.'], rows:Object.keys(s.byType).map(function(k){ return [TT_LABEL[k]||k, String(s.byType[k])]; })}
@@ -7398,7 +7399,7 @@
   }
   function generateBilanDoc(){
     var s = bilanStats(), r = periodRange();
-    var html = printHead('Bilan des activités d\'inspection', [['Période', fmtDate(r.from.toISOString())+' – '+fmtDate(r.to.toISOString())], ['Total tâches', s.list.length]]);
+    var html = printHead('Bilan des activités d\'inspection', [['Période', fmtDate(r.from.toISOString())+' – '+fmtDate(r.to.toISOString())]].concat(zoneFilterActive() ? [['Zone(s)', zoneFilterLabel()]] : []).concat([['Total tâches', s.list.length]]));
     if(state.bilanCharts !== false){
       var an = bilanAnalytics(), sp = buildBilanSpec(), ind = sp.tables[0];
       if(ind && ind.heading==='Indicateurs') html += '<div class="p-section"><h3>Indicateurs</h3></div><table class="p-table"><tbody>'+ind.rows.map(function(r){ return '<tr><td>'+esc(r[0])+'</td><td>'+esc(r[1])+'</td></tr>'; }).join('')+'</tbody></table>';
@@ -7445,6 +7446,94 @@
     animState.modalCount = n;
   }
 
+  /* ================= Filtre global par zone(s) =================
+     state.zoneFilter = liste d'identifiants de zones cochées ('__none' = établissements sans zone) ;
+     liste vide = toutes les zones. Mémorisé sur l'appareil (préférence d'affichage, pas une donnée).
+     Le filtre s'applique en remplaçant, le temps de dessiner l'écran principal (et de produire le
+     bilan), les collections du carnet par leur sous-ensemble filtré (withZoneScope) : chaque vue —
+     tableau de bord, tâches, enseignant(e)s, établissements, bilan, documents — n'a donc rien à
+     changer et reste cohérente avec les autres. Les fenêtres d'édition, elles, voient toujours toutes
+     les données, et aucune écriture n'est faite pendant le filtrage (saveLocal différé). */
+  var zoneScopeDepth = 0, zoneScopePendingSaves = {};
+  var ZONE_NONE = '__none';
+  function zoneFilterLoad(){ try{ var v = JSON.parse(localStorage.getItem('ci_zone_filter')||'[]'); return Array.isArray(v) ? v : []; }catch(e){ return []; } }
+  function zoneFilterSave(){ try{ localStorage.setItem('ci_zone_filter', JSON.stringify(state.zoneFilter||[])); }catch(e){} }
+  function zoneFilterActive(){
+    var f = (state.zoneFilter||[]).filter(function(id){ return id===ZONE_NONE || state.zones.some(function(z){ return z.id===id; }); });
+    return f.length ? f : null;
+  }
+  function zoneScopedData(){
+    var f = zoneFilterActive(); if(!f) return null;
+    var sel = {}; f.forEach(function(id){ sel[id] = 1; });
+    var known = {}; state.zones.forEach(function(z){ known[z.id] = 1; });
+    var etabs = state.etablissements.filter(function(e){ return (e.zoneId && known[e.zoneId]) ? !!sel[e.zoneId] : !!sel[ZONE_NONE]; });
+    var etabIds = {}; etabs.forEach(function(e){ etabIds[e.id] = 1; });
+    var ens = state.enseignants.filter(function(e){ return e.etablissementId && state.etablissements.some(function(x){ return x.id===e.etablissementId; }) ? !!etabIds[e.etablissementId] : !!sel[ZONE_NONE]; });
+    var ensIds = {}; ens.forEach(function(e){ ensIds[e.id] = 1; });
+    var tasks = state.tasks.filter(function(t){
+      var linked = false, inScope = false;
+      if(t.etablissementId){ linked = true; if(etabIds[t.etablissementId]) inScope = true; }
+      if(t.enseignantId){ linked = true; if(ensIds[t.enseignantId]) inScope = true; }
+      (t.invites||[]).forEach(function(iv){ if(iv.enseignantId){ linked = true; if(ensIds[iv.enseignantId]) inScope = true; } });
+      return linked ? inScope : !!sel[ZONE_NONE];
+    });
+    var taskIds = {}; tasks.forEach(function(t){ taskIds[t.id] = 1; });
+    return { zones: state.zones.filter(function(z){ return sel[z.id]; }), etablissements: etabs, enseignants: ens, tasks: tasks,
+      documents: state.documents.filter(function(d){ return !d.taskId || taskIds[d.taskId]; }) };
+  }
+  function withZoneScope(fn){
+    var sc = zoneScopedData();
+    if(!sc) return fn();
+    var keep = { zones: state.zones, etablissements: state.etablissements, enseignants: state.enseignants, tasks: state.tasks, documents: state.documents };
+    Object.keys(sc).forEach(function(k){ state[k] = sc[k]; });
+    zoneScopeDepth++;
+    try{ return fn(); }
+    finally{
+      zoneScopeDepth--;
+      Object.keys(keep).forEach(function(k){ state[k] = keep[k]; });
+      if(!zoneScopeDepth){ var pend = zoneScopePendingSaves; zoneScopePendingSaves = {}; Object.keys(pend).forEach(function(c){ saveLocal(c); }); }
+    }
+  }
+  function zoneFilterLabel(){
+    var f = zoneFilterActive(); if(!f) return 'Toutes les zones';
+    return f.map(function(id){ if(id===ZONE_NONE) return 'Sans zone'; var z = state.zones.find(function(x){ return x.id===id; }); return z ? z.nom : ''; }).filter(Boolean).join(', ');
+  }
+  /* Sélecteur : cases à cocher (une par zone + « Sans zone ») et « Toutes les zones ». compact = barre
+     rappelée en haut des autres écrans quand un filtre est actif. */
+  function zoneFilterHtml(compact){
+    var f = zoneFilterActive() || [], on = function(id){ return f.indexOf(id)>=0; };
+    var known = {}; state.zones.forEach(function(z){ known[z.id] = 1; });
+    var cnt = function(id){
+      var ets = state.etablissements.filter(function(e){ return id===ZONE_NONE ? !(e.zoneId && known[e.zoneId]) : e.zoneId===id; });
+      var ids = {}; ets.forEach(function(e){ ids[e.id] = 1; });
+      return { et: ets.length, en: state.enseignants.filter(function(e){ return ids[e.etablissementId]; }).length };
+    };
+    var zones = state.zones.slice().sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||''); });
+    var items = zones.map(function(z){ return {id:z.id, nom:z.nom}; });
+    if(state.etablissements.some(function(e){ return !(e.zoneId && known[e.zoneId]); }) || on(ZONE_NONE)) items.push({id:ZONE_NONE, nom:'Sans zone'});
+    if(compact){
+      return '<div class="setup-card" id="zoneFilterBar" style="padding:9px 12px;margin-bottom:10px;"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'+
+        '<b style="font-size:12.5px;">Filtre zones :</b><span style="font-size:12.5px;flex:1;min-width:0;">'+esc(zoneFilterLabel())+'</span>'+
+        '<button class="btn ghost sm" type="button" data-zfedit="1">Modifier</button><button class="btn ghost sm" type="button" data-zfall="1">Tout afficher</button></div></div>';
+    }
+    return '<div class="setup-card" id="zoneFilterCard" style="padding:12px 14px;margin-bottom:12px;">'+
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><h2 style="margin:0;flex:1;font-size:15px;">Zones affichées</h2>'+
+      '<button class="btn '+(f.length ? 'ghost' : 'primary')+' sm" type="button" data-zfall="1">Toutes</button></div>'+
+      '<div style="display:flex;flex-direction:column;gap:6px;">'+items.map(function(it){ var c = cnt(it.id);
+        return '<label style="display:flex;align-items:center;gap:9px;font-size:13.5px;cursor:pointer;"><input type="checkbox" data-zfzone="'+it.id+'"'+(on(it.id)?' checked':'')+' style="width:18px;height:18px;">'+
+          '<span style="flex:1;">'+esc(it.nom)+'</span><span style="font-size:11.5px;color:var(--ink-faint);">'+c.et+' étab. · '+c.en+' ens.</span></label>'; }).join('')+'</div>'+
+      '<p style="font-size:11px;color:var(--ink-faint);margin:8px 0 0;">'+(f.length ? 'Filtre actif sur tout le carnet : tableau de bord, tâches, enseignant(e)s, établissements, bilan et documents.' : 'Aucune case cochée = toutes les zones. Cochez une ou plusieurs zones pour filtrer tout le carnet.')+'</p></div>';
+  }
+  function wireZoneFilter(host){
+    host.querySelectorAll('[data-zfzone]').forEach(function(cb){ cb.onchange = function(){
+      var id = cb.getAttribute('data-zfzone'), f = (zoneFilterActive()||[]).slice();
+      if(cb.checked){ if(f.indexOf(id)<0) f.push(id); } else f = f.filter(function(x){ return x!==id; });
+      state.zoneFilter = f; zoneFilterSave(); state.ensEtabFilter = ''; render();
+    }; });
+    host.querySelectorAll('[data-zfall]').forEach(function(b){ b.onclick = function(){ state.zoneFilter = []; zoneFilterSave(); render(); }; });
+    host.querySelectorAll('[data-zfedit]').forEach(function(b){ b.onclick = function(){ goToTab('home'); }; });
+  }
+
   /* ================= RENDER ================= */
   function render(){
     renderTopbar();
@@ -7453,12 +7542,20 @@
       $('view'+v.charAt(0).toUpperCase()+v.slice(1)).hidden = (state.view!==v);
     });
     var fab = $('fabAdd'); if(fab) fab.hidden = (state.view==='bilan' || state.view==='docs' || state.view==='home');
-    if(state.view==='home') renderHomeView();
-    else if(state.view==='tasks') renderTasksView();
-    else if(state.view==='enseignants') renderEnseignantsView();
-    else if(state.view==='etablissements') renderEtablissementsView();
-    else if(state.view==='bilan') renderBilanView();
-    else renderDocsView();
+    if(!state.zoneFilter) state.zoneFilter = zoneFilterLoad();
+    withZoneScope(function(){
+      if(state.view==='home') renderHomeView();
+      else if(state.view==='tasks') renderTasksView();
+      else if(state.view==='enseignants') renderEnseignantsView();
+      else if(state.view==='etablissements') renderEtablissementsView();
+      else if(state.view==='bilan') renderBilanView();
+      else renderDocsView();
+    });
+    var vHost = $('view'+state.view.charAt(0).toUpperCase()+state.view.slice(1));
+    if(vHost && (state.view==='home' ? state.zones.length : zoneFilterActive())){
+      vHost.insertAdjacentHTML('afterbegin', zoneFilterHtml(state.view!=='home'));
+      wireZoneFilter(vHost);
+    }
     renderModals();
     decorateAiButtons();
     animateEntrance();
@@ -8024,10 +8121,10 @@
     host.querySelectorAll('.period-seg button').forEach(function(b){ b.onclick = function(){ state.bilanPeriod = b.getAttribute('data-p'); render(); }; });
     var bf = $('bilanFrom'); if(bf) bf.onchange = function(){ state.bilanCustomFrom = bf.value; render(); };
     var bt = $('bilanTo'); if(bt) bt.onchange = function(){ state.bilanCustomTo = bt.value; render(); };
-    $('btnGenBilan').onclick = generateBilanDoc;
+    $('btnGenBilan').onclick = function(){ withZoneScope(generateBilanDoc); };
     var chkCh = $('chkBilanCharts'); if(chkCh) chkCh.onchange = function(){ state.bilanCharts = chkCh.checked; };
     function runBilanGen(kind, btn){
-      var spec = buildBilanSpec();
+      var spec = withZoneScope(buildBilanSpec);
       var statusEl = $('bilanGenStatus');
       if(statusEl){ statusEl.hidden = false; statusEl.textContent = kind==='pdf' ? 'Génération du PDF…' : 'Génération du document Word…'; }
       if(btn) btn.disabled = true;
@@ -8041,7 +8138,7 @@
         if(kind==='docx' && gdocUrl) showGdocLink(statusEl, gdocUrl); else if(statusEl) statusEl.hidden = true;
       });
     }
-    var bilanExcelBtn = $('btnBilanExcel'); if(bilanExcelBtn) bilanExcelBtn.onclick = exportBilanCSV;
+    var bilanExcelBtn = $('btnBilanExcel'); if(bilanExcelBtn) bilanExcelBtn.onclick = function(){ withZoneScope(exportBilanCSV); };
     var bilanPdfBtn = $('btnBilanPdf'); if(bilanPdfBtn) bilanPdfBtn.onclick = function(){ runBilanGen('pdf', bilanPdfBtn); };
     var bilanDocxBtn = $('btnBilanDocx'); if(bilanDocxBtn) bilanDocxBtn.onclick = function(){ runBilanGen('docx', bilanDocxBtn); };
     var aiBtn = $('btnAiBilan');
