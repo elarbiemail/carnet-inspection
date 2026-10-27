@@ -58,6 +58,7 @@ ajoutée à la fin ; les notes existantes ne sont jamais remplacées.
 | `typeCarnet` | type exact du carnet (aller-retour sans perte) |
 | `statut` | `Planned`, `InProgress`, `Completed`, `Cancelled` |
 | `statutCarnet` | `a_planifier`, `planifiee`, `realisee`, `rapport`, `cloturee` |
+| `tableauxService` | tâche `ServiceTableValidation` (validation des tableaux de service) seulement : `[{enseignant {carnetId, inspectappId, ppr, nom}, statut (validee \| non_validee \| en_attente), observation}]` — une feuille personnelle par enseignant(e) de l'établissement de la tâche |
 | autres | `titre, date, heureDebut, heureFin, lieu, description, priorite, note` (Insuffisant/Satisfaisant/Bien/Très bien), `voitureService` (bool), `enseignant {carnetId, inspectappId, ppr, nom}`, `etablissement {…}`, `participants [{carnetId, inspectappId, ppr, nom, etablissement}]`, `updatedAt` |
 
 Correspondance des statuts : `a_planifier`, `planifiee` → `Planned` ; `realisee`, `rapport` →

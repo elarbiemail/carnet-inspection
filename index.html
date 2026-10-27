@@ -1025,13 +1025,13 @@
     {v:'formation', l:'Formation'}, {v:'reunion_distance', l:'Réunion à distance'},
     {v:'reunion_administrative', l:'Réunion administrative'},
     {v:'recherche_action', l:'Recherche action'}, {v:'observation_examen', l:"Observation d'examen"},
-    {v:'conception_examen', l:"Conception d'examen"}, {v:'autre', l:'Autre'}
+    {v:'conception_examen', l:"Conception d'examen"}, {v:'validation_ts', l:'Validation des tableaux de service'}, {v:'autre', l:'Autre'}
   ];
   var TT_LABEL = {}; TASK_TYPES.forEach(function(t){ TT_LABEL[t.v]=t.l; });
   /* Libellés arabes des types de tâches, pour les courriers en arabe (رسالة إخبارية…). */
   var TT_AR = { inspection:'زيارة تفتيشية', visite_conseil:'زيارة تأطيرية', reunion_pedagogique:'لقاء تربوي', cours_experimental:'درس تجريبي',
     formation:'دورة تكوينية', reunion_distance:'اجتماع عن بعد', reunion_administrative:'اجتماع إداري', recherche_action:'بحث تدخلي',
-    observation_examen:'تتبع امتحان', conception_examen:'إعداد امتحان', autre:'نشاط تربوي' };
+    observation_examen:'تتبع امتحان', conception_examen:'إعداد امتحان', validation_ts:'المصادقة على جداول الحصص', autre:'نشاط تربوي' };
   var JOURS_AR = ['الأحد','الإثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'];
   var MOIS_AR = ['يناير','فبراير','مارس','أبريل','ماي','يونيو','يوليوز','غشت','شتنبر','أكتوبر','نونبر','دجنبر'];
   /* Texte en caractères latins inséré dans une phrase arabe : isolé (FSI…PDI) pour que l'ordre
@@ -1056,6 +1056,38 @@
      pour ceux-ci, seul le champ « Lieu » générique (texte libre, avec suggestions — voir
      taskLieuSuggestions) s'applique. */
   var TASK_TYPES_SINGLE_TARGET = {inspection:true, visite_conseil:true, recherche_action:true, observation_examen:true, conception_examen:true, autre:true};
+  /* Validation des tableaux de service : tâche rattachée à UN établissement (pas à un(e) enseignant(e)
+     précis(e)) et qui porte la liste des feuilles personnelles de ses enseignant(e)s — t.feuilles =
+     [{enseignantId, nom, ppr, statut:'validee'|'non_validee'|'en_attente', observation}]. C'est la seule
+     source de vérité : le bordereau d'envoi de la tâche, la fiche de l'établissement et la fiche de
+     chaque enseignant(e) lisent ces données, sans les recopier. */
+  var TASK_TYPES_ETAB_ONLY = {validation_ts:true};
+  var TS_STATUTS = [{v:'validee', l:'Validée', ar:'مصادق عليه'}, {v:'non_validee', l:'Non validée', ar:'غير مصادق عليه'}, {v:'en_attente', l:'En attente', ar:'في الانتظار'}];
+  var TS_STATUT_LABEL = {}; TS_STATUTS.forEach(function(x){ TS_STATUT_LABEL[x.v] = x.l; });
+  function tsFeuilleFromEns(e){ return { enseignantId:e.id, nom:e.nom, ppr:e.ppr||'', statut:'en_attente', observation:'' }; }
+  /* Ajoute à la tâche les enseignant(e)s de l'établissement qui n'y figurent pas encore (jamais de
+     doublon, rien n'est retiré) ; renvoie le nombre d'ajouts. */
+  function tsLoadEtabTeachers(t){
+    t.feuilles = t.feuilles || [];
+    var have = {}; t.feuilles.forEach(function(f){ if(f.enseignantId) have[f.enseignantId] = 1; });
+    var add = state.enseignants.filter(function(e){ return e.etablissementId===t.etablissementId && !have[e.id]; })
+      .sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||''); }).map(tsFeuilleFromEns);
+    t.feuilles = t.feuilles.concat(add);
+    return add.length;
+  }
+  /* Historique des validations d'un(e) enseignant(e), la plus récente d'abord. */
+  function tsHistoryForEns(ensId){
+    var out = [];
+    state.tasks.forEach(function(t){
+      if(t.taskType!=='validation_ts') return;
+      (t.feuilles||[]).forEach(function(f){ if(f.enseignantId===ensId) out.push({ task:t, f:f }); });
+    });
+    return out.sort(function(a,b){ return (b.task.echeance||'').localeCompare(a.task.echeance||''); });
+  }
+  function tsStatusTag(statut){
+    var col = statut==='validee' ? 'var(--ok, #2e9e5b)' : statut==='non_validee' ? 'var(--danger, #c0392b)' : 'var(--ink-faint)';
+    return '<span class="tag" style="border-color:'+col+';color:'+col+';">TS '+esc((TS_STATUT_LABEL[statut]||'').toLowerCase())+'</span>';
+  }
   /* « plan_action » n'est plus proposé ici depuis qu'il a été remplacé par le Programme annuel comme
      plan d'action (voir le bouton « Plan d'action » du menu principal, qui ouvre désormais directement
      Réglages → Programme annuel) — DOC_TYPE_INFO/DOC_TEMPLATE_FIELDS/RTL_DOC_TYPES et la génération de
@@ -1074,6 +1106,7 @@
     recherche_action:['rapport','bordereau'],
     observation_examen:['observation','rapport','bordereau'],
     conception_examen:['rapport','bordereau'],
+    validation_ts:['bordereau'],
     autre:['rapport','bordereau']
   };
   var DOC_TYPE_INFO = {
@@ -1204,7 +1237,7 @@
   var TT_BADGE_CLASS = { inspection:'violet', visite_conseil:'violet', observation_examen:'violet',
     reunion_pedagogique:'accent', cours_experimental:'accent', formation:'accent',
     reunion_distance:'neutral', reunion_administrative:'neutral',
-    recherche_action:'warn', conception_examen:'warn', autre:'neutral' };
+    recherche_action:'warn', conception_examen:'warn', validation_ts:'warn', autre:'neutral' };
   function taskBadgeClass(v){ return TT_BADGE_CLASS[v] || 'neutral'; }
   /* Lieux déjà saisis sur d'autres tâches, proposés comme suggestions (datalist) sur le champ Lieu de
      l'éditeur — jamais de liste figée : purement dérivé des tâches existantes, donc toujours à jour. */
@@ -4533,7 +4566,11 @@
     } else if(type==='bordereau'){
       base.destinataire = 'المدير الإقليمي'; base.reference=''; base.objet = task.titre;
       base.pieces = [{designation: task.titre, nombre:'1', observation:''}]; base.observations='';
-      base.tableauxValides = []; base.tableauxNonValides = [];
+      if(task.taskType==='validation_ts'){
+        var etAr = etabNameLang('ar', task.etablissementId, task.etablissementNom || etabName(task.etablissementId) || '');
+        base.objet = 'المصادقة على جداول الحصص'+(etAr ? ' — '+etAr : '');
+        base.pieces = [];
+      }
     } else if(type==='plan_action'){
       base.lieu = task.lieu||task.etablissementNom||''; base.objet = task.titre; base.contexte=''; base.objectifs=''; base.actions=[];
     }
@@ -4972,12 +5009,12 @@
   var XCH_FILE_OUT = 'carnet-vers-inspectapp.json', XCH_FILE_IN = 'inspectapp-vers-carnet.json', XCH_FOLDER = 'Échange InspectApp';
   var XCH_TYPE_OUT = { inspection:'Inspection', visite_conseil:'Visit', reunion_pedagogique:'Meeting', cours_experimental:'ExperimentalLesson',
     formation:'ContinuingEducation', reunion_distance:'Meeting', reunion_administrative:'Other', recherche_action:'ActionResearch',
-    observation_examen:'ExamObservation', conception_examen:'ExamDesign', autre:'Other' };
+    observation_examen:'ExamObservation', conception_examen:'ExamDesign', validation_ts:'ServiceTableValidation', autre:'Other' };
   var XCH_TYPE_IN = { inspection:'inspection', visit:'visite_conseil', visite:'visite_conseil', visiteconseil:'visite_conseil', meeting:'reunion_pedagogique', reunion:'reunion_pedagogique',
     reunionpedagogique:'reunion_pedagogique', experimentallesson:'cours_experimental', leconexperimentale:'cours_experimental', coursexperimental:'cours_experimental',
     continuingeducation:'formation', formation:'formation', formationcontinue:'formation', actionresearch:'recherche_action', rechercheaction:'recherche_action',
     examobservation:'observation_examen', observationexamens:'observation_examen', examdesign:'conception_examen', conceptionexamens:'conception_examen',
-    servicetablevalidation:'autre', titularisation:'autre', other:'autre', autre:'autre', autres:'autre' };
+    servicetablevalidation:'validation_ts', validationtableauxservice:'validation_ts', validationts:'validation_ts', titularisation:'autre', other:'autre', autre:'autre', autres:'autre' };
   var XCH_STATUS_OUT = { a_planifier:'Planned', planifiee:'Planned', realisee:'InProgress', rapport:'InProgress', cloturee:'Completed' };
   var XCH_STATUS_IN = { planned:'planifiee', planifiee:'planifiee', inprogress:'realisee', encours:'realisee', completed:'cloturee', terminee:'cloturee', done:'cloturee' };
   function xchKey(t){ return String(t||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9؀-ۿ]+/g, ' ').trim(); }
@@ -5004,6 +5041,8 @@
         return { carnetId:t.id, inspectappId:xchExtId(t)||undefined, type: XCH_TYPE_OUT[t.taskType] || 'Other', typeCarnet: t.taskType, statut: XCH_STATUS_OUT[t.statut] || 'Planned', statutCarnet: t.statut,
           titre:t.titre||'', date:t.echeance||'', heureDebut:t.heureDebut||'', heureFin:t.heureFin||'', lieu:t.lieu||'', description:t.description||'', priorite:t.priorite||'',
           note: t.noteGlobale||'', voitureService: hasCar,
+          tableauxService: t.taskType==='validation_ts' ? (t.feuilles||[]).map(function(f){ var e = f.enseignantId ? state.enseignants.find(function(x){ return x.id===f.enseignantId; }) : null;
+            return { enseignant: { carnetId: f.enseignantId||undefined, inspectappId: e ? (xchExtId(e)||undefined) : undefined, ppr: f.ppr||undefined, nom: f.nom }, statut: f.statut, observation: f.observation||'' }; }) : undefined,
           enseignant: (t.enseignantId || t.enseignantNom) ? xchEnsRef(t.enseignantId, t.enseignantNom) : null,
           etablissement: t.etablissementId ? xchEtabRef(t.etablissementId) : (t.etablissementNom ? { nom:t.etablissementNom } : null),
           participants: (t.invites||[]).map(function(iv){ var r = xchEnsRef(iv.enseignantId, iv.nom) || {}; return Object.assign(r, { nom: iv.nom || r.nom, ppr: iv.ppr || r.ppr, etablissement: iv.etablissementNom || '' }); }),
@@ -5135,6 +5174,12 @@
       if((t.participants||[]).length && (isNew || xchNewer(t, loc) || !(loc.invites||[]).length)){
         var inv = t.participants.map(function(pp){ var r = xchFindEns(pp, null); return { enseignantId: r ? r.id : null, nom: r ? r.nom : (pp.nom||''), ppr: (r && r.ppr) || pp.ppr || '', etablissementNom: pp.etablissement && pp.etablissement.nom ? pp.etablissement.nom : (pp.etablissement || (r ? etabName(r.etablissementId) : '')) }; });
         if(JSON.stringify(inv)!==JSON.stringify(loc.invites||[])){ loc.invites = inv; ch = true; }
+      }
+      if(Array.isArray(t.tableauxService) && t.tableauxService.length && (isNew || xchNewer(t, loc) || !(loc.feuilles||[]).length)){
+        var fsIn = t.tableauxService.map(function(x){ var r = xchFindEns(x.enseignant||{}, etId); var st = String(x.statut||'').toLowerCase();
+          st = /non|invalid|reject|refus/.test(st) ? 'non_validee' : /valid|approv|ok/.test(st) ? 'validee' : 'en_attente';
+          return { enseignantId: r ? r.id : null, nom: r ? r.nom : ((x.enseignant||{}).nom||''), ppr: (r && r.ppr) || (x.enseignant||{}).ppr || '', statut: st, observation: x.observation||'' }; });
+        if(JSON.stringify(fsIn)!==JSON.stringify(loc.feuilles||[])){ loc.feuilles = fsIn; ch = true; }
       }
       if(!loc.titre){ loc.titre = (TT_LABEL[type]||'Tâche')+(loc.enseignantNom ? ' · '+loc.enseignantNom : '')+(loc.etablissementNom ? ' · '+loc.etablissementNom : ''); ch = true; }
       ch = xchSetExt(loc, t) || ch;
@@ -6606,13 +6651,26 @@
     if(!s || /^monsieur le directeur provincial$/i.test(s)) return 'المدير الإقليمي';
     return s;
   }
+  /* Listes des tableaux de service d'un bordereau : pour une tâche « Validation des tableaux de
+     service », elles sont lues dans la tâche elle-même (t.feuilles, seule source de vérité) ; les
+     anciens bordereaux qui contenaient des listes saisies à la main (tableauxValides/NonValides) les
+     gardent telles quelles. */
+  function bordereauTsLists(d, task){
+    if(task && task.taskType==='validation_ts'){
+      var et = etabNameLang('ar', task.etablissementId, task.etablissementNom || etabName(task.etablissementId) || '');
+      var row = function(f){ return { etablissement: et, enseignant: ensNameLang('ar', f.enseignantId, f.nom||''), ppr: f.ppr||'', observation: f.observation||'' }; };
+      var fs = (task.feuilles||[]).slice().sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||''); });
+      return { val: fs.filter(function(f){ return f.statut==='validee'; }).map(row), nv: fs.filter(function(f){ return f.statut==='non_validee'; }).map(row) };
+    }
+    return { val: d.tableauxValides||[], nv: d.tableauxNonValides||[] };
+  }
   function offBordereau(d, task){
-    var pf = offProfil();
+    var pf = offProfil(), tsl = bordereauTsLists(d, task);
     var rows = [{ cells:[ C([P([R('الموضوع',{b:true})],{align:'center', size:12})], {shade:'FFFFFF'}), C([P([R('العدد',{b:true})],{align:'center', size:12})]), C([P([R('ملاحظات',{b:true})],{align:'center', size:12})]) ] }];
     (d.pieces||[]).forEach(function(p){
       rows.push({ cantSplit:true, cells:[ C([P(p.designation||'', {size:12})]), C([P(p.nombre||'', {size:12, align:'center'})]), C([P(p.observation||'', {size:12})]) ] });
     });
-    var nv = (d.tableauxValides||[]).length, nnv = (d.tableauxNonValides||[]).length;
+    var nv = tsl.val.length, nnv = tsl.nv.length;
     if(nv) rows.push({ cells:[ C([P('جداول الحصص المصادق عليها', {size:12})]), C([P(String(nv), {size:12, align:'center'})]), C([P('انظر اللائحة المرفقة', {size:11})]) ] });
     if(nnv) rows.push({ cells:[ C([P('جداول الحصص غير المصادق عليها', {size:12})]), C([P(String(nnv), {size:12, align:'center'})]), C([P('انظر اللائحة المرفقة مع الملاحظات', {size:11})]) ] });
     var filler = Math.max(30, 110 - (rows.length-1)*9);
@@ -6640,8 +6698,8 @@
     }
     blocks.push(P('التوقيع', {size:11, align:'left', before:14}));
     blocks.push({t:'sigimg', align:'left'});
-    if(nv) annex('لائحة جداول الحصص المصادق عليها', d.tableauxValides, false);
-    if(nnv) annex('لائحة جداول الحصص غير المصادق عليها', d.tableauxNonValides, true);
+    if(nv) annex('لائحة جداول الحصص المصادق عليها', tsl.val, false);
+    if(nnv) annex('لائحة جداول الحصص غير المصادق عليها', tsl.nv, true);
     return { type:'bordereau', rtl:true, margin:15, size:11, fontCss:"Arial,'Traditional Arabic',sans-serif", fontDocx:'Arial', blocks: blocks };
   }
   /* ---- Lettre d'information (رسالة إخبارية) ---- */
@@ -6813,14 +6871,15 @@
     }
     if(d.type==='bordereau'){
       var bordTables = [{headers:['بيان الوثائق','العدد'], rows:(d.pieces||[]).map(function(p){ return [p.designation||'', p.nombre||'']; })}];
-      if((d.tableauxValides||[]).length){
+      var tslG = bordereauTsLists(d, task);
+      if(tslG.val.length){
         bordTables.push({heading:'جداول الحصص المصادق عليها', headers:['المؤسسة','اسم الأستاذ(ة)','الرقم التربوي (PPR)'],
-          rows: d.tableauxValides.slice().sort(function(a,b){ return (a.etablissement||'').localeCompare(b.etablissement||''); })
+          rows: tslG.val.slice().sort(function(a,b){ return (a.etablissement||'').localeCompare(b.etablissement||''); })
             .map(function(r){ return [r.etablissement||'', r.enseignant||'', r.ppr||'']; })});
       }
-      if((d.tableauxNonValides||[]).length){
+      if(tslG.nv.length){
         bordTables.push({heading:'جداول الحصص غير المصادق عليها', headers:['المؤسسة','اسم الأستاذ(ة)','الرقم التربوي (PPR)','الملاحظات'],
-          rows: d.tableauxNonValides.slice().sort(function(a,b){ return (a.etablissement||'').localeCompare(b.etablissement||''); })
+          rows: tslG.nv.slice().sort(function(a,b){ return (a.etablissement||'').localeCompare(b.etablissement||''); })
             .map(function(r){ return [r.etablissement||'', r.enseignant||'', r.ppr||'', r.observation||'']; })});
       }
       return { rtl:true, titre:'بيان إرسال الوثائق', meta:[['المرسل إليه',d.destinataire],['المرجع',d.reference||'—'],['التاريخ',fmtDate(d.date)],['الموضوع',d.objet]],
@@ -8135,7 +8194,10 @@
     var ens = t.enseignantNom || ensName(t.enseignantId);
     var etab = t.etablissementNom || etabName(t.etablissementId);
     var inv = t.invites || [];
-    if(TASK_TYPES_SINGLE_TARGET[t.taskType]){
+    if(TASK_TYPES_ETAB_ONLY[t.taskType]){
+      if(etab) parts.push(etab);
+      if((t.feuilles||[]).length) parts.push(t.feuilles.length+' feuille(s)');
+    } else if(TASK_TYPES_SINGLE_TARGET[t.taskType]){
       if(ens) parts.push(ens);
       if(etab) parts.push(etab);
       else if(t.lieu) parts.push(t.lieu);
@@ -8175,6 +8237,8 @@
       TASK_TYPES.map(function(tt){ return '<option value="'+tt.v+'"'+(t.taskType===tt.v?' selected':'')+'>'+tt.l+'</option>'; }).join('')+'</select></div>'+
       '<div class="field"><label for="fTitre">Titre <span style="font-weight:400;color:var(--ink-faint);">(composé automatiquement, modifiable)</span></label><input type="text" id="fTitre" value="'+esc(t.titre)+'" placeholder="'+esc(autoT)+'">'+
         '<button class="addline" id="btnAutoTitre" type="button"'+(t.titre===autoT?' hidden':'')+' style="margin-top:6px;">'+ICONS.ai+' Titre automatique : '+esc(autoT)+'</button></div>'+
+      (TASK_TYPES_ETAB_ONLY[t.taskType] ? '<div class="field"><label>Établissement</label><button type="button" class="pickbtn" id="btnPickEtab"><span class="'+(t.etablissementNom||etabName(t.etablissementId)?'':'ph')+' t">'+esc(t.etablissementNom||etabName(t.etablissementId)||'Choisir un établissement…')+'</span></button>'+
+        '<p style="font-size:11px;color:var(--ink-faint);margin:5px 2px 0;">Les feuilles personnelles des enseignant(e)s de l\'établissement sont ajoutées à la tâche ; vous les validez ou non dans la tâche (bouton « Feuilles personnelles »).</p></div>' : '')+
       (singleTarget ? '<div class="field"><label>Établissement</label><button type="button" class="pickbtn" id="btnPickEtab"><span class="'+(t.etablissementNom||etabName(t.etablissementId)?'':'ph')+' t">'+esc(t.etablissementNom||etabName(t.etablissementId)||'Choisir un établissement…')+'</span></button></div>'+
       '<div class="field"><label>Enseignant(e)</label><button type="button" class="pickbtn" id="btnPickEns"><span class="'+(t.enseignantNom||ensName(t.enseignantId)?'':'ph')+' t">'+esc(t.enseignantNom||ensName(t.enseignantId)||'Choisir un(e) enseignant(e)…')+'</span></button></div>' : '')+
       '<div class="field"><label>Priorité</label><div class="seg" id="fPrioSeg">'+['basse','moyenne','haute'].map(function(v){ return '<button type="button" data-v="'+v+'" aria-pressed="'+(t.priorite===v)+'">'+v.charAt(0).toUpperCase()+v.slice(1)+'</button>'; }).join('')+'</div></div>'+
@@ -8211,6 +8275,36 @@
       '<button class="addline" id="btnPickInvites" type="button">'+ICONS.users+' '+(inv.length?'Ajouter / modifier les invité(e)s':'Choisir les enseignant(e)s invité(e)s')+'</button></div>';
   }
 
+  /* ---- Validation des tableaux de service : feuilles personnelles dans le détail de la tâche ----
+     Une ligne par enseignant(e) : statut (validée / non validée / en attente) et, si non validée, les
+     remarques (texte libre ou remarques usuelles du guide). Chaque changement est enregistré tout de
+     suite dans la tâche. */
+  function tsTaskSectionHtml(t){
+    var fs = (t.feuilles||[]).slice().sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||''); });
+    var n = function(st){ return fs.filter(function(f){ return f.statut===st; }).length; };
+    var nEtab = state.enseignants.filter(function(e){ return e.etablissementId===t.etablissementId; }).length;
+    var missing = state.enseignants.filter(function(e){ return e.etablissementId===t.etablissementId && !fs.some(function(f){ return f.enseignantId===e.id; }); }).length;
+    var html = '<div class="section-label">Feuilles personnelles — tableaux de service ('+fs.length+')</div>'+
+      '<p style="font-size:12.5px;margin:0 0 8px;"><b style="color:var(--ok,#2e9e5b);">'+n('validee')+' validée(s)</b> · <b style="color:var(--danger,#c0392b);">'+n('non_validee')+' non validée(s)</b> · '+n('en_attente')+' en attente</p>';
+    if(!t.etablissementId) html += '<div class="empty" style="margin-bottom:10px;">Choisissez d\'abord l\'établissement (Modifier la tâche).</div>';
+    html += '<div id="tsFeuilles">'+fs.map(function(f){
+      var i = (t.feuilles||[]).indexOf(f);
+      return '<div class="crit-card" style="margin-bottom:8px;"><div class="cn">'+esc(f.nom)+(f.ppr ? ' <span style="font-weight:400;color:var(--ink-faint);">· PPR '+esc(f.ppr)+'</span>' : '')+'</div>'+
+        '<div class="seg" data-tsstat="'+i+'">'+TS_STATUTS.map(function(st){ return '<button type="button" data-v="'+st.v+'" aria-pressed="'+(f.statut===st.v)+'">'+st.l+'</button>'; }).join('')+'</div>'+
+        (f.statut==='non_validee' ? '<textarea data-tsobs="'+i+'" rows="2" placeholder="Remarques (motif de la non-validation)" style="margin-top:7px;width:100%;border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:8px 9px;font:inherit;">'+esc(f.observation)+'</textarea>'+
+          '<div class="btn-row" style="margin-top:6px;"><button class="btn ghost sm" data-tsremark="'+i+'" type="button">'+ICONS.plus+' Remarque usuelle</button><button class="btn ghost sm" data-tsrm="'+i+'" type="button">Retirer</button></div>'
+          : '<div class="btn-row" style="margin-top:6px;"><button class="btn ghost sm" data-tsrm="'+i+'" type="button">Retirer</button></div>')+
+        '</div>';
+    }).join('')+'</div>'+
+    '<div class="setup-actions" style="margin-bottom:12px;">'+
+      (t.etablissementId && missing ? '<button class="btn ghost sm" id="btnTsLoad" type="button">'+ICONS.users+' Ajouter les enseignant(e)s de l\'établissement ('+missing+')</button>' : '')+
+      '<button class="btn ghost sm" id="btnTsAddOne" type="button">'+ICONS.plus+' Ajouter un(e) enseignant(e)</button>'+
+      (fs.length && n('en_attente') ? '<button class="btn ghost sm" id="btnTsAllOk" type="button">Valider toutes celles en attente</button>' : '')+
+    '</div>'+
+    (nEtab===0 && t.etablissementId ? '<p style="font-size:11.5px;color:var(--ink-faint);margin:-6px 0 10px;">Aucun(e) enseignant(e) rattaché(e) à cet établissement dans la base.</p>' : '');
+    return html;
+  }
+  function tsSaveTask(t){ t.titre = taskTitleIsAuto(t) ? autoTaskTitle(t) : t.titre; return recordSet('task', t); }
   /* ---- Task detail (workflow + documents) ---- */
   function taskDetailModalHtml(idx, m){
     var t = state.tasks.find(function(x){ return x.id===m.taskId; });
@@ -8237,6 +8331,7 @@
       (t.description ? '<p style="font-size:13px;color:var(--ink-soft);white-space:pre-line;margin:0 0 12px;">'+esc(t.description)+'</p>' : '')+
       (invites.length ? '<div class="section-label">Enseignant(e)s invité(e)s ('+invites.length+')</div><p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 12px;line-height:1.6;">'+
         invites.map(function(iv){ return esc(iv.nom)+(iv.ppr?' <span style="color:var(--ink-faint);">(PPR '+esc(iv.ppr)+')</span>':''); }).join(', ')+'</p>' : '')+
+      (t.taskType==='validation_ts' ? tsTaskSectionHtml(t) : '')+
       '<div class="section-label">Suivi</div><div class="stepper" id="wfStepper">'+WORKFLOW.map(function(w,i){
         return '<button type="button" class="step '+(i<curIdx?'done':(i===curIdx?'current':''))+'" data-v="'+w.v+'"><span class="n">'+(i<curIdx?'✓':(i+1))+'</span>'+w.l+'</button>';
       }).join('')+'</div>'+
@@ -8853,6 +8948,7 @@
       '<div class="field"><label>Pièces jointes</label><div id="attachList">'+(e.attachments||[]).map(function(a,i){ return '<div class="attach-row"><span class="t">'+esc(a.titre)+(a.driveUrl?' <a href="'+esc(a.driveUrl)+'" target="_blank" rel="noopener" style="font-size:10.5px;color:var(--ink-faint);">(sur Drive)</a>':'')+'</span><a href="'+assetUrl(a.assetId)+'" target="_blank" rel="noopener" class="icon-btn" style="width:30px;height:30px;">'+ICONS.ext+'</a><button class="icon-btn" data-rmattach="'+i+'" style="width:30px;height:30px;color:var(--danger);">'+ICONS.trash+'</button></div>'; }).join('')+'</div>'+
       '<button class="addline" id="btnAddAttach" type="button">'+ICONS.upload+' Joindre un document/photo</button></div>'+
       '<div class="field"><label for="eNotes">Notes</label><textarea id="eNotes">'+esc(e.notes)+'</textarea></div>'+
+      (state.modalStack[idx].isNew ? '' : ensTsHistoryHtml(e))+
       (state.modalStack[idx].isNew ? '' : ensVisitHistoryHtml(e))+
       '<div class="btn-row">'+(state.modalStack[idx].isNew?'':'<button class="btn danger" id="btnDeleteEns" type="button">Supprimer</button>')+'<button class="btn primary" id="btnSaveEns" type="button">Enregistrer</button></div>'+
       '</div></div>';
@@ -8860,6 +8956,18 @@
   }
   /* Suivi pédagogique : historique des visites/inspections déjà effectuées pour cet(te) enseignant(e),
      avec accès direct à chaque tâche pour retrouver notes et documents générés. */
+  /* Feuille personnelle / tableau de service de l'enseignant(e) : statut issu des tâches « Validation des
+     tableaux de service » où figure sa feuille (la plus récente d'abord), avec les remarques. */
+  function ensTsHistoryHtml(e){
+    var h = tsHistoryForEns(e.id);
+    var html = '<div class="field"><label>Tableau de service (feuille personnelle)'+(h.length ? ' '+tsStatusTag(h[0].f.statut) : '')+'</label>';
+    if(!h.length) html += '<div class="empty" style="margin-top:2px;">Aucune validation enregistrée. Elle se fait dans une tâche « Validation des tableaux de service » de son établissement.</div>';
+    else html += '<div class="rec-list">'+h.map(function(x){
+      return '<div class="rec-row" data-tstask="'+x.task.id+'"><div class="rec-info"><div class="t">'+esc(TS_STATUT_LABEL[x.f.statut]||'')+' · '+(x.task.echeance ? fmtDate(x.task.echeance) : '')+'</div>'+
+        '<div class="s">'+esc(x.task.etablissementNom || etabName(x.task.etablissementId) || '')+(x.f.observation ? ' · '+esc(x.f.observation) : '')+'</div></div></div>';
+    }).join('')+'</div>';
+    return html+'</div>';
+  }
   function ensVisitHistoryHtml(e){
     var visits = state.tasks.filter(function(t){ return t.enseignantId===e.id; })
       .sort(function(a,b){ return (b.echeance||b.updatedAt||'').localeCompare(a.echeance||a.updatedAt||''); });
@@ -8957,13 +9065,23 @@
     var list = state.enseignants.filter(function(x){ return x.etablissementId===e.id; })
       .sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||''); });
     var nF = list.filter(function(x){ return x.genre==='F'; }).length, nH = list.filter(function(x){ return x.genre==='H'; }).length;
-    var html = '<div class="field"><label>Enseignant(e)s affecté(e)s ('+list.length+')'+(list.length ? ' <span style="font-weight:400;color:var(--ink-faint);">· '+nF+' F · '+nH+' H</span>' : '')+'</label>';
+    var tsTasks = state.tasks.filter(function(t){ return t.taskType==='validation_ts' && t.etablissementId===e.id; }).sort(function(a,b){ return (b.echeance||'').localeCompare(a.echeance||''); });
+    var lastTs = {}; tsTasks.slice().reverse().forEach(function(t){ (t.feuilles||[]).forEach(function(f){ if(f.enseignantId) lastTs[f.enseignantId] = f.statut; }); });
+    var html = '<div class="field"><label>Tableaux de service</label>';
+    if(tsTasks.length){
+      var t0 = tsTasks[0], fs0 = t0.feuilles||[];
+      html += '<div class="rec-list"><div class="rec-row" data-tstask="'+t0.id+'"><div class="rec-info"><div class="t">Dernière validation'+(t0.echeance ? ' · '+fmtDate(t0.echeance) : '')+'</div><div class="s">'+
+        fs0.filter(function(f){ return f.statut==='validee'; }).length+' validée(s) · '+fs0.filter(function(f){ return f.statut==='non_validee'; }).length+' non validée(s) · '+fs0.filter(function(f){ return f.statut==='en_attente'; }).length+' en attente'+(tsTasks.length>1 ? ' · '+tsTasks.length+' validations au total' : '')+'</div></div></div></div>';
+    } else html += '<div class="empty" style="margin-top:2px;">Aucune validation des tableaux de service pour cet établissement.</div>';
+    html += '<div class="btn-row" style="margin-top:8px;"><button class="btn ghost sm" id="btnEtabNewTs" type="button">'+ICONS.plus+' Nouvelle validation des tableaux de service</button></div></div>';
+    html += '<div class="field"><label>Enseignant(e)s affecté(e)s ('+list.length+')'+(list.length ? ' <span style="font-weight:400;color:var(--ink-faint);">· '+nF+' F · '+nH+' H</span>' : '')+'</label>';
     if(!list.length) html += '<div class="empty" style="margin-top:2px;">Aucun(e) enseignant(e) rattaché(e) à cet établissement.</div>';
     else html += '<div class="rec-list" id="etabEnsList">'+list.map(function(x){
       var sub = [x.ppr ? 'PPR '+x.ppr : '', x.matiere, x.cycle, x.statut==='stagiaire' ? 'Stagiaire' : '', x.telephone].filter(Boolean).join(' · ');
+      var tsTag = lastTs[x.id] ? tsStatusTag(lastTs[x.id])+' ' : '';
       var av = x.photoAssetId ? '<img src="'+assetUrl(x.photoAssetId)+'" alt="">' : initials(x.nom);
       return '<div class="rec-row" data-etabens="'+x.id+'"><div class="avatar'+(x.genre==='F'||x.genre==='H' ? ' g-'+x.genre : '')+'">'+av+'</div>'+
-        '<div class="rec-info"><div class="t">'+esc(x.nom)+(x.nomAr && x.nomAr!==x.nom ? ' <span style="font-weight:400;color:var(--ink-faint);">'+esc(x.nomAr)+'</span>' : '')+'</div><div class="s">'+esc(sub)+'</div></div></div>';
+        '<div class="rec-info"><div class="t">'+esc(x.nom)+(x.nomAr && x.nomAr!==x.nom ? ' <span style="font-weight:400;color:var(--ink-faint);">'+esc(x.nomAr)+'</span>' : '')+'</div><div class="s">'+tsTag+esc(sub)+'</div></div></div>';
     }).join('')+'</div>';
     html += '<div class="btn-row" style="margin-top:8px;"><button class="btn ghost sm" id="btnEtabAddEns" type="button">'+ICONS.plus+' Ajouter un(e) enseignant(e)</button>'+
       (list.length ? '<button class="btn ghost sm" id="btnEtabSeeEns" type="button">Voir dans Enseignants</button>' : '')+'</div></div>';
@@ -9139,6 +9257,15 @@
         (state.sampleReady ? '<div class="btn-row" style="margin-top:6px;"><button class="btn ai sm" id="btnAiPlanActions" type="button">'+ICONS.ai+' Proposer un plan d\'action</button></div><div class="banner info" id="aiPlanActionsStatus" hidden style="margin-top:6px;"></div>' : '')+
         '</div>';
     } else {
+      var tkB = state.tasks.find(function(t){ return t.id===m.taskId; });
+      var tsLegacy = !(tkB && tkB.taskType==='validation_ts') && ((d.tableauxValides||[]).length || (d.tableauxNonValides||[]).length);
+      var tsInfo = '';
+      if(tkB && tkB.taskType==='validation_ts'){
+        var tslB = bordereauTsLists(d, tkB), nAtt = (tkB.feuilles||[]).filter(function(f){ return f.statut==='en_attente'; }).length;
+        tsInfo = '<div class="banner info" style="display:block;margin-bottom:10px;"><b>Tableaux de service</b> — repris automatiquement de la tâche : '+
+          tslB.val.length+' validé(s), '+tslB.nv.length+' non validé(s) (avec leurs remarques)'+(nAtt ? ', '+nAtt+' encore en attente (non inscrits au bordereau)' : '')+
+          '.<br><span style="font-size:11.5px;">Pour les modifier, revenez à la tâche (liste « Feuilles personnelles »).</span></div>';
+      }
       body += '<div class="field-row"><div class="field"><label for="dDestinataire">Destinataire</label><input type="text" id="dDestinataire" value="'+esc(d.destinataire)+'"></div><div class="field"><label for="dRef">Référence</label><input type="text" id="dRef" value="'+esc(d.reference)+'" placeholder="N° .../2026"></div></div>'+
         '<div class="field-row"><div class="field"><label for="dObjet">Objet</label><input type="text" id="dObjet" value="'+esc(d.objet)+'"></div><div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div></div>'+
         '<div class="field"><label>Pièces jointes</label><div id="piecesList">'+(d.pieces||[]).map(function(p,i){
@@ -9147,7 +9274,7 @@
             '<input type="text" data-piece="observation" data-i="'+i+'" value="'+esc(p.observation||'')+'" placeholder="ملاحظات" dir="rtl" style="flex:1.4;min-width:0;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;"><button class="rm" data-rmpiece="'+i+'" type="button">'+ICONS.trash+'</button></div>';
         }).join('')+'</div><button class="addline" id="btnAddPiece" type="button">'+ICONS.plus+' Ajouter une pièce</button></div>'+
         '<div class="field"><label for="dObs">Observations</label><textarea id="dObs">'+esc(d.observations)+'</textarea></div>'+
-        '<div class="field"><label>Tableaux de service validés <span style="font-weight:400;color:var(--ink-faint);">(par établissement)</span></label><div id="tsValList">'+(d.tableauxValides||[]).map(function(r,i){
+        (tsLegacy ? '<div class="field"><label>Tableaux de service validés <span style="font-weight:400;color:var(--ink-faint);">(par établissement)</span></label><div id="tsValList">'+(d.tableauxValides||[]).map(function(r,i){
           return '<div class="rowline" style="align-items:flex-start;">'+
             '<div style="flex:1;display:flex;flex-direction:column;gap:6px;min-width:0;">'+
               '<input type="text" data-tsval="etablissement" data-i="'+i+'" value="'+esc(r.etablissement)+'" placeholder="Établissement" style="border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;">'+
@@ -9170,7 +9297,7 @@
               '<button class="addline" data-addremark="'+i+'" type="button" style="margin:0;padding:6px 10px;font-size:12px;">'+ICONS.plus+' Choisir une remarque usuelle</button></div>'+
             '<button class="icon-btn" data-picktsnv="'+i+'" type="button" title="Choisir un(e) enseignant(e)" style="width:38px;height:38px;flex-shrink:0;">'+ICONS.users+'</button>'+
             '<button class="rm" data-rmtsnv="'+i+'" type="button">'+ICONS.trash+'</button></div>';
-        }).join('')+'</div><button class="addline" id="btnAddTsNvMulti" type="button">'+ICONS.users+' Ajouter plusieurs enseignant(e)s</button><button class="addline" id="btnAddTsNv" type="button">'+ICONS.plus+' Ajouter un tableau non validé</button></div>';
+        }).join('')+'</div><button class="addline" id="btnAddTsNvMulti" type="button">'+ICONS.users+' Ajouter plusieurs enseignant(e)s</button><button class="addline" id="btnAddTsNv" type="button">'+ICONS.plus+' Ajouter un tableau non validé</button></div>' : tsInfo);
     }
     /* Zones de texte libres définies pour CE type dans Réglages → Modèles de documents (voir
        docTemplatesEditorHtml) : rendues ici de façon générique, quel que soit le type, après les champs
@@ -9273,6 +9400,7 @@
     var bpe = $('btnPickEtab'); if(bpe) bpe.onclick = function(){ syncTaskFields(); openPicker('etablissement', function(r){
       var t = state.draftTask;
       t.etablissementId=r.id; t.etablissementNom=r.nom;
+      if(TASK_TYPES_ETAB_ONLY[t.taskType]){ t.enseignantId=null; t.enseignantNom=''; tsLoadEtabTeachers(t); }
       var ens = t.enseignantId ? state.enseignants.find(function(x){ return x.id===t.enseignantId; }) : null;
       if(ens && ens.etablissementId && ens.etablissementId!==r.id){ t.enseignantId=null; t.enseignantNom=''; }
     }); };
@@ -9321,6 +9449,28 @@
         if(t){ var nt=Object.assign({},t,{statut:b.getAttribute('data-v')}); recordSet('task', nt); }
       };
     });
+    (function(){
+      var mTop = state.modalStack[state.modalStack.length-1];
+      if(!mTop || mTop.type!=='taskdetail') return;
+      var tk = state.tasks.find(function(x){ return x.id===mTop.taskId; });
+      if(!tk || tk.taskType!=='validation_ts') return;
+      var syncObs = function(){ document.querySelectorAll('[data-tsobs]').forEach(function(ta){ var f = tk.feuilles[parseInt(ta.getAttribute('data-tsobs'))]; if(f) f.observation = ta.value; }); };
+      document.querySelectorAll('[data-tsstat]').forEach(function(seg){
+        var i = parseInt(seg.getAttribute('data-tsstat'));
+        seg.querySelectorAll('button').forEach(function(b){ b.onclick = function(){ syncObs(); tk.feuilles[i].statut = b.getAttribute('data-v'); if(tk.feuilles[i].statut!=='non_validee') tk.feuilles[i].observation = tk.feuilles[i].observation || ''; tsSaveTask(tk); }; });
+      });
+      document.querySelectorAll('[data-tsobs]').forEach(function(ta){ ta.onchange = function(){ syncObs(); tsSaveTask(tk); }; });
+      document.querySelectorAll('[data-tsremark]').forEach(function(b){ b.onclick = function(){
+        syncObs(); var i = parseInt(b.getAttribute('data-tsremark'));
+        openRemarquesPicker(function(texte){ var f = tk.feuilles[i]; if(!f) return; f.observation = f.observation ? (f.observation+'; '+texte) : texte; tsSaveTask(tk); });
+      }; });
+      document.querySelectorAll('[data-tsrm]').forEach(function(b){ b.onclick = function(){ syncObs(); tk.feuilles.splice(parseInt(b.getAttribute('data-tsrm')),1); tsSaveTask(tk); }; });
+      var bl = $('btnTsLoad'); if(bl) bl.onclick = function(){ syncObs(); var n = tsLoadEtabTeachers(tk); tsSaveTask(tk); toast(n+' enseignant(e)(s) ajouté(e)(s).'); };
+      var ba = $('btnTsAllOk'); if(ba) ba.onclick = function(){ syncObs(); (tk.feuilles||[]).forEach(function(f){ if(f.statut==='en_attente') f.statut = 'validee'; }); tsSaveTask(tk); };
+      var b1 = $('btnTsAddOne'); if(b1) b1.onclick = function(){ syncObs(); openEnsPicker({ multi:true, etabId: tk.etablissementId, title:'Feuilles personnelles à ajouter',
+        selectedIds: (tk.feuilles||[]).map(function(f){ return f.enseignantId; }),
+        onPickMany: function(list){ tk.feuilles = tk.feuilles || []; list.forEach(function(e){ if(!tk.feuilles.some(function(f){ return f.enseignantId===e.id; })) tk.feuilles.push(tsFeuilleFromEns(e)); }); tsSaveTask(tk); } }); };
+    })();
     document.querySelectorAll('[data-newdoc]').forEach(function(el){ el.onclick = function(){ var m=state.modalStack[state.modalStack.length-1]; openDocEditor(m.taskId, el.getAttribute('data-newdoc'), null); }; });
     document.querySelectorAll('[data-opendoc]').forEach(function(el){ el.onclick = function(){ var d=state.documents.find(function(x){ return x.id===el.getAttribute('data-opendoc'); }); if(d) openDocEditor(d.taskId, d.type, d); }; });
     var editTaskBtn = $('btnEditTask'); if(editTaskBtn) editTaskBtn.onclick = function(){ var m=state.modalStack[state.modalStack.length-1]; var t=state.tasks.find(function(x){return x.id===m.taskId;}); openTaskEditor(t); };
@@ -10009,6 +10159,19 @@
       syncEtabFields();
       state.modalStack[state.modalStack.length-1].savedDraft = state.draftRecord;
       openEnseignantEditor(x);
+    }; });
+    var bNewTs = $('btnEtabNewTs'); if(bNewTs) bNewTs.onclick = function(){
+      syncEtabFields();
+      var et = state.draftRecord;
+      var t = { id: uid(), titre:'', statut:'planifiee', priorite:'moyenne', taskType:'validation_ts', enseignantId:null, enseignantNom:'',
+        etablissementId: et.id, etablissementNom: et.nom, heureDebut:'', heureFin:'', lieu:'', lienConnexion:'', echeance: todayStr(), description:'',
+        docTitre:'', docUrl:'', noteGlobale:'', notificationEnvoyee:false, invites:[], attachments:[], feuilles:[] };
+      tsLoadEtabTeachers(t); t.titre = autoTaskTitle(t);
+      recordSet('task', t).then(function(){ state.modalStack[state.modalStack.length-1].savedDraft = state.draftRecord; openTaskDetail(t); });
+    };
+    document.querySelectorAll('[data-tstask]').forEach(function(el){ el.onclick = function(){
+      var t = state.tasks.find(function(x){ return x.id===el.getAttribute('data-tstask'); }); if(!t) return;
+      state.modalStack[state.modalStack.length-1].savedDraft = state.draftRecord; openTaskDetail(t);
     }; });
     var bAddEns = $('btnEtabAddEns'); if(bAddEns) bAddEns.onclick = function(){
       syncEtabFields();
