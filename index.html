@@ -4068,6 +4068,11 @@
   /* ================= modal stack ================= */
   function closeTopModal(){
     var top = state.modalStack.pop();
+    /* Fiche ouverte PAR-DESSUS une autre (enseignant(e) ouvert(e) depuis la fiche de son établissement) :
+       les deux formulaires partagent state.draftRecord, on rend donc à la fiche du dessous le brouillon
+       qu'elle avait au moment de l'ouverture, complété par ce qui a pu changer entre-temps. */
+    var under = state.modalStack[state.modalStack.length-1];
+    if(under && under.savedDraft){ state.draftRecord = under.savedDraft; delete under.savedDraft; }
     /* Rapport créé sans tâche (« Nouveau rapport d'inspection ») : la tâche support créée à l'ouverture
        est supprimée si la fenêtre est fermée sans que le rapport ait été enregistré. */
     if(top && top.type==='docedit' && top.autoTaskId && !state.documents.some(function(x){ return x.taskId===top.autoTaskId; })){
@@ -8672,6 +8677,7 @@
       '<div class="field"><label for="etMassar">Code MASSAR / GRESA <span style="font-weight:400;color:var(--ink-faint);">(rapprochement avec InspectApp)</span></label><input type="text" id="etMassar" value="'+esc(e.codeMassar||'')+'" autocapitalize="characters" placeholder="ex. 12345A"></div>'+
       '<div class="field"><label>Zone</label><select id="etZone" style="width:100%;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:10px 11px;"><option value="">— Aucune —</option>'+
       state.zones.map(function(z){ return '<option value="'+z.id+'"'+(e.zoneId===z.id?' selected':'')+'>'+esc(z.nom)+'</option>'; }).join('')+'</select></div>'+
+      (state.modalStack[idx].isNew ? '' : etabTeachersSectionHtml(e))+
       '<div class="field"><label>Type</label><div class="seg" id="etTypeSeg">'+ETAB_TYPES.map(function(t){ return '<button type="button" data-v="'+t.v+'" aria-pressed="'+(e.type===t.v)+'">'+t.l+'</button>'; }).join('')+'</div></div>'+
       '<div class="field"><label>Cycle</label><div class="seg" id="etCycleSeg">'+ETAB_CYCLES.map(function(c){ return '<button type="button" data-v="'+c.v+'" aria-pressed="'+(e.cycle===c.v)+'">'+c.l+'</button>'; }).join('')+'</div>'+
       '<p style="font-size:11px;color:var(--ink-faint);margin:5px 2px 0;">Le primaire ne compte qu\'un seul cycle ; en secondaire, une même zone d\'inspection peut réunir des établissements collégiaux et qualifiants.</p></div>'+
@@ -8698,6 +8704,25 @@
       })())+
       '<div class="btn-row">'+(state.modalStack[idx].isNew?'':'<button class="btn danger" id="btnDeleteEtab" type="button">Supprimer</button>')+'<button class="btn primary" id="btnSaveEtab" type="button">Enregistrer</button></div>'+
       '</div></div>';
+  }
+  /* Liste des enseignant(e)s affecté(e)s à l'établissement, dans sa fiche : un toucher ouvre la fiche
+     de l'enseignant(e) par-dessus (voir savedDraft dans closeTopModal), « + Ajouter » crée un(e)
+     enseignant(e) déjà rattaché(e) à cet établissement, « Voir dans Enseignants » ouvre la liste filtrée. */
+  function etabTeachersSectionHtml(e){
+    var list = state.enseignants.filter(function(x){ return x.etablissementId===e.id; })
+      .sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||''); });
+    var nF = list.filter(function(x){ return x.genre==='F'; }).length, nH = list.filter(function(x){ return x.genre==='H'; }).length;
+    var html = '<div class="field"><label>Enseignant(e)s affecté(e)s ('+list.length+')'+(list.length ? ' <span style="font-weight:400;color:var(--ink-faint);">· '+nF+' F · '+nH+' H</span>' : '')+'</label>';
+    if(!list.length) html += '<div class="empty" style="margin-top:2px;">Aucun(e) enseignant(e) rattaché(e) à cet établissement.</div>';
+    else html += '<div class="rec-list" id="etabEnsList">'+list.map(function(x){
+      var sub = [x.ppr ? 'PPR '+x.ppr : '', x.matiere, x.cycle, x.statut==='stagiaire' ? 'Stagiaire' : '', x.telephone].filter(Boolean).join(' · ');
+      var av = x.photoAssetId ? '<img src="'+assetUrl(x.photoAssetId)+'" alt="">' : initials(x.nom);
+      return '<div class="rec-row" data-etabens="'+x.id+'"><div class="avatar'+(x.genre==='F'||x.genre==='H' ? ' g-'+x.genre : '')+'">'+av+'</div>'+
+        '<div class="rec-info"><div class="t">'+esc(x.nom)+(x.nomAr && x.nomAr!==x.nom ? ' <span style="font-weight:400;color:var(--ink-faint);">'+esc(x.nomAr)+'</span>' : '')+'</div><div class="s">'+esc(sub)+'</div></div></div>';
+    }).join('')+'</div>';
+    html += '<div class="btn-row" style="margin-top:8px;"><button class="btn ghost sm" id="btnEtabAddEns" type="button">'+ICONS.plus+' Ajouter un(e) enseignant(e)</button>'+
+      (list.length ? '<button class="btn ghost sm" id="btnEtabSeeEns" type="button">Voir dans Enseignants</button>' : '')+'</div></div>';
+    return html;
   }
   function zoneModalHtml(idx){
     var z = state.draftRecord;
@@ -9708,6 +9733,24 @@
       recordSet('etablissement', e).then(function(){ closeTopModal(); toast('Établissement enregistré.'); });
     };
     var delEtab = $('btnDeleteEtab'); if(delEtab) delEtab.onclick = function(){ recordDelete('etablissement', state.draftRecord.id).then(function(){ closeTopModal(); toast('Supprimé.'); }); };
+    document.querySelectorAll('[data-etabens]').forEach(function(el){ el.onclick = function(){
+      var x = state.enseignants.find(function(r){ return r.id===el.getAttribute('data-etabens'); }); if(!x) return;
+      syncEtabFields();
+      state.modalStack[state.modalStack.length-1].savedDraft = state.draftRecord;
+      openEnseignantEditor(x);
+    }; });
+    var bAddEns = $('btnEtabAddEns'); if(bAddEns) bAddEns.onclick = function(){
+      syncEtabFields();
+      var etId = state.draftRecord.id;
+      state.modalStack[state.modalStack.length-1].savedDraft = state.draftRecord;
+      openEnseignantEditor(null);
+      state.draftRecord.etablissementId = etId; render();
+    };
+    var bSeeEns = $('btnEtabSeeEns'); if(bSeeEns) bSeeEns.onclick = function(){
+      var etId = state.draftRecord.id;
+      state.modalStack = []; state.ensEtabFilter = etId; state.ensQuery = ''; state.ensCycleFilter = ''; state.ensGenreFilter = ''; state.ensHoraireMode = false;
+      goToTab('enseignants');
+    };
     var mergeEtab = $('btnMergeEtab');
     if(mergeEtab) mergeEtab.onclick = function(){
       var dropId = $('etMergeTarget') ? $('etMergeTarget').value : '';
