@@ -336,6 +336,28 @@
   .carousel-card .avatar{ width:50px; height:50px; font-size:16px; }
   .carousel-card .t{ font-size:12px; font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; width:100%; }
   .carousel-card .s{ font-size:10.5px; color:var(--ink-faint); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; width:100%; }
+  /* Carrousels du tableau de bord animés verticalement : fenêtre de 3 cartes, défilement continu vers le
+     haut (contenu doublé pour une boucle sans à-coup), pause au survol, au toucher ou au clavier ;
+     sans animation si « réduire les animations » est demandé (liste défilable à la main). */
+  .vcarousel{ position:relative; height:calc(3 * var(--vc-row) + 2 * 8px); overflow:hidden; margin:0 -1px 4px;
+    --vc-row:60px; -webkit-mask-image:linear-gradient(transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+    mask-image:linear-gradient(transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%); }
+  .vcarousel-track{ display:flex; flex-direction:column; will-change:transform; }
+  .vcarousel.moving .vcarousel-track{ animation:vcScroll var(--vc-dur, 30s) linear infinite; }
+  .vcarousel:hover .vcarousel-track, .vcarousel:focus-within .vcarousel-track, .vcarousel.paused .vcarousel-track{ animation-play-state:paused; }
+  @keyframes vcScroll{ from{ transform:translateY(0); } to{ transform:translateY(-50%); } }
+  .vcarousel .carousel-card{ width:100%; height:var(--vc-row); margin-bottom:8px; flex-direction:row; align-items:center; gap:10px;
+    text-align:left; padding:8px 12px; scroll-snap-align:none; }
+  .vcarousel .carousel-card .avatar{ width:40px; height:40px; font-size:13.5px; flex-shrink:0; }
+  .vcarousel .carousel-card .txt{ flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
+  .vcarousel .carousel-card .t{ font-size:13px; }
+  .vcarousel .carousel-card .s{ font-size:11px; }
+  @media (min-width:760px){ .vc-pair{ display:grid; grid-template-columns:1fr 1fr; gap:14px; } }
+  @media (prefers-reduced-motion:reduce){
+    .vcarousel{ overflow-y:auto; -webkit-mask-image:none; mask-image:none; }
+    .vcarousel.moving .vcarousel-track{ animation:none; }
+    .vcarousel .vc-dup{ display:none; }
+  }
   .activity-list{ display:flex; flex-direction:column; }
   .activity-row{ display:flex; gap:10px; align-items:flex-start; padding:9px 0; border-bottom:1px solid var(--line-soft); cursor:pointer; }
   .activity-row:last-child{ border-bottom:none; }
@@ -7665,23 +7687,32 @@
         : '<div class="empty">Aucune tâche prévue dans les 7 prochains jours.</div>';
     }
 
+    /* Carrousels verticaux (voir .vcarousel) : au-delà de 3 cartes, la liste est doublée (copie
+       aria-hidden) pour boucler sans saut ; la durée suit le nombre de cartes (≈ 2,6 s par carte). */
+    var vcarousel = function(cards){
+      if(!cards.length) return '';
+      var moving = cards.length > 3;
+      var dup = moving ? cards.map(function(c){ return c.replace('class="carousel-card"', 'class="carousel-card vc-dup" aria-hidden="true" tabindex="-1"'); }).join('') : '';
+      return '<div class="vcarousel'+(moving ? ' moving' : '')+'" style="--vc-dur:'+Math.max(12, Math.round(cards.length*2.6))+'s;"><div class="vcarousel-track">'+cards.join('')+dup+'</div></div>';
+    };
+    var vcEtab = '', vcEns = '';
     if(state.etablissements.length){
-      html += '<div class="home-head"><h2>Établissements</h2><a data-hometab="etablissements">Voir tout</a></div>';
-      html += '<div class="carousel">'+state.etablissements.slice().sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||''); }).map(function(e){
-        var nEns = state.enseignants.filter(function(x){ return x.etablissementId===e.id; }).length;
-        return '<div class="carousel-card" data-carouseletab="'+e.id+'"><div class="avatar">'+ICONS.folder+'</div>'+
-          '<div class="t">'+esc(e.nom)+'</div><div class="s">'+esc(ETAB_CYCLE_LABEL[e.cycle]||'')+'</div><div class="s">'+nEns+' enseignant(s)</div></div>';
-      }).join('')+'</div>';
+      vcEtab = '<div><div class="home-head"><h2>Établissements</h2><a data-hometab="etablissements">Voir tout</a></div>'+
+        vcarousel(state.etablissements.slice().sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||''); }).map(function(e){
+          var nEns = state.enseignants.filter(function(x){ return x.etablissementId===e.id; }).length;
+          return '<div class="carousel-card" data-carouseletab="'+e.id+'"><div class="avatar">'+ICONS.folder+'</div>'+
+            '<div class="txt"><div class="t">'+esc(e.nom)+'</div><div class="s">'+esc([ETAB_CYCLE_LABEL[e.cycle]||'', nEns+' enseignant(s)'].filter(Boolean).join(' · '))+'</div></div></div>';
+        }))+'</div>';
     }
-
     if(state.enseignants.length){
-      html += '<div class="home-head"><h2>Enseignant(e)s</h2><a data-hometab="enseignants">Voir tout</a></div>';
-      html += '<div class="carousel">'+state.enseignants.slice().sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||''); }).map(function(e){
-        var av = e.photoAssetId ? '<img src="'+assetUrl(e.photoAssetId)+'" alt="">' : initials(e.nom);
-        return '<div class="carousel-card" data-carouselens="'+e.id+'"><div class="avatar">'+av+'</div>'+
-          '<div class="t">'+esc(e.nom)+'</div><div class="s">'+esc(etabName(e.etablissementId)||'')+'</div></div>';
-      }).join('')+'</div>';
+      vcEns = '<div><div class="home-head"><h2>Enseignant(e)s</h2><a data-hometab="enseignants">Voir tout</a></div>'+
+        vcarousel(state.enseignants.slice().sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||''); }).map(function(e){
+          var av = e.photoAssetId ? '<img src="'+assetUrl(e.photoAssetId)+'" alt="">' : initials(e.nom);
+          return '<div class="carousel-card" data-carouselens="'+e.id+'"><div class="avatar">'+av+'</div>'+
+            '<div class="txt"><div class="t">'+esc(e.nom)+'</div><div class="s">'+esc(etabName(e.etablissementId)||'')+'</div></div></div>';
+        }))+'</div>';
     }
+    if(vcEtab || vcEns) html += '<div class="vc-pair">'+vcEtab+vcEns+'</div>';
 
     if(state.etablissements.length) html += '<div class="setup-card"><h2>Établissements par cycle</h2>'+barList(etabsByCycleStats())+'</div>';
     if(state.enseignants.length) html += '<div class="setup-card"><h2>Enseignant(e)s par genre</h2>'+barList(ensByGenreStats())+'</div>';
@@ -7699,6 +7730,12 @@
     host.querySelectorAll('[data-hometab]').forEach(function(el){ el.onclick = function(){ goToTab(el.getAttribute('data-hometab')); }; });
     host.querySelectorAll('.task-card').forEach(function(el){
       el.onclick = function(){ var t = state.tasks.find(function(x){ return x.id===el.getAttribute('data-id'); }); if(t) openTaskDetail(t); };
+    });
+    /* Toucher une liste en mouvement la met en pause quelques secondes, le temps de choisir une carte. */
+    host.querySelectorAll('.vcarousel.moving').forEach(function(vc){
+      var t = null;
+      vc.addEventListener('touchstart', function(){ vc.classList.add('paused'); if(t) clearTimeout(t); }, {passive:true});
+      vc.addEventListener('touchend', function(){ if(t) clearTimeout(t); t = setTimeout(function(){ vc.classList.remove('paused'); }, 3500); }, {passive:true});
     });
     host.querySelectorAll('[data-carouseletab]').forEach(function(el){
       el.onclick = function(){ var e = state.etablissements.find(function(x){ return x.id===el.getAttribute('data-carouseletab'); }); if(e) openEtablissementEditor(e); };
