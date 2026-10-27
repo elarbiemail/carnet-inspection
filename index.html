@@ -1323,7 +1323,8 @@
     {v:'sefrou', l:'Grille DP Sefrou'},
     {v:'standard', l:'Grille personnalisée'},
     {v:'pionnier_ordinaire', l:'Collège pionnier — séance ordinaire'},
-    {v:'pionnier_synthese', l:'Collège pionnier — séance de synthèse'}
+    {v:'pionnier_synthese', l:'Collège pionnier — séance de synthèse'},
+    {v:'pionnier_revision', l:'Collège pionnier — suivi séance de révision (explicite)'}
   ];
   var OBS_VARIANTE_LABEL = {}; OBS_VARIANTES.forEach(function(o){ OBS_VARIANTE_LABEL[o.v]=o.l; });
   /* Échelle à 3 niveaux des grilles pionniers : libellés français utilisés à l'écran et dans les
@@ -1428,7 +1429,51 @@
       "L'enseignant observe le niveau de progression de chaque élève et documente les résultats dans le dossier de suivi."
     ]}
   ];
-  var OBS_PIONNIER_DOMAINES = { pionnier_ordinaire: OBS_PIONNIER_ORDINAIRE, pionnier_synthese: OBS_PIONNIER_SYNTHESE };
+  /* « Rapport de suivi d'une séance dans le cadre de l'enseignement explicite (séance de révision) »
+     — modèle reçu le 27/10/2026 (Grille_1_Suivi_seance de révision_FR.docx), pour les visites et
+     inspections des enseignant(e)s des collèges pionniers. Libellés recopiés à l'identique ; échelle à
+     4 niveaux propre à ce modèle (OBS_REVISION_SCALE), composante « Soutien et évaluation ». */
+  var OBS_REVISION_SCALE = ['Excellent','Maîtrisé','En cours de maîtrise','À développer'];
+  var OBS_PIONNIER_REVISION = [
+    {nom:'1- Contrôle des devoirs à la maison et diagnostic des difficultés', criteres:[
+      "L'enseignant vérifie la réalisation des devoirs à la maison et évalue la performance de chaque apprenant à ce sujet ;",
+      "Il identifie en début de séance les erreurs fréquentes et les catégorise (erreurs conceptuelles / procédurales / d'attention)"
+    ]},
+    {nom:'2- Explication des tâches et des consignes, et définition des critères de réussite (spécifications de réalisation)', criteres:[
+      "Il lit les consignes à voix claire, les explique en termes simples et adaptés aux niveaux des apprenants, et vérifie leur compréhension.",
+      "Il consigne au tableau, dans l'ordre, les étapes de réalisation requises et les laisse affichées sous les yeux des apprenants.",
+      "Il présente un exemple illustratif de la manière de réaliser la tâche demandée (modèle d'application)",
+      "Il présente les spécifications de réalisation avant de commencer la tâche et vérifie que les apprenants les ont comprises."
+    ]},
+    {nom:'3- Nouveau modelage si nécessaire', criteres:[
+      "Il refait le modelage, totalement ou partiellement, lorsqu'il constate un blocage collectif ou une incompréhension généralisée",
+      "Il analyse l'erreur fréquente devant les élèves et en explique la cause et la manière de la corriger",
+      "Il recourt à des contre-exemples pour clarifier ce qu'il faut éviter"
+    ]},
+    {nom:'4- Travail collaboratif et organisation des groupes', criteres:[
+      "Il organise les groupes de travail selon une composition réfléchie (groupes homogènes pour le soutien, mixtes pour l'enrichissement)",
+      "Il attribue à chaque apprenant un rôle précis au sein du groupe (coordinateur, rapporteur, contrôleur...)",
+      "Il circule entre les groupes pour surveiller la dynamique interne et apporter le soutien nécessaire",
+      "Il encourage les élèves à formuler des observations constructives et précises, sans porter de jugements de valeur",
+      "Il mobilise les pairs compétents comme ressources humaines pour soutenir leurs camarades en difficulté"
+    ]},
+    {nom:'5- Justification et verbalisation du raisonnement', criteres:[
+      "Il demande aux élèves d'expliquer à voix haute les étapes de leur réflexion, et de ne pas se contenter de la réponse",
+      "Il pose des questions métacognitives telles que : « Comment es-tu arrivé à cette solution ? » et « Pourquoi as-tu choisi cette méthode ? »",
+      "Il considère les erreurs comme des opportunités de nouveaux apprentissages ou de correction d'apprentissages antérieurs"
+    ]},
+    {nom:'6- Rétroaction et différenciation', criteres:[
+      "Il fournit une rétroaction immédiate après chaque réalisation ou tâche, sous des formes variées : individuelle / collective / écrite / orale",
+      "Il classe les élèves selon le type de difficultés et conçoit des activités adaptées pour les traiter",
+      "Il propose des défis supplémentaires aux élèves avancés pour mobiliser leurs acquis dans de nouveaux contextes",
+      "Il utilise des cartes conceptuelles ou des schémas mentaux pour organiser et consolider les savoirs",
+      "Il renforce l'assimilation visuelle par l'utilisation de couleurs, de symboles et de signes indicateurs",
+      "Il consigne le niveau de progression de chaque élève et documente les résultats dans le dossier de suivi"
+    ]}
+  ];
+  var OBS_PIONNIER_DOMAINES = { pionnier_ordinaire: OBS_PIONNIER_ORDINAIRE, pionnier_synthese: OBS_PIONNIER_SYNTHESE, pionnier_revision: OBS_PIONNIER_REVISION };
+  function isPionnierVariante(v){ return v==='pionnier_ordinaire' || v==='pionnier_synthese' || v==='pionnier_revision'; }
+  function obsScaleFor(v){ return v==='pionnier_revision' ? OBS_REVISION_SCALE : OBS_PIONNIER_SCALE; }
   /* Construit/réinitialise les champs de d selon la variante choisie, en supprimant les champs propres
      à l'AUTRE forme (grille standard: criteres[]/pointsForts/axesAmelioration/synthese — grille
      pionnier: domaines[]/appreciationGlobale) pour éviter qu'une valeur orpheline ne soit ré-affichée ou
@@ -1440,10 +1485,11 @@
       delete d.criteres; delete d.pointsForts; delete d.axesAmelioration; delete d.synthese; delete d.domaines; delete d.appreciationGlobale;
       return;
     }
-    if(variante==='pionnier_ordinaire' || variante==='pionnier_synthese'){
+    if(isPionnierVariante(variante)){
       d.domaines = OBS_PIONNIER_DOMAINES[variante].map(function(dom){
         return { nom: dom.nom, criteres: dom.criteres.map(function(c){ return {nom:c, note:''}; }) };
       });
+      if(variante==='pionnier_revision' && !d.revision) d.revision = { composante:'Soutien et évaluation' };
       if(typeof d.appreciationGlobale !== 'string') d.appreciationGlobale = '';
       delete d.criteres; delete d.pointsForts; delete d.axesAmelioration; delete d.synthese;
     } else {
@@ -6194,7 +6240,7 @@
   var SEFROU_RAYONNEMENT = ['Activités parascolaires',"Projet d'établissement",'Projet de classe',"Projets d'élèves",'Usage des TIC','Participation aux réunions','Recherche action','Soutien externe'];
   var SEFROU_SCALE = ['Maîtrisé','En cours','Non maîtrisé','Non observé'];
   var SEFROU_SCALE_SHORT = {'Maîtrisé':'M', 'En cours':'EC', 'Non maîtrisé':'NM', 'Non observé':'NO'};
-  var SEANCE_TYPES = [{v:'normale', l:'Séance normale'}, {v:'consolidation', l:'Séance de consolidation'}];
+  var SEANCE_TYPES = [{v:'normale', l:'Séance normale'}, {v:'consolidation', l:'Séance de consolidation'}, {v:'revision', l:'Séance de révision'}];
   function defaultSefrouGrid(){
     var items = {};
     SEFROU_GROUPS.forEach(function(g){ g.items.forEach(function(it){ items[g.nom+'|'+it] = ''; }); });
@@ -6213,7 +6259,7 @@
      ministère (séance normale = séance ordinaire, séance de consolidation = séance de synthèse) ;
      autres établissements → grille de la DP de Sefrou. */
   function obsVarianteFor(pionnier, seance){
-    if(pionnier) return seance==='consolidation' ? 'pionnier_synthese' : 'pionnier_ordinaire';
+    if(pionnier) return seance==='revision' ? 'pionnier_revision' : seance==='consolidation' ? 'pionnier_synthese' : 'pionnier_ordinaire';
     return 'sefrou';
   }
   function offFieldCell(label, value, extra){
@@ -6311,6 +6357,75 @@
       { t:'table', border:false, cols:[50,50], mt:6, rows:[ { cells:[ C([P("Signature de l'inspecteur(trice)",{size:10}), {t:'sigimg'}]), C([P("Signature de l'enseignant(e)",{size:10, align:'right'})]) ] } ] }
     ];
     return { type:'observation', rtl:false, margin:14, size:10.5, fontCss:"'Times New Roman',Times,serif", fontDocx:'Times New Roman', blocks: blocks };
+  }
+  /* ---- Rapport de suivi — séance de révision (enseignement explicite, collèges pionniers) ----
+     Mise en page du modèle Word : en-tête académie / logo du ministère / direction provinciale, titre,
+     tableau d'identification, grille (éléments × 4 niveaux, rubriques sur fond crème, en-tête orangé),
+     observations et recommandations, puis note et 4 signatures. Les champs laissés vides sont
+     complétés à l'affichage depuis la tâche et la fiche de l'enseignant(e) (revisionDefaults). */
+  function revisionDefaults(d, task){
+    var pf = offProfil(), r = Object.assign({}, d.revision||{});
+    var ens = (task && task.enseignantId) ? state.enseignants.find(function(x){ return x.id===task.enseignantId; }) : findEns(null, d.enseignantNom);
+    if(!r.realisePar) r.realisePar = pf.nomSignature || pf.nom || '';
+    if(!r.doti && ens) r.doti = ens.ppr || '';
+    if(!r.dateRecrutement && ens){ var m = /Recrutement (\d{2}\/\d{2}\/\d{4})/.exec(ens.notes||''); if(m) r.dateRecrutement = m[1]; }
+    if(!r.derniereVisite && ens){
+      var prev = state.tasks.filter(function(t){ return t.enseignantId===ens.id && (!task || t.id!==task.id) && t.echeance && (!d.date || t.echeance < d.date); })
+        .sort(function(a,b){ return b.echeance.localeCompare(a.echeance); })[0];
+      if(prev) r.derniereVisite = fmtDate(prev.echeance)+' ('+(TT_LABEL[prev.taskType]||prev.taskType)+')';
+    }
+    if(!r.heureDebut && task) r.heureDebut = task.heureDebut || '';
+    if(!r.heureFin && task) r.heureFin = task.heureFin || '';
+    if(!r.composante) r.composante = 'Soutien et évaluation';
+    return r;
+  }
+  function offObservationRevision(d, task){
+    var pf = offProfil(), r = revisionDefaults(d, task);
+    var etab = etabNameLang('fr', task && task.etablissementId, (task && (task.etablissementNom || etabName(task.etablissementId))) || '');
+    var ensFr = ensNameLang('fr', task && task.enseignantId, d.enseignantNom||'');
+    var F = function(label, v){ return [R(label+' : ', {b:true}), R(v||'')]; };
+    var ORANGE = 'FFC000', CREME = 'FFF2CC', GRIS = 'EDEDED';
+    var head = { cells:[ C([P([R('Éléments',{b:true})],{size:10, align:'center'})], {shade:ORANGE, v:'middle'}) ]
+      .concat(OBS_REVISION_SCALE.map(function(l){ return C([P([R(l,{b:true})],{size:8.5, align:'center'})], {shade:ORANGE, v:'middle'}); })) };
+    var rows = [head];
+    (d.domaines||[]).forEach(function(dom){
+      rows.push({ cantSplit:true, cells:[ C([P(dom.nom, {size:10})], {shade:CREME, span:5}) ] });
+      dom.criteres.forEach(function(c){
+        rows.push({ cantSplit:true, cells:[ C([P(c.nom, {size:10, align:'justify'})], {v:'middle'}) ]
+          .concat(OBS_REVISION_SCALE.map(function(lvl){ return C([P([R(c.note===lvl ? 'X' : '', {b:true})],{size:11, align:'center'})], {v:'middle'}); })) });
+      });
+    });
+    var obs = paragraphsOf(d.appreciationGlobale);
+    var blocks = [
+      { t:'table', border:false, cols:[34,32,34], mb:4, rows:[ { cells:[
+        C([P("Académie Régionale de l'Éducation et de la Formation de la région "+(pf.academieRegionale||''), {size:8.5, align:'center'})], {v:'middle'}),
+        C([{t:'img', key:'ministere', w:58, align:'center'}], {v:'middle', pad:0}),
+        C([P('Direction provinciale de '+(pf.province||'.......'), {size:9, align:'center'})], {v:'middle'})
+      ] } ] },
+      P("Rapport de suivi d'une séance dans le cadre de l'enseignement explicite", {align:'center', size:13, title:true}),
+      P('(séance de révision)', {align:'center', size:13, after:6, title:true}),
+      { t:'table', border:true, cols:[50,50], mb:0, rows:[
+        { cells:[ C([P(F("Réalisé par M./Mme l'Inspecteur(trice)", r.realisePar), {size:10}), P(F('Séance de', (r.heureDebut||'')+(r.heureFin ? '   à   '+r.heureFin : '')), {size:10})], {shade:GRIS}),
+                  C([P(F('Date de la visite', fmtDate(d.date)), {size:10, align:'right'})], {shade:GRIS}) ] },
+        { cells:[ C([P(F('Établissement', etab), {size:10})]), C([P(F("Nom et prénom de l'enseignant(e)", ensFr), {size:10})]) ] },
+        { cells:[ C([P(F('Date de recrutement', r.dateRecrutement), {size:10})]), C([P(F('DOTI', r.doti), {size:10})]) ] },
+        { cells:[ C([P(F('Date de la dernière visite/inspection', r.derniereVisite), {size:10})]), C([P(F('Niveau et classe', d.classe), {size:10})]) ] },
+        { cells:[ C([P(F('Période', r.periode).concat([R('     ')]).concat(F('Unité', r.unite)).concat([R('     ')]).concat(F('Semaine', r.semaine)), {size:10})]),
+                  C([P(F("Nombre d'élèves", r.nbEleves).concat([R('          ')]).concat(F('Présents', r.presents)), {size:10})]) ] },
+        { cells:[ C([P(F('Composante', r.composante).concat([R('        ')]).concat(F('Sujet', r.sujet)).concat([R('        ')]).concat(F('Page du cahier', r.pageCahier)), {size:10})], {span:2}) ] }
+      ] },
+      { t:'table', border:true, cols:[62,9.5,9.5,9.5,9.5], mb:0, rows: rows },
+      { t:'table', border:true, cols:[100], mb:0, rows:[ { h:38, cells:[ C([P([R('Observations et recommandations :', {b:true})], {size:10.5, after:4})]
+          .concat(obs.length ? obs.map(function(t){ return P(t, {size:10, after:3, align:'justify'}); }) : [P(dots('',150), {size:10}), P(dots('',150), {size:10})])) ] } ] },
+      { t:'table', border:true, cols:[16,20,22,20,22], rows:[ { h:30, cells:[
+        C([P([R('Note : ',{b:true}), R(r.note||'')], {size:10, align:'center'})], {shade:'F2F2F2'}),
+        C([P([R("Signature de l'inspecteur(trice) :",{b:true})], {size:9.5, align:'center'}), {t:'sigimg'}], {shade:'F2F2F2'}),
+        C([P([R('Signature du/de la directeur(trice) provincial(e) :',{b:true})], {size:9.5, align:'center'})], {shade:'F2F2F2'}),
+        C([P([R("Signature du/de la chef(fe) d'établissement :",{b:true})], {size:9.5, align:'center'})], {shade:'F2F2F2'}),
+        C([P([R("Pris(e) connaissance par l'enseignant(e)",{b:true})], {size:9, align:'center'}), P('Le : ..../..../...........', {size:9, align:'center', before:3}), P('Signature :', {size:9, align:'center', before:3})], {shade:'F2F2F2'})
+      ] } ] }
+    ];
+    return { type:'observation', rtl:false, margin:11, size:10, fontCss:"Calibri,'Segoe UI',Arial,sans-serif", fontDocx:'Calibri', blocks: blocks };
   }
   /* ---- Rapport d'inspection ---- */
   function civiliteOf(d){
@@ -6461,6 +6576,7 @@
   function buildOfficialDocInner(d, task){
     if(d.type==='observation'){
       if(d.variante==='sefrou') return offObservationSefrou(d, task);
+      if(d.variante==='pionnier_revision') return offObservationRevision(d, task);
       if(d.variante==='pionnier_ordinaire' || d.variante==='pionnier_synthese') return offObservationPionnier(d, task);
       return null;
     }
@@ -6523,11 +6639,12 @@
     }
     if(d.type==='observation'){
       var obsVariante = d.variante || 'standard';
-      if(obsVariante==='pionnier_ordinaire' || obsVariante==='pionnier_synthese'){
-        var scaleHeaders = ['Critères et indicateurs d\'évaluation'].concat(OBS_PIONNIER_SCALE);
+      if(isPionnierVariante(obsVariante)){
+        var obsScale = obsScaleFor(obsVariante);
+        var scaleHeaders = ['Critères et indicateurs d\'évaluation'].concat(obsScale);
         var domTables = (d.domaines||[]).map(function(dom){
           return { heading: dom.nom, headers: scaleHeaders, rows: dom.criteres.map(function(c){
-            return [c.nom].concat(OBS_PIONNIER_SCALE.map(function(lvl){ return c.note===lvl ? 'X' : ''; }));
+            return [c.nom].concat(obsScale.map(function(lvl){ return c.note===lvl ? 'X' : ''; }));
           }) };
         });
         return { titre:"Grille d'observation — Collège pionnier ("+(OBS_VARIANTE_LABEL[obsVariante]||'')+")",
@@ -8780,23 +8897,38 @@
       var etObsE = (function(){ var tk = state.tasks.find(function(t){ return t.id===m.taskId; }); return tk && tk.etablissementId ? state.etablissements.find(function(x){ return x.id===tk.etablissementId; }) : null; })();
       var pionE = !!(etObsE && etObsE.pionnier);
       body += '<div class="field"><label>Type de séance</label><div class="seg" id="obsSeanceSeg">'+SEANCE_TYPES.map(function(o){ return '<button type="button" data-v="'+o.v+'" aria-pressed="'+((d.seance||'normale')===o.v)+'">'+esc(o.l)+'</button>'; }).join('')+'</div>'+
-        '<p style="font-size:11px;color:var(--ink-faint);margin:5px 2px 0;">'+(etObsE ? esc(etObsE.nom)+' : ' : '')+(pionE ? '<b>collège pionnier</b> — grille du ministère (séance normale = séance ordinaire, séance de consolidation = séance de synthèse).' : 'établissement non pionnier — grille de la Direction provinciale de Sefrou.')+'</p></div>'+
+        '<p style="font-size:11px;color:var(--ink-faint);margin:5px 2px 0;">'+(etObsE ? esc(etObsE.nom)+' : ' : '')+(pionE ? '<b>collège pionnier</b> — grille du ministère (séance normale = séance ordinaire, séance de consolidation = séance de synthèse, séance de révision = rapport de suivi de l\'enseignement explicite).' : 'établissement non pionnier — grille de la Direction provinciale de Sefrou.')+'</p></div>'+
         '<div class="field"><label>Type de grille</label><div class="seg" id="obsVarianteSeg">'+OBS_VARIANTES.map(function(o){ return '<button type="button" data-v="'+o.v+'" aria-pressed="'+(variante===o.v)+'">'+esc(o.l)+'</button>'; }).join('')+'</div>'+
         '<p style="font-size:11px;color:var(--ink-faint);margin:5px 2px 0;">Les grilles « Collège pionnier » sont fournies par le ministère (année 2026/27) et ne sont pas personnalisables ; seule l\'appréciation d\'ensemble se rédige librement.</p></div>'+
         '<div class="field-row"><div class="field"><label for="dEns">Enseignant(e)</label><input type="text" id="dEns" value="'+esc(d.enseignantNom)+'"></div><div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div></div>'+
         '<div class="field-row"><div class="field"><label for="dClasse">Classe</label><input type="text" id="dClasse" value="'+esc(d.classe)+'"></div><div class="field"><label for="dMat">Matière</label><input type="text" id="dMat" value="'+esc(d.matiere)+'"></div><div class="field"><label for="dDuree">Durée</label><input type="text" id="dDuree" value="'+esc(d.duree)+'" placeholder="50 min"></div></div>';
       if(variante==='sefrou'){
         body += sefrouEditorHtml(d);
-      } else if(variante==='pionnier_ordinaire' || variante==='pionnier_synthese'){
-        body += '<p style="font-size:11px;color:var(--ink-faint);margin:2px 2px 10px;">Échelle officielle : '+OBS_PIONNIER_SCALE.map(function(l,i){ return esc(l)+' ('+esc(OBS_PIONNIER_SCALE_AR[i])+')'; }).join(' · ')+'</p>'+
+      } else if(isPionnierVariante(variante)){
+        var obsScaleE = obsScaleFor(variante);
+        if(variante==='pionnier_revision'){
+          var tkR = state.tasks.find(function(t){ return t.id===m.taskId; }), rv = revisionDefaults(d, tkR), rr = d.revision || {};
+          var ph = function(k){ return (!rr[k] && rv[k]) ? rv[k] : ''; };
+          body += '<div class="banner info" style="display:block;margin-bottom:10px;font-size:12px;">Rapport de suivi d\'une séance — enseignement explicite (séance de révision). Les champs laissés vides sont repris de la tâche et de la fiche de l\'enseignant(e) (valeur grisée).</div>'+
+            dkRow(dkField("Réalisé par M./Mme l'Inspecteur(trice)",'revision.realisePar', rr.realisePar, {ph:ph('realisePar')}))+
+            dkRow(dkField('Séance de','revision.heureDebut', rr.heureDebut, {type:'time'}), dkField('à','revision.heureFin', rr.heureFin, {type:'time'}))+
+            dkRow(dkField('Date de recrutement','revision.dateRecrutement', rr.dateRecrutement, {ph:ph('dateRecrutement')||'jj/mm/aaaa'}), dkField('DOTI','revision.doti', rr.doti, {ph:ph('doti')}))+
+            dkField('Date de la dernière visite/inspection','revision.derniereVisite', rr.derniereVisite, {ph:ph('derniereVisite')})+
+            dkRow(dkField('Période','revision.periode', rr.periode), dkField('Unité','revision.unite', rr.unite), dkField('Semaine','revision.semaine', rr.semaine))+
+            dkRow(dkField("Nombre d'élèves",'revision.nbEleves', rr.nbEleves, {type:'number'}), dkField('Présents','revision.presents', rr.presents, {type:'number'}))+
+            dkRow(dkField('Composante','revision.composante', rr.composante, {ph:'Soutien et évaluation'}), dkField('Page du cahier','revision.pageCahier', rr.pageCahier))+
+            dkField('Sujet','revision.sujet', rr.sujet);
+        }
+        body += '<p style="font-size:11px;color:var(--ink-faint);margin:2px 2px 10px;">Échelle officielle : '+(variante==='pionnier_revision' ? obsScaleE.map(esc).join(' · ') : OBS_PIONNIER_SCALE.map(function(l,i){ return esc(l)+' ('+esc(OBS_PIONNIER_SCALE_AR[i])+')'; }).join(' · '))+'</p>'+
           (d.domaines||[]).map(function(dom, di){
             return '<div class="field"><div style="font-weight:700;font-size:13.5px;margin-bottom:6px;">'+esc(dom.nom)+'</div>'+
               dom.criteres.map(function(c,ci){
-                return '<div class="crit-card"><div class="cn">'+esc(c.nom)+'</div><div class="seg" data-obscritnote="'+di+':'+ci+'">'+OBS_PIONNIER_SCALE.map(function(n){ return '<button type="button" data-v="'+n+'" aria-pressed="'+(c.note===n)+'">'+n+'</button>'; }).join('')+'</div></div>';
+                return '<div class="crit-card"><div class="cn">'+esc(c.nom)+'</div><div class="seg" data-obscritnote="'+di+':'+ci+'">'+obsScaleE.map(function(n){ return '<button type="button" data-v="'+n+'" aria-pressed="'+(c.note===n)+'">'+n+'</button>'; }).join('')+'</div></div>';
               }).join('')+'</div>';
           }).join('')+
-          '<div class="field"><label for="dAppGlobale">Appréciations d\'ensemble et orientations</label><textarea id="dAppGlobale" rows="5">'+esc(d.appreciationGlobale)+'</textarea>'+
+          '<div class="field"><label for="dAppGlobale">'+(variante==='pionnier_revision' ? 'Observations et recommandations' : 'Appréciations d\'ensemble et orientations')+'</label><textarea id="dAppGlobale" rows="5">'+esc(d.appreciationGlobale)+'</textarea>'+
           (state.sampleReady ? '<div class="btn-row"><button class="btn ai sm" id="btnAiAppGlobale" type="button">'+ICONS.ai+' Proposer une appréciation d\'ensemble</button><button class="btn ghost sm" id="btnTrAppGlobale" type="button">'+ICONS.ai+' Traduire</button></div><div class="banner info" id="aiAppGlobaleStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>';
+        if(variante==='pionnier_revision') body += dkField('Note','revision.note', (d.revision||{}).note, {ph:'Ex. 16/20'});
       } else {
         body += '<div class="field"><label>Critères d\'observation</label>'+(d.criteres||[]).map(function(c,i){
           return '<div class="crit-card"><div class="cn">'+esc(c.nom)+'</div><div class="seg" data-critnote="'+i+'">'+NOTE_SCALE.map(function(n){ return '<button type="button" data-v="'+n+'" aria-pressed="'+(c.note===n)+'">'+n+'</button>'; }).join('')+'</div>'+
