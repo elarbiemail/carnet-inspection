@@ -1629,6 +1629,74 @@
     if(created){ saveLocal('documents'); render(); toast(created+' attestation(s) générée(s) pour les enseignant(e)s invité(e)s.'); }
     else toast('Une attestation existe déjà pour chaque enseignant(e) invité(e).');
   }
+  /* ================= fusion de deux établissements (doublon arabe / français, ou faute de frappe) =================
+     L'établissement « conservé » (keep) garde son identifiant, sa zone, son type et son cycle ; il reçoit
+     seulement ce qui lui manque de l'autre (nom arabe ou français, code MASSAR, adresse, téléphone,
+     coordonnées, notes, lien InspectApp). Tous les enseignant(e)s, tâches et documents rattachés au
+     doublon passent sur l'établissement conservé, puis le doublon est supprimé avec un tombstone
+     (voir recordDelete) pour qu'il ne revienne pas d'un autre appareil. Les noms arabe et français sont
+     tous deux gardés (nomAr/nomFr) : les imports suivants (fiches, InspectApp) le retrouvent alors par
+     l'un ou l'autre nom (xchFindEtab) et ne recréent plus le doublon. */
+  function etabDupKey(t){
+    var s = ' '+String(t||'').toLowerCase()+' ';
+    s = s.replace(/ثانوية|الإعدادية|الاعدادية|التأهيلية|التاهيلية|مجموعة مدارس|المدرسة|مدرسة|الخاصة|lycée|lycee|collège|college|école|ecole|privé|prive|groupe scolaire|complexe éducatif/g, ' ');
+    s = s.replace(/(^|\s)ال/g, '$1').replace(/\s(el|al|ed|ad|es|ez|er|en|et|le|la|l'|d')(?=\s|[a-z])/g, ' ');
+    var AR = {'ا':'','أ':'','إ':'','آ':'','ء':'','ئ':'','ؤ':'','ى':'','ة':'','ع':'','و':'','ي':'','ه':'h','ح':'h','خ':'k',
+      'ب':'b','ت':'t','ث':'t','ج':'j','د':'d','ذ':'d','ر':'r','ز':'z','س':'s','ش':'x','ص':'s','ض':'d','ط':'t','ظ':'d','غ':'g','ف':'f','ق':'k','ك':'k','ل':'l','م':'m','ن':'n','گ':'g','ڭ':'g','ـ':''};
+    s = s.replace(/[؀-ۿ]/g, function(c){ return AR[c]!==undefined ? AR[c] : ''; });
+    s = s.normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .replace(/ch|sh/g,'x').replace(/kh/g,'k').replace(/gh/g,'g').replace(/q/g,'k').replace(/c/g,'s').replace(/v/g,'b').replace(/ou/g,'').replace(/[aeiouyw]/g,'')
+      .replace(/[^a-z0-9]/g,'').replace(/(.)\1+/g,'$1');
+    return s;
+  }
+  function etabDupScore(a, b){
+    var ka = [a.nom, a.nomAr, a.nomFr].filter(Boolean).map(etabDupKey), kb = [b.nom, b.nomAr, b.nomFr].filter(Boolean).map(etabDupKey), best = 0;
+    ka.forEach(function(x){ kb.forEach(function(y){
+      if(!x || !y) return;
+      if(x===y){ best = Math.max(best, 1); return; }
+      var m = x.length, n = y.length, d = [], i, j;
+      for(i=0;i<=m;i++){ d[i]=[i]; } for(j=0;j<=n;j++){ d[0][j]=j; }
+      for(i=1;i<=m;i++) for(j=1;j<=n;j++) d[i][j] = Math.min(d[i-1][j]+1, d[i][j-1]+1, d[i-1][j-1]+(x[i-1]===y[j-1]?0:1));
+      best = Math.max(best, 1 - d[m][n]/Math.max(m,n));
+    }); });
+    return best;
+  }
+  /* Doublon probable : même nom une fois translittéré quand les deux fiches sont dans des écritures
+     différentes (arabe d'un côté, français de l'autre, et pas déjà les deux noms sur une même fiche),
+     ou nom identique dans la même écriture. Seuil volontairement prudent : une simple ressemblance entre
+     deux noms français (« Al Yasmine » / « Al Yasmine 2 ») n'est pas proposée. */
+  function etabDupCandidates(e){
+    var isAr = function(x){ return /[؀-ۿ]/.test(x.nom||'') && !x.nomFr; }, isFr = function(x){ return !/[؀-ۿ]/.test(x.nom||'') && !x.nomAr; };
+    return state.etablissements.filter(function(x){ return x.id!==e.id; })
+      .map(function(x){
+        var s = etabDupScore(e, x), cross = (isAr(e) && isFr(x)) || (isFr(e) && isAr(x));
+        return { e:x, s:s, likely: cross ? s>=0.6 : s>=0.999 };
+      })
+      .sort(function(a,b){ return b.s - a.s || (a.e.nom||'').localeCompare(b.e.nom||''); });
+  }
+  function mergeEtablissements(keepId, dropId){
+    var keep = state.etablissements.find(function(x){ return x.id===keepId; }), drop = state.etablissements.find(function(x){ return x.id===dropId; });
+    if(!keep || !drop || keep===drop) return Promise.resolve(null);
+    var ar = function(t){ return /[؀-ۿ]/.test(t||''); };
+    [drop.nom, drop.nomAr, drop.nomFr].forEach(function(n){
+      if(!n) return;
+      if(ar(n)){ if(!keep.nomAr) keep.nomAr = n; } else if(!keep.nomFr) keep.nomFr = n;
+    });
+    if(!keep.nomAr && ar(keep.nom)) keep.nomAr = keep.nom;
+    if(!keep.nomFr && !ar(keep.nom)) keep.nomFr = keep.nom;
+    ['codeMassar','adresse','telephone','latitude','longitude','zoneId','notes'].forEach(function(k){ if(!keep[k] && drop[k]) keep[k] = drop[k]; });
+    if(drop.pionnier && !keep.pionnier) keep.pionnier = true;
+    if(drop.extIds && !(keep.extIds && keep.extIds.inspectapp)) keep.extIds = Object.assign({}, drop.extIds, keep.extIds||{});
+    var stamp = nowIso(), moved = { enseignants:0, tasks:0, documents:0 };
+    ['enseignants','tasks','documents'].forEach(function(coll){
+      (state[coll]||[]).forEach(function(r){ if(r.etablissementId===dropId){ r.etablissementId = keepId; r.updatedAt = stamp; moved[coll]++; } });
+      if(moved[coll]) saveLocal(coll);
+    });
+    (state.tasks||[]).forEach(function(t){ if(t.etablissementNom && t.etablissementId===keepId && t.etablissementNom===drop.nom){ t.etablissementNom = keep.nom; } });
+    keep.updatedAt = stamp;
+    saveLocal('etablissements');
+    return recordDelete('etablissement', dropId).then(function(){ return moved; });
+  }
   function recordDelete(kind, id){
     var coll = collFor(kind);
     var arr = stateArr(kind);
@@ -8386,6 +8454,15 @@
       '<p style="font-size:11px;color:var(--ink-faint);margin:5px 2px 0;">Touchez « Utiliser ma position actuelle » une fois sur place (nécessite d\'autoriser la localisation dans le navigateur), ou saisissez les coordonnées manuellement — copiées par exemple depuis Google Maps (appui long sur le lieu).</p>'+
       '<div class="banner err" id="etGeoStatus" hidden style="margin-top:6px;"></div></div>'+
       '<div class="field"><label for="etNotes">Notes</label><textarea id="etNotes">'+esc(e.notes)+'</textarea></div>'+
+      (state.modalStack[idx].isNew ? '' : (function(){
+        var cands = etabDupCandidates(e), sug = cands.filter(function(c){ return c.likely; }).slice(0,3);
+        return '<div class="field"><label for="etMergeTarget">Fusionner avec un doublon</label>'+
+          '<select id="etMergeTarget" style="width:100%;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:10px 11px;"><option value="">— Choisir l\'établissement en double —</option>'+
+          (sug.length ? '<optgroup label="Doublons probables">'+sug.map(function(c){ return '<option value="'+c.e.id+'">'+esc(c.e.nom)+'</option>'; }).join('')+'</optgroup>' : '')+
+          '<optgroup label="Tous les établissements">'+cands.slice().sort(function(a,b){ return (a.e.nom||'').localeCompare(b.e.nom||''); }).map(function(c){ return '<option value="'+c.e.id+'">'+esc(c.e.nom)+'</option>'; }).join('')+'</optgroup></select>'+
+          '<p style="font-size:11px;color:var(--ink-faint);margin:5px 2px 0;">Cet établissement est conservé : il reprend le nom arabe ou français, le code MASSAR et les coordonnées qui lui manquent, ainsi que tous les enseignant(e)s, tâches et documents du doublon, puis le doublon est supprimé.</p>'+
+          '<div class="btn-row" style="margin-top:8px;"><button class="btn ghost sm" id="btnMergeEtab" type="button">Fusionner dans cet établissement</button></div></div>';
+      })())+
       '<div class="btn-row">'+(state.modalStack[idx].isNew?'':'<button class="btn danger" id="btnDeleteEtab" type="button">Supprimer</button>')+'<button class="btn primary" id="btnSaveEtab" type="button">Enregistrer</button></div>'+
       '</div></div>';
   }
@@ -9398,6 +9475,22 @@
       recordSet('etablissement', e).then(function(){ closeTopModal(); toast('Établissement enregistré.'); });
     };
     var delEtab = $('btnDeleteEtab'); if(delEtab) delEtab.onclick = function(){ recordDelete('etablissement', state.draftRecord.id).then(function(){ closeTopModal(); toast('Supprimé.'); }); };
+    var mergeEtab = $('btnMergeEtab');
+    if(mergeEtab) mergeEtab.onclick = function(){
+      var dropId = $('etMergeTarget') ? $('etMergeTarget').value : '';
+      if(!dropId){ toast("Choisissez d'abord l'établissement en double."); return; }
+      var drop = state.etablissements.find(function(x){ return x.id===dropId; }); if(!drop) return;
+      var n = state.enseignants.filter(function(x){ return x.etablissementId===dropId; }).length;
+      if(!confirm('Fusionner « '+drop.nom+' » dans « '+(state.draftRecord.nom||'')+' » ?\n\n'+n+' enseignant(e)(s) et les tâches et documents liés seront rattachés à cet établissement, puis « '+drop.nom+' » sera supprimé.')) return;
+      syncEtabFields();
+      var cur = state.etablissements.find(function(x){ return x.id===state.draftRecord.id; });
+      if(cur){ ['nom','nomAr','nomFr','codeMassar','adresse','telephone','latitude','longitude','notes','pionnier','type','cycle'].forEach(function(k){ if(state.draftRecord[k]!==undefined) cur[k] = state.draftRecord[k]; }); }
+      mergeEtablissements(state.draftRecord.id, dropId).then(function(m){
+        if(!m) return;
+        closeTopModal(); render();
+        toast('Fusion faite : '+m.enseignants+' enseignant(e)(s), '+m.tasks+' tâche(s), '+m.documents+' document(s) rattaché(s).');
+      });
+    };
     var saveZone = $('btnSaveZone');
     if(saveZone) saveZone.onclick = function(){
       var z = state.draftRecord; z.nom=$('zNom').value.trim()||'(sans nom)'; z.academieRegionale=$('zAR').value; z.directionProvinciale=$('zDP').value; z.commune=$('zCommune').value;
