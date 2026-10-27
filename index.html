@@ -5130,7 +5130,60 @@
      générique (buildDocSpec / printFromSpec / specToPdfBlob / specToDocxBlob). */
   var OFF_IMAGES = { ministere:'entete-ministere.png', rapport:'entete-rapport.jpg', lettre:'entete-lettre.png' };
   var offImgCache = {};
+  /* Images des paramètres (logo, signature, cachet) : lues depuis les images envoyées dans
+     Paramètres → Profil, avec leurs dimensions réelles (proportions conservées partout). */
+  var OFF_PROFIL_IMG = { logo:'logoAssetId', sig:'signatureAssetId', cachet:'cachetAssetId' };
+  function offLoadProfilImage(key){
+    var id = offProfil()[OFF_PROFIL_IMG[key]], url = id ? assetUrl(id) : '';
+    if(!url) return Promise.resolve(null);
+    var ck = key+':'+id+':'+url.length;
+    if(offImgCache[ck]) return Promise.resolve(offImgCache[ck]);
+    return new Promise(function(resolve){
+      var im = new Image();
+      im.onload = function(){ offImgCache[ck] = { dataUrl: url, w: im.naturalWidth, h: im.naturalHeight, type: /^data:image\/png/i.test(url) ? 'png' : 'jpg' }; resolve(offImgCache[ck]); };
+      im.onerror = function(){ resolve(null); };
+      im.src = url;
+    });
+  }
+  /* En-tête des documents officiels : le logo envoyé dans Paramètres (Profil → Logo / en-tête) remplace
+     les en-têtes ministériels intégrés. Pour le rapport d'inspection et la lettre d'information, dont
+     l'en-tête intégré contenait aussi l'académie et la direction provinciale, ces lignes sont ajoutées
+     en texte sous le logo. Sans logo dans les paramètres, l'en-tête intégré reste utilisé. */
+  /* Tailles (mm) de la signature et du cachet : signature à 15 mm de haut au plus (40 mm de large au
+     plus), cachet à 20 mm de haut au plus — proportions réelles des images envoyées. */
+  /* Dimensions réelles des images du profil pour les documents « simples » (PDF jsPDF / Word génériques),
+     préchargées avant la génération : logo, signature et cachet gardent leurs proportions. */
+  var imgDimsCache = {};
+  function preloadSpecImages(spec){
+    var pf = state.templates.profil || {};
+    var urls = [spec && spec.logoAssetId, pf.logoAssetId, pf.signatureAssetId, pf.cachetAssetId].filter(Boolean).map(assetUrl).filter(Boolean);
+    return Promise.all(urls.map(function(u){
+      if(imgDimsCache[u]) return null;
+      return new Promise(function(res){ var im = new Image(); im.onload = function(){ imgDimsCache[u] = {w:im.naturalWidth, h:im.naturalHeight}; res(); }; im.onerror = function(){ res(); }; im.src = u; });
+    }));
+  }
+  function fitImg(url, maxW, maxH){
+    var dm = imgDimsCache[url]; if(!dm || !dm.w || !dm.h) return {w:maxW, h:maxH};
+    var r = Math.min(maxW/dm.w, maxH/dm.h); return {w: dm.w*r, h: dm.h*r};
+  }
+  function sigimgSizes(imgs){
+    var sig = imgs && imgs.sig, cachet = imgs && imgs.cachet, out = { sig: sig||null, cachet: cachet||null, sigW:0, cachetW:0 };
+    if(sig && sig.w && sig.h) out.sigW = Math.min(40, 15 * sig.w / sig.h);
+    if(cachet && cachet.w && cachet.h) out.cachetW = Math.min(30, 20 * cachet.w / cachet.h);
+    return out;
+  }
+  function offHeaderLogo(kind, w, align){
+    var pf = offProfil();
+    if(!(pf.logoAssetId && assetUrl(pf.logoAssetId))) return [{t:'img', key:kind, w:w, align:align||'center'}];
+    var out = [{t:'img', key:'logo', w:w, maxH: kind==='rapport' ? 30 : 24, align:align||'center'}];
+    var lines = kind==='rapport'
+      ? ['الأكاديمية الجهوية للتربية والتكوين لجهة '+(pf.academieAr||'فاس- مكناس'), 'المديرية الإقليمية ب'+(pf.provinceAr||'صفرو'), 'المفتشية الإقليمية', (pf.matiereAr||'اللغة الفرنسية')+' – '+(pf.cycleAr||'ثانوي')]
+      : kind==='lettre' ? ['الأكاديمية الجهوية للتربية والتكوين لجهة '+(pf.academieAr||'فاس- مكناس'), 'المديرية الإقليمية ب'+(pf.provinceAr||'صفرو')] : [];
+    lines.forEach(function(l, i){ out.push(P([R(l,{b:true})], {align:align||'center', size:9.5, dir:'rtl', before: i===0 ? 2 : 0, after: i===lines.length-1 ? 2 : 0})); });
+    return out;
+  }
   function offLoadImage(key){
+    if(OFF_PROFIL_IMG[key]) return offLoadProfilImage(key);
     if(offImgCache[key]) return Promise.resolve(offImgCache[key]);
     return fetch(OFF_IMAGES[key]).then(function(r){ if(!r.ok) throw new Error('img'); return r.blob(); }).then(function(blob){
       return new Promise(function(resolve){
@@ -5150,6 +5203,7 @@
     var keys = {};
     (function walk(blocks){ (blocks||[]).forEach(function(b){
       if(b.t==='img' && b.key) keys[b.key] = 1;
+      if(b.t==='sigimg'){ keys.sig = 1; keys.cachet = 1; }
       if(b.t==='table') b.rows.forEach(function(r){ r.cells.forEach(function(c){ walk(c.blocks); }); });
     }); })(off.blocks.concat(off.footer||[]));
     var list = Object.keys(keys);
@@ -6210,13 +6264,19 @@
       if(b.t==='hr') return '<div style="border-top:'+(b.w||1)+'px solid #000;margin:'+(b.m||2)+'mm 0"></div>';
       if(b.t==='img'){
         var im = imgs[b.key]; if(!im) return '';
-        return '<div style="text-align:'+(b.align||'center')+'"><img src="'+im.dataUrl+'" style="width:'+b.w+'mm;height:auto" alt=""></div>';
+        var wmm = b.maxH && im.h ? Math.min(b.w, b.maxH * im.w / im.h) : b.w;
+        return '<div style="text-align:'+(b.align||'center')+'"><img src="'+im.dataUrl+'" style="width:'+wmm.toFixed(1)+'mm;max-width:100%;height:auto" alt=""></div>';
       }
       if(b.t==='sigimg'){
-        var p = offProfil(), urls = [];
-        if(p.signatureAssetId && assetUrl(p.signatureAssetId)) urls.push('<img src="'+assetUrl(p.signatureAssetId)+'" style="height:15mm;width:auto">');
-        if(p.cachetAssetId && assetUrl(p.cachetAssetId)) urls.push('<img src="'+assetUrl(p.cachetAssetId)+'" style="height:20mm;width:auto">');
-        return urls.length ? '<div style="text-align:'+(b.align||'start')+'">'+urls.join(' ')+'</div>' : '';
+        /* Signature et cachet côte à côte sur une même ligne (jamais l'un sous l'autre), proportions
+           d'origine conservées, réduits si la case est étroite. */
+        var sg = sigimgSizes(imgs), parts = [];
+        if(sg.sig) parts.push('<img src="'+sg.sig.dataUrl+'" style="width:'+sg.sigW.toFixed(1)+'mm;max-width:'+(sg.cachet ? '62%' : '100%')+';height:auto;flex:0 1 auto;min-width:0" alt="">');
+        if(sg.cachet) parts.push('<img src="'+sg.cachet.dataUrl+'" style="width:'+sg.cachetW.toFixed(1)+'mm;max-width:'+(sg.sig ? '38%' : '100%')+';height:auto;flex:0 1 auto;min-width:0" alt="">');
+        /* gauche/droite explicites = côté physique de la page, aussi dans un document en arabe */
+        var phys = b.align==='left' || b.align==='right';
+        var jc = (b.align==='center') ? 'center' : (b.align==='right' || b.align==='end') ? 'flex-end' : 'flex-start';
+        return parts.length ? '<div style="display:flex;flex-direction:row;flex-wrap:nowrap;align-items:center;gap:2mm;justify-content:'+jc+';'+(phys ? 'direction:ltr;' : '')+'">'+parts.join('')+'</div>' : '';
       }
       if(b.t==='table'){
         var html = '<table class="'+(b.border?'b':'')+'" style="'+(b.mt?'margin-top:'+b.mt+'mm;':'')+(b.mb?'margin-bottom:'+b.mb+'mm;':'')+(b.width?'width:'+b.width+'%;':'')+(b.center?'margin-left:auto;margin-right:auto;':'')+'"><colgroup>'+
@@ -6429,12 +6489,14 @@
         out.push(new d.Paragraph({ border:{ bottom:{style:d.BorderStyle.SINGLE, size: (b.w||1)*6, color:'000000', space:1} }, spacing:{after:80}, children:[] }));
       } else if(b.t==='img'){
         var im = imgs[b.key]; if(!im) return;
-        var wpx = Math.round(b.w * 3.78), hpx = Math.round(wpx * im.h / im.w);
+        var wmmD = b.maxH && im.h ? Math.min(b.w, b.maxH * im.w / im.h) : b.w;
+        var wpx = Math.round(wmmD * 3.78), hpx = Math.round(wpx * im.h / im.w);
         out.push(new d.Paragraph({ alignment: offDocxAlign(d, b.align||'center', off.rtl), children:[ new d.ImageRun({ type: im.type, data: dataUrlToUint8Array(im.dataUrl), transformation:{ width: wpx, height: hpx } }) ] }));
       } else if(b.t==='sigimg'){
-        var p = offProfil(), runs = [];
-        try{ if(p.signatureAssetId && assetUrl(p.signatureAssetId)) runs.push(new d.ImageRun({ type: /png/i.test(assetUrl(p.signatureAssetId)) ? 'png' : 'jpg', data: dataUrlToUint8Array(assetUrl(p.signatureAssetId)), transformation:{width:100,height:50} })); }catch(e){}
-        try{ if(p.cachetAssetId && assetUrl(p.cachetAssetId)) runs.push(new d.ImageRun({ type: /png/i.test(assetUrl(p.cachetAssetId)) ? 'png' : 'jpg', data: dataUrlToUint8Array(assetUrl(p.cachetAssetId)), transformation:{width:70,height:70} })); }catch(e){}
+        var sgD = sigimgSizes(imgs), runs = [];
+        try{ if(sgD.sig) runs.push(new d.ImageRun({ type: sgD.sig.type, data: dataUrlToUint8Array(sgD.sig.dataUrl), transformation:{ width: Math.round(sgD.sigW*3.78), height: Math.round(sgD.sigW*3.78*sgD.sig.h/sgD.sig.w) } })); }catch(e){}
+        try{ if(sgD.sig && sgD.cachet) runs.push(new d.TextRun({ text:'  ' })); }catch(e){}
+        try{ if(sgD.cachet) runs.push(new d.ImageRun({ type: sgD.cachet.type, data: dataUrlToUint8Array(sgD.cachet.dataUrl), transformation:{ width: Math.round(sgD.cachetW*3.78), height: Math.round(sgD.cachetW*3.78*sgD.cachet.h/sgD.cachet.w) } })); }catch(e){}
         if(runs.length) out.push(new d.Paragraph({ alignment: offDocxAlign(d, b.align||'left', off.rtl), children: runs }));
       } else if(b.t==='table'){
         var tblW = Math.round(widthTw * (b.width||100) / 100);
@@ -6671,7 +6733,7 @@
     var blocks = [
       { t:'table', border:false, cols:[34,32,34], mb:4, rows:[ { cells:[
         C([P("Académie Régionale de l'Éducation et de la Formation de la région "+(pf.academieRegionale||''), {size:8.5, align:'center'})], {v:'middle'}),
-        C([{t:'img', key:'ministere', w:58, align:'center'}], {v:'middle', pad:0}),
+        C(offHeaderLogo('ministere', 58, 'center'), {v:'middle', pad:0}),
         C([P('Direction provinciale de '+(pf.province||'.......'), {size:9, align:'center'})], {v:'middle'})
       ] } ] },
       P("Rapport de suivi d'une séance dans le cadre de l'enseignement explicite", {align:'center', size:13, title:true}),
@@ -6738,7 +6800,7 @@
     var blocks = [
       { t:'table', border:false, cols:[34,32,34], mb:2, rows:[ { cells:[
         C([P("Académie Régionale de l'Éducation et de la Formation de la région "+(pf.academieRegionale||''), {size:8.5, align:'center'})], {v:'middle'}),
-        C([{t:'img', key:'ministere', w:58, align:'center'}], {v:'middle', pad:0}),
+        C(offHeaderLogo('ministere', 58, 'center'), {v:'middle', pad:0}),
         C([P('Direction provinciale de '+(pf.province||'.......'), {size:9, align:'center'})], {v:'middle'})
       ] } ] },
       P([R("Rapport de visite en classe dans le cadre de l'enseignement explicite", {b:true})], {align:'center', size:13, after:4, title:true}),
@@ -6782,7 +6844,7 @@
     var redacteur = d.redacteur || pf.nomSignature || ('M. '+pf.nom);
     var blocks = [
       { t:'table', border:false, cols:[50,50], mb:0, rows:[ { cells:[
-        C([{t:'img', key:'rapport', w:68, align:'left'}], {pad:0}),
+        C(offHeaderLogo('rapport', 68, 'left'), {pad:0}),
         C([P([R('Etablissement : ',{b:true}), R(d.lieu||'')],{size:10.5}), P([R('Localité : ',{b:true}), R(d.localite||'')],{size:10.5}),
            P([R('Classe : ',{b:true}), R(d.classe||'')],{size:10.5}), P([R('Manuel : ',{b:true}), R(d.manuel||'')],{size:10.5})], {pad:0})
       ] } ] },
@@ -6838,8 +6900,7 @@
     if(nnv) rows.push({ cells:[ C([P('جداول الحصص غير المصادق عليها', {size:12})]), C([P(String(nnv), {size:12, align:'center'})]), C([P('انظر اللائحة المرفقة مع الملاحظات', {size:11})]) ] });
     var filler = Math.max(30, 110 - (rows.length-1)*9);
     rows.push({ h: filler, cells:[ C([P(d.observations ? '' : '')]), C([P('')]), C([P(d.observations||'', {size:11})]) ] });
-    var blocks = [
-      {t:'img', key:'ministere', w:108, align:'center'},
+    var blocks = offHeaderLogo('ministere', 108, 'center').concat([
       P([R('الأكاديمية الجهوية للتربية و التكوين',{b:true})], {align:'center', size:9.5, before:2}),
       P([R('جهة '+(pf.academieAr||'فاس- مكناس'),{b:true})], {align:'center', size:9.5}),
       P([R('المديرية الإقليمية ب'+(pf.provinceAr||'صفرو'),{b:true})], {align:'center', size:9.5, after:16}),
@@ -6849,7 +6910,7 @@
       d.reference ? P('المرجع : '+d.reference, {size:10.5, align:'center'}) : P('', {size:4}),
       P([R('ورقة إرسال',{b:true})], {align:'center', size:24, before:10, after:12, title:true}),
       { t:'table', border:true, cols:[38,16,46], rows: rows }
-    ];
+    ]);
     function annex(title, list, withObs){
       var rr = [{ cells:[ C([P([R('المؤسسة',{b:true})],{align:'center', size:11})]), C([P([R('اسم الأستاذ(ة)',{b:true})],{align:'center', size:11})]), C([P([R('رقم التأجير',{b:true})],{align:'center', size:11})]) ]
         .concat(withObs ? [C([P([R('الملاحظات',{b:true})],{align:'center', size:11})])] : []) }];
@@ -6877,8 +6938,7 @@
     var corps = String(d.corps||'').trim();
     if(corps && !/^و?بعد/.test(corps)) corps = 'وبعد، '+corps;
     var bodyParas = paragraphsOf(corps).map(function(t){ return P(t, {align:'justify', size:16, indent:10, after:4, line:1.15}); });
-    var blocks = [
-      {t:'img', key:'lettre', w:82, align:'center'},
+    var blocks = offHeaderLogo('lettre', 82, 'center').concat([
       P([R('تفتيش مادة '+matiere+' - '+cycle+' -',{b:true})], {size:14, before:2}),
       P([R('المفتشية الإقليمية',{b:true})], {size:13}),
       P([R('مصلحة الشؤون التربوية',{b:true})], {size:13, after:10}),
@@ -6887,7 +6947,7 @@
     ].concat(destLines.map(function(l, i){ return P([R(l,{b:true})], {size: i===0 ? 18 : 16, align:'center'}); })).concat([
       P([R('الموضوع: ',{b:true}), R(d.objet||'',{b:true})], {size:17, align:'center', before:12, after:12, title:true}),
       P([R('سلام تام بوجود مولانا الإمام.',{b:true})], {size:17, indent:10, after:8, title:true})
-    ]).concat(bodyParas.length ? bodyParas : [P('', {size:16})]);
+    ]).concat(bodyParas.length ? bodyParas : [P('', {size:16})]));
     if(d.invites && d.invites.length){
       var rr = [{ cells:[ C([P([R('الاسم الكامل',{b:true})],{align:'center', size:13})]), C([P([R('رقم التأجير',{b:true})],{align:'center', size:13})]), C([P([R('المؤسسة',{b:true})],{align:'center', size:13})]) ] }];
       d.invites.forEach(function(iv){ var ensRec = findEns(iv.enseignantId, iv.nom); rr.push({ cantSplit:true, cells:[ C([P(ensNameLang('ar', iv.enseignantId, iv.nom||''),{size:13})]), C([P(iv.ppr||'',{size:13, align:'center'})]), C([P(etabNameLang('ar', ensRec && ensRec.etablissementId, iv.etablissementNom||''),{size:13})]) ] }); });
@@ -7200,7 +7260,7 @@
     var profil = state.templates.profil || {};
     var logoUrl = (spec.logoAssetId ? assetUrl(spec.logoAssetId) : '') || (profil.logoAssetId ? assetUrl(profil.logoAssetId) : '');
     var logoFmt = logoUrl ? pdfImageFormat(logoUrl) : null;
-    if(logoUrl && logoFmt){ try{ doc.addImage(logoUrl, logoFmt, margin, 9, 15, 15); }catch(e){} }
+    if(logoUrl && logoFmt){ try{ var lf = fitImg(logoUrl, 60, 15); doc.addImage(logoUrl, logoFmt, margin, 9, lf.w, lf.h); }catch(e){} }
     if(spec.photoAssetId){
       var photoUrl = assetUrl(spec.photoAssetId), photoFmt = photoUrl ? pdfImageFormat(photoUrl) : null;
       if(photoUrl && photoFmt){ try{ doc.addImage(photoUrl, photoFmt, pageW-margin-22, 9, 22, 28); }catch(e){} }
@@ -7251,14 +7311,15 @@
         var cachetUrl = profil.cachetAssetId ? assetUrl(profil.cachetAssetId) : '';
         var sigUrl = profil.signatureAssetId ? assetUrl(profil.signatureAssetId) : '';
         var cFmt = cachetUrl ? pdfImageFormat(cachetUrl) : null, sFmt = sigUrl ? pdfImageFormat(sigUrl) : null;
-        try{ if(sigUrl && sFmt) doc.addImage(sigUrl, sFmt, margin, y+3, 28, 15); }catch(e){}
-        try{ if(cachetUrl && cFmt) doc.addImage(cachetUrl, cFmt, margin+30, y+3, 20, 20); }catch(e){}
+        var sf = sigUrl ? fitImg(sigUrl, 40, 15) : {w:0,h:0}, cf = cachetUrl ? fitImg(cachetUrl, 30, 20) : {w:0,h:0};
+        try{ if(sigUrl && sFmt) doc.addImage(sigUrl, sFmt, margin, y+3, sf.w, sf.h); }catch(e){}
+        try{ if(cachetUrl && cFmt) doc.addImage(cachetUrl, cFmt, margin + (sigUrl ? sf.w + 3 : 0), y+3, cf.w, cf.h); }catch(e){}
       }
     }
     return doc.output('blob');
   }
   function downloadPdf(spec, filenameBase, taskId){
-    return ensureJsPDF().then(function(){ return specToPdfBlob(spec); })
+    return ensureJsPDF().then(function(){ return preloadSpecImages(spec); }).then(function(){ return specToPdfBlob(spec); })
       .then(function(blob){
         return saveBlob(filenameBase+'.pdf', blob).then(function(){
           if(state.mcpReady) uploadBlobToDrive(blob, filenameBase+'.pdf', 'application/pdf', false, taskId).catch(function(e){ console.warn('drive upload (pdf) failed', e); });
@@ -7284,7 +7345,7 @@
     if(logoUrl){
       try{
         children.push(new d.Paragraph({ alignment:d.AlignmentType.CENTER, spacing:{after:120},
-          children:[ new d.ImageRun({ data: dataUrlToUint8Array(logoUrl), transformation:{width:60,height:60} }) ] }));
+          children:[ (function(){ var lf = fitImg(logoUrl, 380, 60); return new d.ImageRun({ data: dataUrlToUint8Array(logoUrl), transformation:{width:Math.round(lf.w),height:Math.round(lf.h)} }); })() ] }));
       }catch(e){}
     }
     var photoUrl = spec.photoAssetId ? assetUrl(spec.photoAssetId) : '';
@@ -7335,8 +7396,9 @@
         var cachetUrl = profil.cachetAssetId ? assetUrl(profil.cachetAssetId) : '';
         var sigUrl = profil.signatureAssetId ? assetUrl(profil.signatureAssetId) : '';
         var imgRuns = [];
-        try{ if(sigUrl) imgRuns.push(new d.ImageRun({ data: dataUrlToUint8Array(sigUrl), transformation:{width:110,height:55} })); }catch(e){}
-        try{ if(cachetUrl) imgRuns.push(new d.ImageRun({ data: dataUrlToUint8Array(cachetUrl), transformation:{width:75,height:75} })); }catch(e){}
+        try{ if(sigUrl){ var sfd = fitImg(sigUrl, 150, 57); imgRuns.push(new d.ImageRun({ data: dataUrlToUint8Array(sigUrl), transformation:{width:Math.round(sfd.w),height:Math.round(sfd.h)} })); } }catch(e){}
+        try{ if(sigUrl && cachetUrl) imgRuns.push(new d.TextRun({ text:'  ' })); }catch(e){}
+        try{ if(cachetUrl){ var cfd = fitImg(cachetUrl, 110, 75); imgRuns.push(new d.ImageRun({ data: dataUrlToUint8Array(cachetUrl), transformation:{width:Math.round(cfd.w),height:Math.round(cfd.h)} })); } }catch(e){}
         if(imgRuns.length) children.push(new d.Paragraph({ alignment: rtl?d.AlignmentType.RIGHT:d.AlignmentType.LEFT, children: imgRuns, spacing:{after:80} }));
       }
       children.push(new d.Paragraph({ bidirectional:rtl, alignment: rtl?d.AlignmentType.RIGHT:d.AlignmentType.LEFT, children:[new d.TextRun({text:spec.signatures[0]||'', size:19, rightToLeft:rtl})] }));
@@ -7354,7 +7416,7 @@
      disparaît. */
   function downloadDocx(spec, filenameBase, taskId){
     var gdocUrl = null;
-    return ensureDocx().then(function(){ return specToDocxBlob(spec); })
+    return ensureDocx().then(function(){ return preloadSpecImages(spec); }).then(function(){ return specToDocxBlob(spec); })
       .then(function(blob){
         return saveBlob(filenameBase+'.docx', blob).then(function(){
           if(!state.mcpReady) return null;
@@ -9038,7 +9100,9 @@
     var img = assetId ? '<img src="'+assetUrl(assetId)+'" alt="" style="max-height:60px;max-width:160px;border:1px solid var(--line);border-radius:8px;background:#fff;display:block;margin-bottom:8px;">' : '';
     return '<div class="field"><label>'+label+'</label>'+img+
       '<div class="btn-row"><button class="btn ghost sm" data-picprofil="'+key+'" type="button">'+ICONS.upload+' '+(assetId?'Remplacer':'Ajouter une image')+'</button>'+
-      (assetId ? '<button class="btn ghost sm" data-rmprofil="'+key+'" type="button">Retirer</button>' : '')+'</div></div>';
+      (assetId ? '<button class="btn ghost sm" data-rotprofil="'+key+'" type="button" title="Faire pivoter de 90° vers la droite">↻ Pivoter</button><button class="btn ghost sm" data-rmprofil="'+key+'" type="button">Retirer</button>' : '')+'</div>'+
+      (key==='logo' ? '<p style="font-size:11px;color:var(--ink-faint);margin:5px 2px 0;">Utilisé en en-tête de tous les documents générés (à la place des en-têtes intégrés).</p>' : '')+
+      (key==='signature' ? '<p style="font-size:11px;color:var(--ink-faint);margin:5px 2px 0;">Placée horizontalement, à côté du cachet. Si elle apparaît de travers, utilisez « Pivoter ».</p>' : '')+'</div>';
   }
   /* Modèles personnalisés par type de document (voir DOC_TEMPLATE_FIELDS / docTemplateMergeValues /
      applyMergeTemplate plus haut) : un sélecteur de type (state.tmplEditorType, purement transitoire —
@@ -10239,6 +10303,7 @@
     document.querySelectorAll('[data-picprofil]').forEach(function(el){
       el.onclick = function(){ syncProfilFields(); var key=el.getAttribute('data-picprofil'); profilImageTarget=key; $('file'+key.charAt(0).toUpperCase()+key.slice(1)+'Input').click(); };
     });
+    document.querySelectorAll('[data-rotprofil]').forEach(function(el){ el.onclick = function(){ syncProfilFields(); rotateProfilImage(el.getAttribute('data-rotprofil')); }; });
     document.querySelectorAll('[data-rmprofil]').forEach(function(el){
       el.onclick = function(){
         syncProfilFields();
@@ -10864,7 +10929,7 @@
       var win = null; try{ win = window.open('', '_blank'); }catch(e){}
       if(statusEl){ statusEl.hidden = false; statusEl.textContent = 'Création du Google Doc…'; }
       gdocBtn.disabled = true;
-      var blobP = off ? officialToDocxBlob(off) : ensureDocx().then(function(){ return specToDocxBlob(buildDocSpec(state.draftDoc, task)); });
+      var blobP = off ? officialToDocxBlob(off) : ensureDocx().then(function(){ return preloadSpecImages(buildDocSpec(state.draftDoc, task)); }).then(function(){ return specToDocxBlob(buildDocSpec(state.draftDoc, task)); });
       genDocCtx = state.draftDoc.id;
       blobP.then(function(blob){
         return uploadBlobToDrive(blob, docFileBase()+'.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', true, task ? task.id : null);
@@ -11006,11 +11071,51 @@
     if(!files.length || !tid) return;
     attachFilesToTask(tid, files);
   };
+  /* Image du profil redressée avant enregistrement : orientation de la photo appliquée (EXIF), marges
+     blanches de la signature retirées, et réduction si besoin (≤ 1200 px). */
+  function normalizeProfilImage(f, trim){
+    if(!/^image\//.test(f.type||'') || typeof createImageBitmap!=='function') return Promise.resolve(f);
+    return createImageBitmap(f, {imageOrientation:'from-image'}).then(function(bmp){
+      var sc = Math.min(1, 1200/Math.max(bmp.width, bmp.height));
+      var c = document.createElement('canvas'); c.width = Math.round(bmp.width*sc); c.height = Math.round(bmp.height*sc);
+      var g = c.getContext('2d'); g.drawImage(bmp, 0, 0, c.width, c.height);
+      if(trim){
+        var data = g.getImageData(0, 0, c.width, c.height).data, x0 = c.width, y0 = c.height, x1 = -1, y1 = -1;
+        for(var y=0; y<c.height; y+=1) for(var x=0; x<c.width; x+=1){
+          var i = (y*c.width+x)*4; if(data[i+3] > 40 && (data[i] < 200 || data[i+1] < 200 || data[i+2] < 200)){ if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y; }
+        }
+        if(x1 > x0 && y1 > y0){
+          var pad = Math.round(Math.max(c.width, c.height)*0.02);
+          x0 = Math.max(0, x0-pad); y0 = Math.max(0, y0-pad); x1 = Math.min(c.width-1, x1+pad); y1 = Math.min(c.height-1, y1+pad);
+          var c2 = document.createElement('canvas'); c2.width = x1-x0+1; c2.height = y1-y0+1;
+          c2.getContext('2d').drawImage(c, x0, y0, c2.width, c2.height, 0, 0, c2.width, c2.height); c = c2;
+        }
+      }
+      return new Promise(function(res){ c.toBlob(function(b){ res(b ? new File([b], (f.name||'image').replace(/\.[a-z0-9]+$/i,'')+'.png', {type:'image/png'}) : f); }, 'image/png'); });
+    }).catch(function(){ return f; });
+  }
+  function rotateProfilImage(key){
+    var p = state.templates.profil, id = p[key+'AssetId'], a = id && state.assets[id];
+    if(!a || !a.dataUrl){ toast("Image indisponible sur cet appareil."); return; }
+    var im = new Image();
+    im.onload = function(){
+      var c = document.createElement('canvas'); c.width = im.naturalHeight; c.height = im.naturalWidth;
+      var g = c.getContext('2d'); g.translate(c.width, 0); g.rotate(Math.PI/2); g.drawImage(im, 0, 0);
+      /* nouvelle image (nouvel identifiant) pour que les autres appareils la récupèrent aussi */
+      var nid = uid();
+      state.assets[nid] = { dataUrl: c.toDataURL('image/png'), type:'image/png', name: (a.name||key)+'-pivote.png' };
+      try{ saveLocal('assets'); }catch(e){ delete state.assets[nid]; toast("Espace de stockage de l'application atteint."); return; }
+      uploadAssetToDrive(nid);
+      removeAsset(id);
+      p[key+'AssetId'] = nid; templatesSet({profil:p}); render(); toast('Image pivotée.');
+    };
+    im.src = a.dataUrl;
+  }
   function profilImageOnChange(){
     return function(){
-      var f = this.files[0]; this.value=''; if(!f || !profilImageTarget) return;
+      var f0 = this.files[0]; this.value=''; if(!f0 || !profilImageTarget) return;
       var key = profilImageTarget; profilImageTarget = null;
-      uploadAsset(f).then(function(res){
+      normalizeProfilImage(f0, key==='signature').then(function(f){ return uploadAsset(f); }).then(function(res){
         var p = state.templates.profil, field = key+'AssetId';
         if(p[field]) removeAsset(p[field]);
         p[field] = res.id;
