@@ -4971,6 +4971,19 @@
     if(!file) return;
     file.text().then(function(txt){
       var data; try{ data = JSON.parse(txt.replace(/^﻿/, '')); }catch(e){ throw new Error('Fichier illisible (JSON attendu).'); }
+      /* Une sauvegarde complète du carnet (sauvegarde-donnees.json, ou une version corrigée préparée
+         hors de l'application : fiches personnelles intégrées, doublons fusionnés…) est fusionnée comme
+         une sauvegarde Drive (mergeRemoteBackupIntoLocal) : le plus récent l'emporte enregistrement par
+         enregistrement, et les suppressions qu'elle porte (tombstones) s'appliquent. */
+      if(data && !data.format && Array.isArray(data.etablissements) && Array.isArray(data.enseignants) && data.exportedAt){
+        if(!confirm('Fusionner cette sauvegarde complète du carnet (du '+fmtDate(data.exportedAt)+') avec vos données ?\n\n'+
+          data.enseignants.length+' enseignant(e)s, '+data.etablissements.length+' établissements.\nLes fiches plus récentes remplacent les anciennes ; les établissements supprimés dans cette sauvegarde le sont aussi ici.')) return;
+        mergeRemoteBackupIntoLocal(data);
+        render();
+        toast('Sauvegarde fusionnée : '+state.enseignants.length+' enseignant(e)s, '+state.etablissements.length+' établissements.');
+        if(state.mcpReady && typeof doSync==='function'){ try{ doSync(); }catch(e){} }
+        return;
+      }
       importExchangeData(data, 'le fichier');
     }).catch(function(e){ toast(e && e.message ? e.message : 'Import impossible.'); });
   }
