@@ -593,7 +593,8 @@
 <div id="printRoot"></div>
 <input type="file" id="fileImportInput" accept=".csv,text/csv,.xlsx,.xls,.ods,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" hidden>
 <input type="file" id="filePhotoInput" accept="image/png,image/jpeg,image/webp" hidden>
-<input type="file" id="fileAttachInput" accept="image/png,image/jpeg,image/webp,application/pdf" hidden>
+<input type="file" id="fileAttachInput" accept="image/png,image/jpeg,image/webp,application/pdf" multiple hidden>
+<input type="file" id="fileFeuillesLot" accept="image/png,image/jpeg,image/webp,application/pdf" multiple hidden>
 <input type="file" id="fileTaskAttachInput" multiple hidden>
 <input type="file" id="fileLogoInput" accept="image/png,image/jpeg" hidden>
 <input type="file" id="fileCachetInput" accept="image/png,image/jpeg" hidden>
@@ -3636,6 +3637,7 @@
      envoyé sur Drive pour lui est noté dans doc.driveFiles, pour pouvoir l'effacer de Drive quand le
      document est supprimé (deleteDocumentEverywhere). */
   var genDocCtx = null;
+  var attachKindNext = '';
   function noteDocDriveFile(docId, fileId, name){
     if(!docId || !fileId) return;
     var add = function(d){ if(!d) return; d.driveFiles = d.driveFiles || []; if(!d.driveFiles.some(function(f){ return f.id===fileId; })) d.driveFiles.push({ id:fileId, name:name||'', at: nowIso() }); };
@@ -3916,6 +3918,63 @@
   }
   window.addEventListener('online', function(){ setTimeout(processPendingAttachments, 1500); });
   setInterval(processPendingAttachments, 60000);
+  /* ---- Feuilles personnelles jointes à la fiche enseignant(e) ----
+     Comme les pièces jointes des tâches (et non comme les photos) : copie locale dans l'espace fichiers
+     du navigateur (pjSaveLocal, sans la limite de 1,5 Mo des images) et envoi sur Drive dans
+     Enseignants / Nom — PPR / Feuilles personnelles. L'entrée (kind 'feuille_personnelle', année
+     scolaire) est ajoutée à la fiche enregistrée ET au formulaire ouvert sur la même fiche, pour qu'un
+     « Enregistrer » ultérieur ne l'efface pas. */
+  function ensFeuilleSync(ensId, attId, patch, newEntry){
+    var cur = state.enseignants.find(function(x){ return x.id===ensId; });
+    if(cur){
+      var list = newEntry ? (cur.attachments||[]).concat([newEntry]) : (cur.attachments||[]).map(function(a){ return a.id===attId ? Object.assign({}, a, patch) : a; });
+      recordSet('enseignant', Object.assign({}, cur, {attachments:list}));
+    }
+    if(state.draftRecord && state.draftRecord.id===ensId && state.draftRecord!==cur){
+      var dl = state.draftRecord.attachments || [];
+      state.draftRecord.attachments = newEntry ? (dl.some(function(a){ return a.id===newEntry.id; }) ? dl : dl.concat([Object.assign({}, newEntry)])) : dl.map(function(a){ return a.id===attId ? Object.assign({}, a, patch) : a; });
+      render();
+    }
+  }
+  function ensAttachFeuille(ensId, file){
+    var ens = state.enseignants.find(function(x){ return x.id===ensId; }) || (state.draftRecord && state.draftRecord.id===ensId ? state.draftRecord : null);
+    if(!ens) return Promise.resolve(null);
+    var e = { id: uid(), kind:'feuille_personnelle', annee: anneeScolaireCourante(), titre: file.name || 'feuille-personnelle', type: file.type || '', size: file.size || 0,
+      addedAt: new Date().toISOString(), status:'pending', driveFileId:null, driveUrl:null, local:false };
+    return pjSaveLocal(e.id, file).then(function(ok){
+      e.local = ok;
+      ensFeuilleSync(ensId, null, null, e);
+      if(!state.mcpReady) return e;
+      return ensureAppFolder().then(function(app){
+        return driveFolderPath(app.id, ['Enseignants', (ens.nom || 'Sans nom')+(ens.ppr ? ' — '+ens.ppr : ''), 'Feuilles personnelles']);
+      }).then(function(folderId){ return driveUploadBlob(file, e.titre, e.type || file.type, folderId); })
+        .then(function(f){ ensFeuilleSync(ensId, e.id, {status:'uploaded', driveFileId:f.id, driveUrl:'https://drive.google.com/file/d/'+f.id+'/view'}); return e; })
+        .catch(function(err){ console.warn('feuille drive', err); ensFeuilleSync(ensId, e.id, {status:'error'}); return e; });
+    });
+  }
+  /* Feuilles restées en attente d'envoi (hors connexion, échec) : renvoyées à la synchronisation. */
+  function ensFeuillesRetry(){
+    if(!state.mcpReady) return Promise.resolve();
+    var todo = [];
+    state.enseignants.forEach(function(e){ (e.attachments||[]).forEach(function(a){ if(a.kind==='feuille_personnelle' && !a.driveFileId && a.local) todo.push([e, a]); }); });
+    return todo.reduce(function(p, x){ return p.then(function(){
+      var e = x[0], a = x[1];
+      return pjReadLocal(a.id).then(function(file){
+        if(!file) return;
+        return ensureAppFolder().then(function(app){ return driveFolderPath(app.id, ['Enseignants', (e.nom || 'Sans nom')+(e.ppr ? ' — '+e.ppr : ''), 'Feuilles personnelles']); })
+          .then(function(fid){ return driveUploadBlob(file, a.titre, a.type || file.type, fid); })
+          .then(function(f){ ensFeuilleSync(e.id, a.id, {status:'uploaded', driveFileId:f.id, driveUrl:'https://drive.google.com/file/d/'+f.id+'/view'}); });
+      }).catch(function(){});
+    }); }, Promise.resolve());
+  }
+  function openEnsAttachment(a){
+    if(a.assetId){ window.open(assetUrl(a.assetId), '_blank', 'noopener'); return; }
+    pjReadLocal(a.id).then(function(file){
+      if(file){ var url = URL.createObjectURL(file); window.open(url, '_blank', 'noopener'); setTimeout(function(){ URL.revokeObjectURL(url); }, 60000); return; }
+      if(a.driveUrl){ window.open(a.driveUrl, '_blank', 'noopener'); return; }
+      toast("Ce fichier n'est pas disponible sur cet appareil et n'a pas encore été envoyé sur Drive.");
+    });
+  }
   function openTaskAttachment(taskId, attId){
     var t = state.tasks.find(function(x){ return x.id===taskId; });
     var a = t && (t.attachments||[]).find(function(x){ return x.id===attId; });
@@ -4107,6 +4166,7 @@
   function doSync(){
     if(!state.config.sheetFileId){ openSettings(); return; }
     flushPendingDriveTrash().catch(function(){});
+    ensFeuillesRetry().catch(function(){});
     state.syncing = true; state.syncError = null; render();
     var folderRef = null, sheetFileId = state.config.sheetFileId;
     ensureAppFolder().catch(function(){ return null; }).then(function(folder){
@@ -7643,7 +7703,8 @@
        et l'import des réponses reçues — voir ficheHubModalHtml/openFicheHubModal (suppression des
        accès en double sur cet écran). */
     html += '<div class="setup-actions">'+
-      '<button class="btn ghost sm" id="btnFicheHub" type="button">'+ICONS.ext+' Fiches à distance</button></div>';
+      '<button class="btn ghost sm" id="btnFicheHub" type="button">'+ICONS.ext+' Fiches à distance</button>'+
+      '<button class="btn ghost sm" id="btnFeuillesLot" type="button">'+ICONS.upload+' Joindre des feuilles personnelles (lot)</button></div>';
     if(state.ensHoraireMode){
       html += '<div class="setup-card"><h2>Qui est en classe à quel moment ?</h2>'+
         '<div class="field"><label>Jour</label><div class="seg" id="horJourSeg">'+JOURS.map(function(j){ return '<button type="button" data-v="'+j+'" aria-pressed="'+(state.horaireJour===j)+'">'+j.slice(0,3)+'</button>'; }).join('')+'</div></div>'+
@@ -7682,6 +7743,7 @@
     var bne2 = $('btnNamesEns'); if(bne2) bne2.onclick = function(){ completeMissingNames('ens', bne2); };
     var bfh = $('btnFicheHub'); if(bfh) bfh.onclick = openFicheHubModal;
     var bsn = $('btnSelEns'); if(bsn) bsn.onclick = function(){ selToggleMode('ens'); };
+    var bfl = $('btnFeuillesLot'); if(bfl) bfl.onclick = function(){ $('fileFeuillesLot').click(); };
     host.querySelectorAll('[data-actstop]').forEach(function(el){ el.onclick = function(ev){ ev.stopPropagation(); }; });
     host.querySelectorAll('.rec-row').forEach(function(el){
       el.onclick = function(){ var e = state.enseignants.find(function(x){ return x.id===el.getAttribute('data-id'); }); if(e) openEnseignantEditor(e); };
@@ -9029,7 +9091,7 @@
         '</div>') : '')+
       '<div class="field"><label>Horaire hebdomadaire</label><div id="horaireList">'+(e.horaire||[]).map(horaireLineHtml).join('')+'</div>'+
       '<button class="addline" id="btnAddHoraire" type="button">'+ICONS.plus+' Ajouter un créneau</button></div>'+
-      '<div class="field"><label>Pièces jointes</label><div id="attachList">'+(e.attachments||[]).map(function(a,i){ return '<div class="attach-row"><span class="t">'+esc(a.titre)+(a.driveUrl?' <a href="'+esc(a.driveUrl)+'" target="_blank" rel="noopener" style="font-size:10.5px;color:var(--ink-faint);">(sur Drive)</a>':'')+'</span><a href="'+assetUrl(a.assetId)+'" target="_blank" rel="noopener" class="icon-btn" style="width:30px;height:30px;">'+ICONS.ext+'</a><button class="icon-btn" data-rmattach="'+i+'" style="width:30px;height:30px;color:var(--danger);">'+ICONS.trash+'</button></div>'; }).join('')+'</div>'+
+      '<div class="field"><label>Pièces jointes</label><div id="attachList">'+(e.attachments||[]).map(function(a,i){ if(a.kind==='feuille_personnelle') return ''; return '<div class="attach-row"><span class="t">'+esc(a.titre)+(a.driveUrl?' <a href="'+esc(a.driveUrl)+'" target="_blank" rel="noopener" style="font-size:10.5px;color:var(--ink-faint);">(sur Drive)</a>':'')+'</span><a href="'+assetUrl(a.assetId)+'" target="_blank" rel="noopener" class="icon-btn" style="width:30px;height:30px;">'+ICONS.ext+'</a><button class="icon-btn" data-rmattach="'+i+'" style="width:30px;height:30px;color:var(--danger);">'+ICONS.trash+'</button></div>'; }).join('')+'</div>'+
       '<button class="addline" id="btnAddAttach" type="button">'+ICONS.upload+' Joindre un document/photo</button></div>'+
       '<div class="field"><label for="eNotes">Notes</label><textarea id="eNotes">'+esc(e.notes)+'</textarea></div>'+
       (state.modalStack[idx].isNew ? '' : ensTsHistoryHtml(e))+
@@ -9044,7 +9106,15 @@
      tableaux de service » où figure sa feuille (la plus récente d'abord), avec les remarques. */
   function ensTsHistoryHtml(e){
     var h = tsHistoryForEns(e.id);
-    var html = '<div class="field"><label>Tableau de service (feuille personnelle)'+(h.length ? ' '+tsStatusTag(h[0].f.statut) : '')+'</label>';
+    var fp = (e.attachments||[]).map(function(a,i){ return {a:a, i:i}; }).filter(function(x){ return x.a.kind==='feuille_personnelle'; });
+    var html = '<div class="field"><label>Feuille personnelle ('+fp.length+')</label>'+
+      (fp.length ? '<div id="fpList">'+fp.map(function(x){ var a = x.a;
+        return '<div class="attach-row"><span class="t"><span class="tag" style="margin-right:4px;">'+esc(a.annee||'')+'</span>'+esc(a.titre)+(a.driveUrl?' <a href="'+esc(a.driveUrl)+'" target="_blank" rel="noopener" style="font-size:10.5px;color:var(--ink-faint);">(sur Drive)</a>':(a.status==='pending' ? ' <span style="font-size:10.5px;color:var(--ink-faint);">(envoi Drive en attente)</span>' : a.status==='error' ? ' <span style="font-size:10.5px;color:var(--danger);">(échec de l\'envoi Drive)</span>' : ''))+'</span>'+
+          '<button type="button" class="icon-btn" data-openfeuille="'+x.i+'" style="width:30px;height:30px;" title="Ouvrir">'+ICONS.ext+'</button>'+
+          '<button class="icon-btn" data-rmattach="'+x.i+'" style="width:30px;height:30px;color:var(--danger);">'+ICONS.trash+'</button></div>'; }).join('')+'</div>'
+        : '<div class="empty" style="margin-top:2px;">Aucune feuille personnelle jointe.</div>')+
+      '<button class="addline" id="btnAddFeuille" type="button">'+ICONS.upload+' Joindre la feuille personnelle (PDF ou photos)</button></div>';
+    html += '<div class="field"><label>Tableau de service'+(h.length ? ' '+tsStatusTag(h[0].f.statut) : '')+'</label>';
     if(!h.length) html += '<div class="empty" style="margin-top:2px;">Aucune validation enregistrée. Elle se fait dans une tâche « Validation des tableaux de service » de son établissement.</div>';
     else html += '<div class="rec-list">'+h.map(function(x){
       return '<div class="rec-row" data-tstask="'+x.task.id+'"><div class="rec-info"><div class="t">'+esc(TS_STATUT_LABEL[x.f.statut]||'')+' · '+(x.task.echeance ? fmtDate(x.task.echeance) : '')+'</div>'+
@@ -10112,8 +10182,21 @@
     var btnRmPhoto = $('btnRmPhoto'); if(btnRmPhoto) btnRmPhoto.onclick = function(){ syncEnsFields(); state.draftRecord.photoAssetId=null; render(); };
     var btnAddHoraire = $('btnAddHoraire'); if(btnAddHoraire) btnAddHoraire.onclick = function(){ syncEnsFields(); state.draftRecord.horaire.push({jour:'Lundi',debut:'08:00',fin:'09:00',matiere:'',classe:'',salle:''}); render(); };
     document.querySelectorAll('[data-rmhor]').forEach(function(el){ el.onclick=function(){ syncEnsFields(); state.draftRecord.horaire.splice(parseInt(el.getAttribute('data-rmhor')),1); render(); }; });
-    var btnAddAttach = $('btnAddAttach'); if(btnAddAttach) btnAddAttach.onclick = function(){ syncEnsFields(); $('fileAttachInput').click(); };
-    document.querySelectorAll('[data-rmattach]').forEach(function(el){ el.onclick=function(){ syncEnsFields(); state.draftRecord.attachments.splice(parseInt(el.getAttribute('data-rmattach')),1); render(); }; });
+    var btnAddAttach = $('btnAddAttach'); if(btnAddAttach) btnAddAttach.onclick = function(){ syncEnsFields(); attachKindNext = ''; $('fileAttachInput').click(); };
+    document.querySelectorAll('[data-openfeuille]').forEach(function(el){ el.onclick = function(){ var a = (state.draftRecord.attachments||[])[parseInt(el.getAttribute('data-openfeuille'))]; if(a) openEnsAttachment(a); }; });
+    var btnAddFeuille = $('btnAddFeuille'); if(btnAddFeuille) btnAddFeuille.onclick = function(){ syncEnsFields(); attachKindNext = 'feuille_personnelle'; $('fileAttachInput').click(); };
+    document.querySelectorAll('[data-rmattach]').forEach(function(el){ el.onclick=function(){
+      syncEnsFields();
+      var i = parseInt(el.getAttribute('data-rmattach')), a = state.draftRecord.attachments[i];
+      if(a && a.kind==='feuille_personnelle'){
+        if(!confirm('Retirer la feuille personnelle « '+a.titre+' » ?'+(a.driveFileId ? '\n\nLe fichier sera aussi mis à la corbeille de Google Drive.' : ''))) return;
+        if(a.driveFileId) trashDriveIds([a.driveFileId]);
+        pjDeleteLocal(a.id);
+        var cur = state.enseignants.find(function(x){ return x.id===state.draftRecord.id; });
+        if(cur) recordSet('enseignant', Object.assign({}, cur, {attachments:(cur.attachments||[]).filter(function(x){ return x.id!==a.id; })}));
+      }
+      state.draftRecord.attachments.splice(i,1); render();
+    }; });
     document.querySelectorAll('[data-visit]').forEach(function(el){ el.onclick=function(){ var t=state.tasks.find(function(x){ return x.id===el.getAttribute('data-visit'); }); if(t) openTaskDetail(t); }; });
     var printHist = $('btnPrintHistorique'); if(printHist) printHist.onclick = function(){ printFromSpec(buildEnsHistoriqueSpec(state.draftRecord)); };
     var pdfHist = $('btnPdfHistorique'); if(pdfHist) pdfHist.onclick = function(){
@@ -10706,10 +10789,25 @@
     }).catch(function(err){ toast(assetsErrorMessage(err)); });
   };
   $('fileAttachInput').onchange = function(){
-    var f = this.files[0]; this.value=''; if(!f) return;
+    var files = Array.prototype.slice.call(this.files||[]); this.value=''; if(!files.length) return;
+    var kind = attachKindNext; attachKindNext = '';
+    if(kind==='feuille_personnelle'){
+      var dr = state.draftRecord; if(!dr) return;
+      files.reduce(function(p, f){ return p.then(function(){ return ensAttachFeuille(dr.id, f); }); }, Promise.resolve())
+        .then(function(){ toast(files.length+' feuille(s) jointe(s)'+(state.mcpReady ? ' — envoi sur Drive.' : ' (envoi sur Drive à la prochaine connexion).')); });
+      return;
+    }
+    files.forEach(function(f){ attachFileToDraftEns(f, kind); });
+  };
+  /* Joint un fichier à la fiche enseignant(e) ouverte (state.draftRecord) — pièce jointe ordinaire ou
+     feuille personnelle (kind 'feuille_personnelle', datée de l'année scolaire) — puis l'envoie dans
+     son dossier Drive (Enseignants / Nom — PPR). */
+  function attachFileToDraftEns(f, kind){
     var recId = state.draftRecord && state.draftRecord.id;
     uploadAsset(f).then(function(res){
       var entry = {assetId:res.id, titre:f.name, type:res.contentType, driveFileId:null, driveUrl:null};
+      if(kind){ entry.kind = kind; entry.annee = anneeScolaireCourante(); }
+      state.draftRecord.attachments = state.draftRecord.attachments || [];
       state.draftRecord.attachments.push(entry);
       render(); toast('Fichier joint.');
       var dr = state.draftRecord || {};
@@ -10733,7 +10831,31 @@
         }
       });
     }).catch(function(err){ toast(assetsErrorMessage(err)); });
-  };
+  }
+  /* ---- Feuilles personnelles en lot (liste Enseignants) ----
+     Chaque fichier est rattaché à l'enseignant(e) dont le PPR figure dans son nom (ex.
+     « 1408356_AGOUJIL_ZOUHIR.pdf »), sinon dont tous les mots du nom y figurent. Bilan montré avant
+     d'enregistrer ; les fichiers non reconnus sont signalés et ignorés. */
+  function feuilleMatchEns(fname){
+    var base = String(fname||'').replace(/\.[a-z0-9]+$/i,'');
+    var digits = base.match(/\d{5,8}/g) || [];
+    for(var i=0;i<digits.length;i++){ var byP = state.enseignants.find(function(e){ return e.ppr && String(e.ppr).trim()===digits[i]; }); if(byP) return byP; }
+    var norm = function(t){ return String(t||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9\u0600-\u06ff]+/g,' ').trim(); };
+    var fb = ' '+norm(base)+' ';
+    var cands = state.enseignants.filter(function(e){ return [e.nom, e.nomFr, e.nomAr].some(function(n){ var w = norm(n).split(' ').filter(function(x){ return x.length>1; }); return w.length>=2 && w.every(function(x){ return fb.indexOf(' '+x+' ')>=0; }); }); });
+    return cands.length===1 ? cands[0] : null;
+  }
+  function attachFeuillesLot(files){
+    var plan = files.map(function(f){ return { f:f, e: feuilleMatchEns(f.name) }; });
+    var ok = plan.filter(function(x){ return x.e; }), ko = plan.filter(function(x){ return !x.e; });
+    if(!ok.length){ toast("Aucun fichier reconnu : mettez le PPR ou le nom de l'enseignant(e) dans le nom du fichier."); return; }
+    if(!confirm('Joindre '+ok.length+' feuille(s) personnelle(s) :\n\n'+ok.slice(0,15).map(function(x){ return '• '+x.f.name+' → '+x.e.nom; }).join('\n')+(ok.length>15?'\n…':'')+
+      (ko.length ? '\n\nNon reconnu(s), ignoré(s) :\n'+ko.map(function(x){ return '• '+x.f.name; }).join('\n') : ''))) return;
+    var n = 0;
+    ok.reduce(function(p, x){ return p.then(function(){ return ensAttachFeuille(x.e.id, x.f).then(function(r){ if(r) n++; }); }); }, Promise.resolve())
+      .then(function(){ toast(n+' feuille(s) personnelle(s) jointe(s)'+(state.mcpReady ? ' et envoyée(s) sur Drive.' : ' (envoi sur Drive à la prochaine connexion).')); });
+  }
+  $('fileFeuillesLot').onchange = function(){ var files = Array.prototype.slice.call(this.files||[]); this.value=''; if(files.length) attachFeuillesLot(files); };
   /* Documents de travail utilisés lors d'une réunion pédagogique / d'un cours expérimental, joints
      directement à la tâche (task.attachments) — même mécanisme de stockage que les pièces jointes
      enseignant ci-dessus, mais ciblant la tâche en cours via taskAttachTargetId plutôt que
