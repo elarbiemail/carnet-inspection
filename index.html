@@ -7508,30 +7508,37 @@
       var ids = {}; ets.forEach(function(e){ ids[e.id] = 1; });
       return { et: ets.length, en: state.enseignants.filter(function(e){ return ids[e.etablissementId]; }).length };
     };
-    var zones = state.zones.slice().sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||''); });
-    var items = zones.map(function(z){ return {id:z.id, nom:z.nom}; });
+    var items = state.zones.slice().sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||''); }).map(function(z){ return {id:z.id, nom:z.nom}; });
     if(state.etablissements.some(function(e){ return !(e.zoneId && known[e.zoneId]); }) || on(ZONE_NONE)) items.push({id:ZONE_NONE, nom:'Sans zone'});
-    if(compact){
-      return '<div class="setup-card" id="zoneFilterBar" style="padding:9px 12px;margin-bottom:10px;"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'+
-        '<b style="font-size:12.5px;">Filtre zones :</b><span style="font-size:12.5px;flex:1;min-width:0;">'+esc(zoneFilterLabel())+'</span>'+
-        '<button class="btn ghost sm" type="button" data-zfedit="1">Modifier</button><button class="btn ghost sm" type="button" data-zfall="1">Tout afficher</button></div></div>';
-    }
-    return '<div class="setup-card" id="zoneFilterCard" style="padding:12px 14px;margin-bottom:12px;">'+
-      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;"><h2 style="margin:0;flex:1;font-size:15px;">Zones affichées</h2>'+
-      '<button class="btn '+(f.length ? 'ghost' : 'primary')+' sm" type="button" data-zfall="1">Toutes</button></div>'+
-      '<div style="display:flex;flex-direction:column;gap:6px;">'+items.map(function(it){ var c = cnt(it.id);
-        return '<label style="display:flex;align-items:center;gap:9px;font-size:13.5px;cursor:pointer;"><input type="checkbox" data-zfzone="'+it.id+'"'+(on(it.id)?' checked':'')+' style="width:18px;height:18px;">'+
-          '<span style="flex:1;">'+esc(it.nom)+'</span><span style="font-size:11.5px;color:var(--ink-faint);">'+c.et+' étab. · '+c.en+' ens.</span></label>'; }).join('')+'</div>'+
-      '<p style="font-size:11px;color:var(--ink-faint);margin:8px 0 0;">'+(f.length ? 'Filtre actif sur tout le carnet : tableau de bord, tâches, enseignant(e)s, établissements, bilan et documents.' : 'Aucune case cochée = toutes les zones. Cochez une ou plusieurs zones pour filtrer tout le carnet.')+'</p></div>';
+    var label = f.length ? (f.length===1 ? zoneFilterLabel() : f.length+' zones : '+zoneFilterLabel()) : 'Toutes les zones';
+    /* Liste déroulante à cases à cocher : le bouton affiche la sélection ; le panneau reste ouvert
+       pendant qu'on coche (state.zoneDdOpen) et se ferme avec « OK » ou en touchant le bouton. */
+    var open = !!state.zoneDdOpen;
+    return '<div class="setup-card" id="zoneFilterBox" style="padding:10px 12px;margin-bottom:12px;position:relative;">'+
+      '<div style="display:flex;align-items:center;gap:8px;">'+
+        '<span style="font-size:12.5px;font-weight:700;white-space:nowrap;">'+(compact ? 'Filtre zones' : 'Zones affichées')+'</span>'+
+        '<button type="button" data-zftoggle="1" aria-expanded="'+open+'" style="flex:1;min-width:0;display:flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 11px;font:inherit;font-size:13px;color:inherit;text-align:left;cursor:pointer;">'+
+          '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'+(f.length ? 'font-weight:600;' : '')+'">'+esc(label)+'</span><span aria-hidden="true">'+(open ? '▴' : '▾')+'</span></button>'+
+        (f.length ? '<button class="btn ghost sm" type="button" data-zfall="1" title="Afficher toutes les zones">Tout</button>' : '')+
+      '</div>'+
+      (open ? '<div style="margin-top:8px;border:1px solid var(--line);border-radius:9px;background:var(--surface);padding:6px 4px;max-height:300px;overflow:auto;">'+
+        '<label style="display:flex;align-items:center;gap:9px;font-size:13.5px;padding:7px 9px;cursor:pointer;border-bottom:1px solid var(--line);"><input type="checkbox" data-zfallcb="1"'+(f.length ? '' : ' checked')+' style="width:18px;height:18px;"><b style="flex:1;">Toutes les zones</b></label>'+
+        items.map(function(it){ var c = cnt(it.id);
+          return '<label style="display:flex;align-items:center;gap:9px;font-size:13.5px;padding:7px 9px;cursor:pointer;"><input type="checkbox" data-zfzone="'+it.id+'"'+(on(it.id)?' checked':'')+' style="width:18px;height:18px;">'+
+            '<span style="flex:1;">'+esc(it.nom)+'</span><span style="font-size:11.5px;color:var(--ink-faint);white-space:nowrap;">'+c.et+' étab. · '+c.en+' ens.</span></label>'; }).join('')+
+        '<div style="display:flex;justify-content:flex-end;padding:6px 6px 2px;"><button class="btn primary sm" type="button" data-zftoggle="1">OK</button></div></div>' : '')+
+      (!compact && !open ? '<p style="font-size:11px;color:var(--ink-faint);margin:6px 2px 0;">'+(f.length ? 'Filtre actif sur tout le carnet : tableau de bord, tâches, enseignant(e)s, établissements, bilan et documents.' : 'Choisissez une ou plusieurs zones pour filtrer tout le carnet.')+'</p>' : '')+
+    '</div>';
   }
   function wireZoneFilter(host){
     host.querySelectorAll('[data-zfzone]').forEach(function(cb){ cb.onchange = function(){
       var id = cb.getAttribute('data-zfzone'), f = (zoneFilterActive()||[]).slice();
       if(cb.checked){ if(f.indexOf(id)<0) f.push(id); } else f = f.filter(function(x){ return x!==id; });
-      state.zoneFilter = f; zoneFilterSave(); state.ensEtabFilter = ''; render();
+      state.zoneFilter = f; zoneFilterSave(); state.ensEtabFilter = ''; state.zoneDdOpen = true; render();
     }; });
-    host.querySelectorAll('[data-zfall]').forEach(function(b){ b.onclick = function(){ state.zoneFilter = []; zoneFilterSave(); render(); }; });
-    host.querySelectorAll('[data-zfedit]').forEach(function(b){ b.onclick = function(){ goToTab('home'); }; });
+    host.querySelectorAll('[data-zfallcb]').forEach(function(cb){ cb.onchange = function(){ state.zoneFilter = []; zoneFilterSave(); state.zoneDdOpen = true; render(); }; });
+    host.querySelectorAll('[data-zfall]').forEach(function(b){ b.onclick = function(){ state.zoneFilter = []; zoneFilterSave(); state.zoneDdOpen = false; render(); }; });
+    host.querySelectorAll('[data-zftoggle]').forEach(function(b){ b.onclick = function(){ state.zoneDdOpen = !state.zoneDdOpen; render(); }; });
   }
 
   /* ================= RENDER ================= */
