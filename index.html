@@ -3632,7 +3632,19 @@
      convertToGoogleDoc est vrai (utilisé pour le .docx), Drive convertit le fichier envoyé en Google
      Doc natif au lieu de le stocker tel quel — c'est ce qui permet ensuite de l'ouvrir et de le
      personnaliser directement dans l'éditeur Google Docs, plutôt qu'un simple fichier .docx figé. */
+  /* Document du carnet en cours de génération (voir runGenFile / création Google Doc) : chaque fichier
+     envoyé sur Drive pour lui est noté dans doc.driveFiles, pour pouvoir l'effacer de Drive quand le
+     document est supprimé (deleteDocumentEverywhere). */
+  var genDocCtx = null;
+  function noteDocDriveFile(docId, fileId, name){
+    if(!docId || !fileId) return;
+    var add = function(d){ if(!d) return; d.driveFiles = d.driveFiles || []; if(!d.driveFiles.some(function(f){ return f.id===fileId; })) d.driveFiles.push({ id:fileId, name:name||'', at: nowIso() }); };
+    var saved = state.documents.find(function(x){ return x.id===docId; });
+    if(saved){ add(saved); saved.updatedAt = nowIso(); saveLocal('documents'); }
+    if(state.draftDoc && state.draftDoc.id===docId && state.draftDoc!==saved) add(state.draftDoc);
+  }
   function uploadBlobToDrive(blob, filename, mime, convertToGoogleDoc, taskId){
+    var forDoc = genDocCtx;
     return new Promise(function(resolve, reject){
       var reader = new FileReader();
       reader.onload = function(){ resolve(String(reader.result).split(',')[1] || ''); };
@@ -3653,7 +3665,74 @@
           });
         });
       });
+    }).then(function(res){
+      if(forDoc && res && res.payload && res.payload.id) noteDocDriveFile(forDoc, res.payload.id, filename);
+      return res;
     });
+  }
+  /* ---- Suppression d'un document généré, ici ET sur Google Drive ----
+     Fichiers visés : ceux notés sur le document (driveFiles), le Google Doc éventuel (gdocUrl), et —
+     pour les documents générés avant ce suivi — les fichiers du dossier « Documents générés » de la
+     tâche dont le nom commence par le type du document, seulement si la tâche n'a qu'un document de ce
+     type (sinon impossible de savoir lequel est lequel : ils sont signalés, pas effacés). Les fichiers
+     vont dans la corbeille de Drive (récupérables 30 jours). Sans connexion Drive, ils sont mis en
+     attente et effacés à la prochaine synchronisation. */
+  function docGdocId(d){ var m = /\/document\/d\/([^/]+)/.exec(d && d.gdocUrl || ''); return m ? m[1] : null; }
+  function docDriveIds(d){
+    var ids = (d.driveFiles||[]).map(function(f){ return f.id; });
+    var g = docGdocId(d); if(g && ids.indexOf(g)<0) ids.push(g);
+    return ids;
+  }
+  function legacyDocDriveFiles(d){
+    var t = state.tasks.find(function(x){ return x.id===d.taskId; });
+    if(!state.mcpReady || !t || !t.driveFolderId) return Promise.resolve({ files:[], ambiguous:0 });
+    var sameType = state.documents.filter(function(x){ return x.taskId===d.taskId && x.type===d.type; }).length;
+    var prefix = safeFileName((DOC_TYPE_INFO[d.type]||{}).label+'_');
+    var q = "title = 'Documents générés' and mimeType = 'application/vnd.google-apps.folder' and '"+t.driveFolderId+"' in parents";
+    return mcpCall('search_files', {query:q, pageSize:3, excludeContentSnippets:true}).then(function(res){
+      var folder = ((res.payload && res.payload.files) || [])[0];
+      if(!folder) return { files:[], ambiguous:0 };
+      return mcpCall('search_files', {query:"'"+folder.id+"' in parents", pageSize:100, excludeContentSnippets:true}).then(function(r2){
+        var files = ((r2.payload && r2.payload.files) || []).filter(function(f){ return String(f.title||'').indexOf(prefix)===0; });
+        return sameType>1 ? { files:[], ambiguous: files.length } : { files: files, ambiguous:0 };
+      });
+    }).catch(function(){ return { files:[], ambiguous:0 }; });
+  }
+  function trashDriveIds(ids){
+    if(!ids.length) return Promise.resolve(0);
+    if(!state.mcpReady){
+      var q = (state.config.pendingDriveTrash||[]).concat(ids.filter(function(id){ return (state.config.pendingDriveTrash||[]).indexOf(id)<0; }));
+      configSet({ pendingDriveTrash: q });
+      return Promise.resolve(-ids.length);
+    }
+    var n = 0;
+    return ids.reduce(function(p, id){ return p.then(function(){ return mcpCall('trash_file', {fileId:id}).then(function(){ n++; }).catch(function(){}); }); }, Promise.resolve()).then(function(){ return n; });
+  }
+  function flushPendingDriveTrash(){
+    var q = state.config.pendingDriveTrash||[];
+    if(!state.mcpReady || !q.length) return Promise.resolve();
+    return trashDriveIds(q).then(function(){ configSet({ pendingDriveTrash: [] }); });
+  }
+  function deleteDocumentEverywhere(d, opts){
+    opts = opts || {};
+    var label = (DOC_TYPE_INFO[d.type]||{}).label || 'Document';
+    return legacyDocDriveFiles(d).then(function(leg){
+      var ids = docDriveIds(d).concat(leg.files.map(function(f){ return f.id; }).filter(function(id){ return docDriveIds(d).indexOf(id)<0; }));
+      var names = (d.driveFiles||[]).map(function(f){ return f.name; }).concat(leg.files.map(function(f){ return f.title; }));
+      if(docGdocId(d) && !(d.driveFiles||[]).some(function(f){ return f.id===docGdocId(d); })) names.push('Google Doc');
+      var msg = 'Supprimer « '+label+(d.beneficiaireNom ? ' — '+d.beneficiaireNom : '')+' » ?\n\n'+
+        (ids.length ? ids.length+' fichier(s) sur Google Drive seront aussi mis à la corbeille'+(state.mcpReady ? '' : ' (à la prochaine connexion à Drive)')+' :\n'+names.slice(0,6).map(function(n){ return '• '+n; }).join('\n')+(names.length>6?'\n…':'')
+          : 'Aucun fichier Drive connu pour ce document.')+
+        (leg.ambiguous ? '\n\n'+leg.ambiguous+' ancien(s) fichier(s) « '+label+' » restent dans le dossier Drive de la tâche : plusieurs documents de ce type existent, vérifiez-les vous-même.' : '');
+      if(!opts.noConfirm && !confirm(msg)) return null;
+      return trashDriveIds(ids).then(function(n){
+        return recordDelete('document', d.id).then(function(){ return { trashed:n, ids:ids.length, ambiguous:leg.ambiguous }; });
+      });
+    });
+  }
+  function docDeleteToast(r){
+    if(!r) return;
+    toast('Document supprimé'+(r.trashed>0 ? ' — '+r.trashed+' fichier(s) mis à la corbeille de Drive' : r.trashed<0 ? ' — fichiers Drive effacés à la prochaine connexion' : '')+'.');
   }
   /* ================= pièces jointes des tâches → dossiers Google Drive structurés =================
      Chaque tâche a son propre dossier dans le Drive de l'application, rangé par année scolaire et par
@@ -4027,6 +4106,7 @@
   }
   function doSync(){
     if(!state.config.sheetFileId){ openSettings(); return; }
+    flushPendingDriveTrash().catch(function(){});
     state.syncing = true; state.syncError = null; render();
     var folderRef = null, sheetFileId = state.config.sheetFileId;
     ensureAppFolder().catch(function(){ return null; }).then(function(folder){
@@ -8339,8 +8419,12 @@
       '<div class="setup-actions" style="margin-bottom:8px;">'+avail.map(function(dt){ return '<button class="btn ghost sm" data-newdoc="'+dt+'" type="button">'+ICONS.plus+' '+DOC_TYPE_INFO[dt].label+'</button>'; }).join('')+
       (invites.length && avail.indexOf('attestation')!==-1 ? '<button class="btn ghost sm" id="btnGenAttestations" type="button">'+ICONS.plus+' Attestations des invité(e)s ('+invites.length+')</button>' : '')+
       '</div>'+
-      (docs.length ? '<div class="doc-list">'+docs.map(function(d){ return '<div class="doc-row" data-opendoc="'+d.id+'" style="cursor:pointer;"><div class="doc-ico">'+ICONS.doc+'</div>'+
-        '<div class="doc-info"><div class="t">'+esc(DOC_TYPE_INFO[d.type].label)+(d.beneficiaireNom?' — '+esc(d.beneficiaireNom):'')+'</div><div class="s">'+fmtDate(d.date)+'</div></div></div>'; }).join('')+'</div>' : '<div class="empty">Aucun document généré pour cette tâche.</div>')+
+      (docs.length ? '<div class="doc-list">'+docs.map(function(d){ var nDrive = docDriveIds(d).length;
+        return '<div class="doc-row" data-opendoc="'+d.id+'" style="cursor:pointer;"><div class="doc-ico">'+ICONS.doc+'</div>'+
+        '<div class="doc-info"><div class="t">'+esc(DOC_TYPE_INFO[d.type].label)+(d.beneficiaireNom?' — '+esc(d.beneficiaireNom):'')+'</div><div class="s">'+fmtDate(d.date)+(nDrive ? ' · '+nDrive+' fichier(s) sur Drive' : '')+'</div></div>'+
+        '<button class="icon-btn" data-deldoc="'+d.id+'" type="button" title="Supprimer le document (et ses fichiers Drive)" style="width:34px;height:34px;color:var(--danger);flex-shrink:0;">'+ICONS.trash+'</button></div>'; }).join('')+'</div>'+
+        (docs.length>1 ? '<div class="btn-row" style="margin:6px 0 4px;"><button class="btn ghost sm" id="btnDelAllDocs" type="button" style="color:var(--danger);">'+ICONS.trash+' Supprimer tous les documents ('+docs.length+')</button></div>' : '')
+        : '<div class="empty">Aucun document généré pour cette tâche.</div>')+
       taskAttachmentsHtml(t)+
       '<div class="btn-row" style="margin-top:16px;"><button class="btn ghost" id="btnEditTask" type="button">Modifier</button><button class="btn danger" id="btnDeleteTask2" type="button">Supprimer</button></div>'+
       '</div></div>';
@@ -9471,6 +9555,20 @@
         selectedIds: (tk.feuilles||[]).map(function(f){ return f.enseignantId; }),
         onPickMany: function(list){ tk.feuilles = tk.feuilles || []; list.forEach(function(e){ if(!tk.feuilles.some(function(f){ return f.enseignantId===e.id; })) tk.feuilles.push(tsFeuilleFromEns(e)); }); tsSaveTask(tk); } }); };
     })();
+    document.querySelectorAll('[data-deldoc]').forEach(function(el){ el.onclick = function(ev){
+      ev.stopPropagation();
+      var d = state.documents.find(function(x){ return x.id===el.getAttribute('data-deldoc'); }); if(!d) return;
+      deleteDocumentEverywhere(d).then(docDeleteToast);
+    }; });
+    var delAllDocs = $('btnDelAllDocs'); if(delAllDocs) delAllDocs.onclick = function(){
+      var mT = state.modalStack[state.modalStack.length-1];
+      var list = state.documents.filter(function(x){ return x.taskId===mT.taskId; });
+      var nDrive = list.reduce(function(a,d){ return a + docDriveIds(d).length; }, 0);
+      if(!confirm('Supprimer les '+list.length+' documents de cette tâche ?'+(nDrive ? '\n\n'+nDrive+' fichier(s) connus sur Google Drive seront aussi mis à la corbeille.' : '')+'\n\nLes anciens fichiers sans suivi sont recherchés dans le dossier Drive de la tâche.')) return;
+      var tot = { trashed:0, ids:0, ambiguous:0 }, n = 0;
+      list.reduce(function(p, d){ return p.then(function(){ return deleteDocumentEverywhere(d, {noConfirm:true}).then(function(r){ if(r){ n++; tot.trashed += r.trashed; tot.ambiguous += r.ambiguous; } }); }); }, Promise.resolve())
+        .then(function(){ toast(n+' document(s) supprimé(s)'+(tot.trashed>0 ? ', '+tot.trashed+' fichier(s) mis à la corbeille de Drive' : tot.trashed<0 ? ' ; fichiers Drive effacés à la prochaine connexion' : '')+(tot.ambiguous ? ' ; '+tot.ambiguous+' ancien(s) fichier(s) à vérifier dans le dossier Drive de la tâche' : '')+'.'); });
+    };
     document.querySelectorAll('[data-newdoc]').forEach(function(el){ el.onclick = function(){ var m=state.modalStack[state.modalStack.length-1]; openDocEditor(m.taskId, el.getAttribute('data-newdoc'), null); }; });
     document.querySelectorAll('[data-opendoc]').forEach(function(el){ el.onclick = function(){ var d=state.documents.find(function(x){ return x.id===el.getAttribute('data-opendoc'); }); if(d) openDocEditor(d.taskId, d.type, d); }; });
     var editTaskBtn = $('btnEditTask'); if(editTaskBtn) editTaskBtn.onclick = function(){ var m=state.modalStack[state.modalStack.length-1]; var t=state.tasks.find(function(x){return x.id===m.taskId;}); openTaskEditor(t); };
@@ -10487,7 +10585,10 @@
     };
     var printBtn = $('btnPrintDoc'); if(printBtn) printBtn.onclick = function(){ syncDocGenericFields(); doPrint(); };
     var saveDocBtn = $('btnSaveDoc'); if(saveDocBtn) saveDocBtn.onclick = function(){ syncDocGenericFields(); saveDoc(); };
-    var delDoc = $('btnDeleteDoc'); if(delDoc) delDoc.onclick = function(){ recordDelete('document', state.draftDoc.id).then(function(){ closeTopModal(); toast('Document supprimé.'); }); };
+    var delDoc = $('btnDeleteDoc'); if(delDoc) delDoc.onclick = function(){
+      var saved = state.documents.find(function(x){ return x.id===state.draftDoc.id; }) || state.draftDoc;
+      deleteDocumentEverywhere(saved).then(function(r){ if(r){ closeTopModal(); docDeleteToast(r); } });
+    };
     function docFileBase(){
       var m = state.modalStack[state.modalStack.length-1];
       var task = state.tasks.find(function(t){ return t.id===m.taskId; });
@@ -10495,6 +10596,7 @@
     }
     function runGenFile(kind, btn){
       syncDocGenericFields();
+      genDocCtx = state.draftDoc.id;
       var m = state.modalStack[state.modalStack.length-1];
       var task = state.tasks.find(function(t){ return t.id===m.taskId; });
       var spec = buildDocSpec(state.draftDoc, task);
@@ -10505,6 +10607,8 @@
       var tid = task ? task.id : null;
       var p = off ? (kind==='pdf' ? downloadOfficialPdf(off, docFileBase(), tid) : downloadOfficialDocx(off, docFileBase(), tid))
         : (kind==='pdf' ? downloadPdf(spec, docFileBase(), tid) : downloadDocx(spec, docFileBase(), tid));
+      /* l'envoi Drive a lu genDocCtx en démarrant : on le libère pour ne rien attribuer d'autre à ce document */
+      p.then(function(){ genDocCtx = null; }, function(){ genDocCtx = null; });
       p.then(function(gdocUrl){
         /* Une fois le .docx converti en Google Doc dans Drive, on garde son URL sur le document
            (brouillon en cours + enregistrement déjà sauvegardé le cas échéant) et on redessine pour
@@ -10537,10 +10641,12 @@
       if(statusEl){ statusEl.hidden = false; statusEl.textContent = 'Création du Google Doc…'; }
       gdocBtn.disabled = true;
       var blobP = off ? officialToDocxBlob(off) : ensureDocx().then(function(){ return specToDocxBlob(buildDocSpec(state.draftDoc, task)); });
+      genDocCtx = state.draftDoc.id;
       blobP.then(function(blob){
         return uploadBlobToDrive(blob, docFileBase()+'.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', true, task ? task.id : null);
       }).then(function(res){
         var id = res && res.payload && res.payload.id;
+        genDocCtx = null;
         if(!id) throw new Error('upload');
         var url = googleDocEditUrl(id);
         state.draftDoc.gdocUrl = url;
