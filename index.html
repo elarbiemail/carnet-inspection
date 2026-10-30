@@ -6172,6 +6172,7 @@
       kpi(a.etabCount, '/ '+a.etabTotal, 'Établissements concernés ('+pct(a.etabCount, a.etabTotal)+' %)', pct(a.etabCount, a.etabTotal))+
       kpi(a.late, '', 'En retard (échéance passée)')+
       '</div>';
+    html += '<div class="btn-row" style="margin:8px 0 4px;"><button class="btn ghost sm" id="btnBcGoAdd" type="button">'+ICONS.plus+' Ajouter un graphique</button><span style="font-size:11.5px;color:var(--ink-faint);align-self:center;">'+bilanChartCfg().length+' graphique(s) · '+bilanChartCfg().filter(function(c){ return c.export!==false; }).length+' inclus dans le bilan</span></div>';
     var defs = bilanChartDefs(), selSt = 'border:1px solid var(--line);background:var(--surface-2);border-radius:8px;padding:5px 6px;font-size:11.5px;max-width:150px;';
     defs.forEach(function(c, i){
       var tb = c.table(a), has = c.show(a);
@@ -6180,17 +6181,22 @@
         '<select data-bcdata="'+esc(c.id)+'" title="Données représentées" style="'+selSt+'">'+bcDataOptions(c.D.k)+'</select>'+
         '<button type="button" class="icon-btn" data-bcmove="'+esc(c.id)+':-1" title="Monter" style="width:28px;height:28px;"'+(i===0?' disabled':'')+'>↑</button>'+
         '<button type="button" class="icon-btn" data-bcmove="'+esc(c.id)+':1" title="Descendre" style="width:28px;height:28px;"'+(i===defs.length-1?' disabled':'')+'>↓</button>'+
-        '<button type="button" class="icon-btn" data-bcrm="'+esc(c.id)+'" title="Retirer ce graphique" style="width:28px;height:28px;color:var(--danger);">'+ICONS.trash+'</button></div>';
-      html += '<div class="setup-card"><h2>'+esc(c.h)+'</h2>'+ctrls+
+        '<button type="button" class="icon-btn" data-bcedit="'+esc(c.id)+'" title="Modifier le titre" style="width:28px;height:28px;">✎</button>'+
+        '<button type="button" class="icon-btn" data-bcrm="'+esc(c.id)+'" title="Supprimer ce graphique" style="width:28px;height:28px;color:var(--danger);">'+ICONS.trash+'</button></div>'+
+        '<label style="display:flex;align-items:center;gap:6px;font-size:12px;margin:0 0 8px;"><input type="checkbox" data-bcexp="'+esc(c.id)+'"'+(c.cfg.export===false?'':' checked')+'> Inclure dans le bilan produit (impression, Word, PDF)</label>'+
+        (state.bcEdit===c.id ? '<div class="rowline" style="margin:0 0 8px;"><input type="text" id="bcTitleInput" value="'+esc(c.cfg.titre||c.D.l)+'" style="flex:1;border:1px solid var(--line);background:var(--surface-2);border-radius:8px;padding:7px 8px;font-size:12.5px;">'+
+          '<button class="btn primary sm" type="button" data-bctitlesave="'+esc(c.id)+'">OK</button></div>' : '');
+      html += '<div class="setup-card" id="bc_'+esc(c.id)+'"'+(c.cfg.export===false?' style="opacity:.75;"':'')+'><h2>'+esc(c.h)+(c.cfg.export===false?' <span style="font-size:11px;font-weight:500;color:var(--ink-faint);">(non inclus dans le bilan)</span>':'')+'</h2>'+ctrls+
         (!has ? '<div class="empty" style="padding:8px;">Aucune donnée pour cette période ou ce filtre.</div>' :
           (c.legend ? '<div class="viz-legend">'+c.legend(VIZ_SCREEN).map(function(l){ return '<span><i style="background:'+l[1]+'"></i>'+esc(l[0])+'</span>'; }).join('')+'</div>' : '')+
           c.svg(a, VIZ_SCREEN)+(c.type==='table' ? bcTableOpenHtml(tb[0], tb[1]) : vzTableHtml(tb[0], tb[1].map(function(r){ return r.map(String); }))))+'</div>';
     });
-    html += '<div class="setup-card"><h2>Ajouter un graphique</h2>'+
+    html += '<div class="setup-card" id="bcAddCard"><h2>Ajouter un graphique</h2>'+
       '<div class="field"><label for="bcNewData">Données à représenter</label><select id="bcNewData" style="width:100%;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;">'+bcDataOptions(state.bcNewData||'type')+'</select></div>'+
       '<div class="field"><label for="bcNewType">Type de graphique</label><select id="bcNewType" style="width:100%;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;">'+
         (function(){ var D = BILAN_DATA.find(function(x){ return x.k===(state.bcNewData||'type'); }) || BILAN_DATA[2]; return bcTypesFor(D.kind).map(function(k){ var t = BILAN_CHART_TYPES.find(function(x){ return x.k===k; }); return '<option value="'+k+'">'+esc(t.l)+'</option>'; }).join(''); })()+'</select></div>'+
       '<div class="field"><label for="bcNewTitre">Titre <span style="font-weight:400;color:var(--ink-faint);">(facultatif)</span></label><input type="text" id="bcNewTitre" placeholder="Par défaut : le nom des données"></div>'+
+      '<label style="display:flex;align-items:center;gap:6px;font-size:12px;margin:0 0 10px;"><input type="checkbox" id="bcNewExport" checked> Inclure dans le bilan produit</label>'+
       '<div class="btn-row"><button class="btn primary sm" id="btnBcAdd" type="button">'+ICONS.plus+' Ajouter</button>'+
       (Array.isArray(state.templates.bilanCharts) ? '<button class="btn ghost sm" id="btnBcReset" type="button">Graphiques par défaut</button>' : '')+'</div>'+
       '<p style="font-size:11px;color:var(--ink-faint);margin:6px 2px 0;">Les graphiques choisis sont repris dans le bilan imprimé, Word et PDF. Les tâches suivent la période ; enseignant(e)s et établissements suivent le filtre de zones.</p></div>';
@@ -6215,7 +6221,7 @@
     });
   }
   function bilanChartImages(a){
-    var items = bilanChartDefs().filter(function(c){ return c.show(a) && c.type!=='table'; });
+    var items = bilanChartDefs().filter(function(c){ return c.cfg.export!==false && c.show(a) && c.type!=='table'; });
     return Promise.all(items.map(function(c){
       var svg = c.svg(a, VIZ_PRINT);
       if(c.legend){
@@ -7816,7 +7822,7 @@
       var an = bilanAnalytics(), sp = buildBilanSpec(), ind = sp.tables[0];
       if(ind && ind.heading==='Indicateurs') html += '<div class="p-section"><h3>Indicateurs</h3></div><table class="p-table"><tbody>'+ind.rows.map(function(r){ return '<tr><td>'+esc(r[0])+'</td><td>'+esc(r[1])+'</td></tr>'; }).join('')+'</tbody></table>';
       bilanChartDefs().forEach(function(c){
-        if(!c.show(an)) return;
+        if(c.cfg.export===false || !c.show(an)) return;
         if(c.type==='table'){ var tbp = c.table(an); html += '<div class="p-section" style="break-inside:avoid;"><h3>'+esc(c.h)+'</h3></div><table class="p-table"><thead><tr>'+tbp[0].map(function(x){ return '<th>'+esc(x)+'</th>'; }).join('')+'</tr></thead><tbody>'+tbp[1].map(function(r){ return '<tr>'+r.map(function(x){ return '<td>'+esc(String(x))+'</td>'; }).join('')+'</tr>'; }).join('')+'</tbody></table>'; return; }
         var lg = c.legend ? '<div style="font-size:11px;margin:2px 0 4px;">'+c.legend(VIZ_PRINT).map(function(l){ return '<span style="display:inline-block;margin-right:14px;"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:'+l[1]+';margin-right:5px;vertical-align:-1px;"></span>'+esc(l[0])+'</span>'; }).join('')+'</div>' : '';
         html += '<div class="p-section" style="break-inside:avoid;"><h3>'+esc(c.h)+'</h3>'+lg+'<div style="max-width:150mm;">'+c.svg(an, VIZ_PRINT)+'</div></div>';
@@ -8643,11 +8649,23 @@
       var pr = el.getAttribute('data-bcmove').split(':'), l = bcList(), i = l.findIndex(function(x){ return x.id===pr[0]; }), j = i + parseInt(pr[1],10);
       if(i<0 || j<0 || j>=l.length) return; var t = l[i]; l[i] = l[j]; l[j] = t; bilanChartCfgSet(l);
     }; });
-    host.querySelectorAll('[data-bcrm]').forEach(function(el){ el.onclick = function(){ bilanChartCfgSet(bcList().filter(function(x){ return x.id!==el.getAttribute('data-bcrm'); })); }; });
+    host.querySelectorAll('[data-bcrm]').forEach(function(el){ el.onclick = function(){
+      var c0 = bcList().find(function(x){ return x.id===el.getAttribute('data-bcrm'); });
+      var D0 = c0 && BILAN_DATA.find(function(x){ return x.k===c0.data; });
+      if(!confirm('Supprimer le graphique « '+((c0 && (c0.titre || (D0 && D0.l))) || '')+' » ?')) return;
+      bilanChartCfgSet(bcList().filter(function(x){ return x.id!==el.getAttribute('data-bcrm'); })); }; });
+    host.querySelectorAll('[data-bcexp]').forEach(function(el){ el.onchange = function(){ var l = bcList(), c = l.find(function(x){ return x.id===el.getAttribute('data-bcexp'); }); if(c){ c.export = el.checked; bilanChartCfgSet(l); } }; });
+    host.querySelectorAll('[data-bcedit]').forEach(function(el){ el.onclick = function(){ var id = el.getAttribute('data-bcedit'); state.bcEdit = state.bcEdit===id ? null : id; render(); setTimeout(function(){ var ti = $('bcTitleInput'); if(ti){ ti.focus(); ti.select(); } }, 0); }; });
+    var saveTitle = function(id){ var ti = $('bcTitleInput'), l = bcList(), c = l.find(function(x){ return x.id===id; }); if(!c || !ti) return;
+      var D = BILAN_DATA.find(function(x){ return x.k===c.data; }), v = ti.value.trim(); c.titre = (v && (!D || v!==D.l)) ? v : ''; state.bcEdit = null; bilanChartCfgSet(l); };
+    host.querySelectorAll('[data-bctitlesave]').forEach(function(el){ el.onclick = function(){ saveTitle(el.getAttribute('data-bctitlesave')); }; });
+    var bti = $('bcTitleInput'); if(bti) bti.onkeydown = function(e){ if(e.key==='Enter'){ e.preventDefault(); saveTitle(state.bcEdit); } else if(e.key==='Escape'){ state.bcEdit = null; render(); } };
+    var bga = $('btnBcGoAdd'); if(bga) bga.onclick = function(){ var c = $('bcAddCard'); if(c && c.scrollIntoView) c.scrollIntoView({block:'start', behavior:'smooth'}); };
     var bcNd = $('bcNewData'); if(bcNd) bcNd.onchange = function(){ state.bcNewData = bcNd.value; render(); };
     var bcAdd = $('btnBcAdd'); if(bcAdd) bcAdd.onclick = function(){
-      var l = bcList(); l.push({ id: uid(), data: $('bcNewData').value, type: $('bcNewType').value, titre: ($('bcNewTitre').value||'').trim() });
-      bilanChartCfgSet(l); toast('Graphique ajouté au bilan.');
+      var nid = uid(), l = bcList(); l.push({ id: nid, data: $('bcNewData').value, type: $('bcNewType').value, titre: ($('bcNewTitre').value||'').trim(), export: !!($('bcNewExport')||{checked:true}).checked });
+      bilanChartCfgSet(l); toast('Graphique ajouté.');
+      setTimeout(function(){ var el = $('bc_'+nid); if(el && el.scrollIntoView) el.scrollIntoView({block:'center'}); }, 50);
     };
     var bcRs = $('btnBcReset'); if(bcRs) bcRs.onclick = function(){ if(confirm('Revenir aux graphiques par défaut du bilan ?')) templatesSet({ bilanCharts: null }); };
     $('btnGenBilan').onclick = function(){ withZoneScope(generateBilanDoc); };
@@ -8658,6 +8676,10 @@
       if(statusEl){ statusEl.hidden = false; statusEl.textContent = kind==='pdf' ? 'Génération du PDF…' : 'Génération du document Word…'; }
       if(btn) btn.disabled = true;
       var withCharts = state.bilanCharts !== false;
+      if(withCharts) withZoneScope(function(){ bilanChartDefs().forEach(function(c){
+        if(c.cfg.export===false || c.type!=='table' || !c.show(an)) return;
+        var tb = c.table(an); spec.tables = (spec.tables||[]).concat([{ heading: c.h, headers: tb[0], rows: tb[1].map(function(r){ return r.map(String); }) }]);
+      }); });
       var p = (withCharts ? bilanChartImages(an) : Promise.resolve([])).then(function(imgs){
         spec.charts = imgs;
         return kind==='pdf' ? downloadPdf(spec, 'Bilan_'+todayStr()) : downloadDocx(spec, 'Bilan_'+todayStr());
