@@ -351,12 +351,15 @@
     mask-image:linear-gradient(90deg, transparent 0, #000 16px, #000 calc(100% - 16px), transparent 100%); }
   .hcarousel-track{ display:flex; width:max-content; will-change:transform; }
   .hcarousel .carousel-card{ margin-right:10px; }
-  .hcarousel.moving .hcarousel-track{ animation:hcScroll var(--hc-dur, 40s) linear infinite; }
-  .hcarousel:hover .hcarousel-track, .hcarousel:focus-within .hcarousel-track, .hcarousel.paused .hcarousel-track{ animation-play-state:paused; }
-  @keyframes hcScroll{ from{ transform:translateX(0); } to{ transform:translateX(-50%); } }
+  /* Défilement piloté en JavaScript (voir hcWire) : glisser au doigt ou à la souris pour faire défiler
+     à la main, puis l'animation reprend en douceur au relâchement. */
+  .hcarousel.moving{ touch-action:pan-y; cursor:grab; user-select:none; -webkit-user-select:none; }
+  .hcarousel.moving.dragging{ cursor:grabbing; }
+  .hcarousel.moving img{ -webkit-user-drag:none; pointer-events:none; }
   @media (prefers-reduced-motion:reduce){
     .hcarousel{ overflow-x:auto; -webkit-mask-image:none; mask-image:none; }
-    .hcarousel.moving .hcarousel-track{ animation:none; }
+    .hcarousel.moving .hcarousel-track{ transform:none !important; }
+    .hcarousel.moving{ touch-action:auto; cursor:auto; }
     .hcarousel .hc-dup{ display:none; }
   }
   .activity-list{ display:flex; flex-direction:column; }
@@ -5885,9 +5888,11 @@
      (<title>) et un tableau des données. Palette catégorielle validée (daltonisme) : bleu, orange,
      vert d'eau ; rampe séquentielle bleue pour les données ordonnées (statut, appréciation). */
   var VIZ_SCREEN = { ink:'var(--ink)', soft:'var(--ink-soft)', faint:'var(--ink-faint)', grid:'var(--viz-grid)', surface:'var(--surface)',
-    s1:'var(--viz-1)', s2:'var(--viz-2)', s3:'var(--viz-3)', seq:['var(--viz-seq-1)','var(--viz-seq-2)','var(--viz-seq-3)','var(--viz-seq-4)','var(--viz-seq-5)'], font:'inherit' };
+    s1:'var(--viz-1)', s2:'var(--viz-2)', s3:'var(--viz-3)', seq:['var(--viz-seq-1)','var(--viz-seq-2)','var(--viz-seq-3)','var(--viz-seq-4)','var(--viz-seq-5)'], font:'inherit',
+    cat:['var(--viz-1)','var(--viz-2)','var(--viz-3)','#8a63d2','#d4508a','#c99a06','#3f9fb8','#7d8590','#5aa469','#b5651d','#6b7fd7'] };
   var VIZ_PRINT = { ink:'#1a1a1a', soft:'#52514e', faint:'#7a7974', grid:'#e4e2dc', surface:'#ffffff',
-    s1:'#2a78d6', s2:'#eb6834', s3:'#1baf7a', seq:['#c6dcf6','#93bdee','#5c9be3','#2a78d6','#1b56a0'], font:'Arial, Helvetica, sans-serif' };
+    s1:'#2a78d6', s2:'#eb6834', s3:'#1baf7a', seq:['#c6dcf6','#93bdee','#5c9be3','#2a78d6','#1b56a0'], font:'Arial, Helvetica, sans-serif',
+    cat:['#2a78d6','#eb6834','#1baf7a','#8a63d2','#d4508a','#c99a06','#3f9fb8','#7d8590','#5aa469','#b5651d','#6b7fd7'] };
   function vzEsc(t){ return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
   function vzTrunc(t, n){ t = String(t||''); return t.length > n ? t.slice(0, n-1)+'…' : t; }
   function vzText(x, y, t, pal, o){ o = o||{};
@@ -5962,6 +5967,49 @@
     });
     return out + '</svg>';
   }
+  /* Secteurs / anneau avec légende à droite (valeurs et %). */
+  function vzPie(entries, colors, pal, o){
+    o = o||{}; entries = entries.filter(function(e){ return e[1]>0; });
+    var tot = entries.reduce(function(a,e){ return a+e[1]; }, 0); if(!tot) return '';
+    var W = 340, rowH = 17, H = Math.max(150, 12 + entries.length*rowH), cx = 72, cy = H/2, R = 66, r0 = o.donut ? 38 : 0, ang = -Math.PI/2;
+    var out = '<svg class="viz" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+vzEsc(o.label||'')+'" xmlns="http://www.w3.org/2000/svg">';
+    var pt = function(rr, a){ return (cx + rr*Math.cos(a)).toFixed(2)+','+(cy + rr*Math.sin(a)).toFixed(2); };
+    entries.forEach(function(e, i){
+      var a1 = ang, a2 = ang + e[1]/tot*Math.PI*2, big = (a2-a1) > Math.PI ? 1 : 0, col = colors[i % colors.length], d;
+      if(entries.length===1){ d = 'M'+(cx-R)+','+cy+'a'+R+','+R+' 0 1,0 '+(2*R)+',0a'+R+','+R+' 0 1,0 '+(-2*R)+',0'+(r0 ? 'M'+(cx-r0)+','+cy+'a'+r0+','+r0+' 0 1,1 '+(2*r0)+',0a'+r0+','+r0+' 0 1,1 '+(-2*r0)+',0' : '')+'Z'; }
+      else d = r0 ? 'M'+pt(R,a1)+'A'+R+','+R+' 0 '+big+',1 '+pt(R,a2)+'L'+pt(r0,a2)+'A'+r0+','+r0+' 0 '+big+',0 '+pt(r0,a1)+'Z'
+                  : 'M'+cx+','+cy+'L'+pt(R,a1)+'A'+R+','+R+' 0 '+big+',1 '+pt(R,a2)+'Z';
+      out += '<g class="mk"><path d="'+d+'" fill-rule="evenodd" style="fill:'+col+';stroke:'+pal.surface+';stroke-width:1.5"/><title>'+vzEsc(e[0])+' : '+e[1]+' ('+Math.round(e[1]/tot*100)+' %)</title></g>';
+      ang = a2;
+    });
+    if(r0) out += vzText(cx, cy+5, tot, pal, {anchor:'middle', size:15, bold:true, fill:pal.ink});
+    var ly = cy - entries.length*rowH/2 + 12;
+    entries.forEach(function(e, i){
+      var y = ly + i*rowH;
+      out += '<rect x="160" y="'+(y-9)+'" width="10" height="10" rx="2" style="fill:'+colors[i % colors.length]+'"/>'+vzText(175, y, vzTrunc(e[0], 22)+' — '+e[1]+' ('+Math.round(e[1]/tot*100)+' %)', pal, {size:10.5});
+    });
+    return out + '</svg>';
+  }
+  /* Courbes (1 ou plusieurs séries) sur des seaux ordonnés (temps ou catégories ordonnées). */
+  function vzLine(buckets, series, pal, o){
+    o = o||{}; var W = 340, H = 176, L = 26, B = 22, T = 10, R = 8;
+    var plotW = W-L-R, plotH = H-T-B, n = buckets.length || 1;
+    var max = vzNiceMax(Math.max.apply(null, [1].concat(buckets.map(function(b){ return Math.max.apply(null, series.map(function(s2){ return b[s2.k]||0; })); }))));
+    var out = '<svg class="viz" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="'+vzEsc(o.label||'')+'" xmlns="http://www.w3.org/2000/svg">';
+    var ticks = max <= 4 ? max : 4;
+    for(var t=0;t<=ticks;t++){
+      var v = Math.round(max*t/ticks), y = T + plotH - plotH*t/ticks;
+      out += '<line x1="'+L+'" x2="'+(W-R)+'" y1="'+y+'" y2="'+y+'" style="stroke:'+pal.grid+';stroke-width:1"/>' + vzText(L-5, y+3.5, v, pal, {anchor:'end', size:10, fill:pal.faint});
+    }
+    var X = function(i){ return n===1 ? L + plotW/2 : L + i*plotW/(n-1); }, Y = function(v){ return T + plotH - v/max*plotH; };
+    series.forEach(function(s2){
+      out += '<polyline fill="none" style="stroke:'+s2.color+';stroke-width:2.2;stroke-linejoin:round;stroke-linecap:round" points="'+buckets.map(function(b, i){ return X(i).toFixed(1)+','+Y(b[s2.k]||0).toFixed(1); }).join(' ')+'"/>';
+      buckets.forEach(function(b, i){ out += '<g class="mk"><circle cx="'+X(i).toFixed(1)+'" cy="'+Y(b[s2.k]||0).toFixed(1)+'" r="3.2" style="fill:'+s2.color+'"/><title>'+vzEsc(b.label)+' — '+vzEsc(s2.l)+' : '+(b[s2.k]||0)+'</title></g>'; });
+    });
+    var every = Math.ceil(n/7);
+    buckets.forEach(function(b, i){ if(i%every===0) out += vzText(X(i), H-6, vzTrunc(b.short||b.label, 10), pal, {anchor:'middle', size:10, fill:pal.faint}); });
+    return out + '</svg>';
+  }
   function vzTableHtml(headers, rows){
     return '<details class="viz-table"><summary>Voir les données</summary><table><thead><tr>'+headers.map(function(h,i){ return '<th'+(i?' style="text-align:right"':'')+'>'+esc(h)+'</th>'; }).join('')+'</tr></thead><tbody>'+
       rows.map(function(r){ return '<tr>'+r.map(function(c,i){ return '<td'+(i?' class="n"':'')+'>'+esc(c)+'</td>'; }).join('')+'</tr>'; }).join('')+'</tbody></table></details>';
@@ -6018,21 +6066,101 @@
       byNote: byNote, byDay: byDay.filter(function(x,i){ return i<6 || x[1]; })
     };
   }
-  var BILAN_CHARTS = [
-    { k:'activite', h:'Activité dans le temps', svg:function(a, pal){ return vzColumns(a.buckets, [{k:'done', l:'Réalisées', color:pal.s1},{k:'todo', l:'À venir / en cours', color:pal.s2}], pal, {label:'Activité dans le temps'}); },
-      legend:function(pal){ return [['Réalisées', pal.s1],['À venir / en cours', pal.s2]]; },
-      table:function(a){ return [['Période','Réalisées','À venir'], a.buckets.map(function(b){ return [b.label, b.done, b.todo]; })]; }, show:function(a){ return a.total > 0; } },
-    { k:'statut', h:'Avancement (statut)', svg:function(a, pal){ return vzStack100(a.byWf, pal.seq, pal, {label:'Avancement'}); },
-      table:function(a){ return [['Statut','Tâches'], a.byWf]; }, show:function(a){ return a.total > 0; } },
-    { k:'type', h:'Par type d\'activité', svg:function(a, pal){ return vzHBars(a.byType, pal, {label:'Par type'}); },
-      table:function(a){ return [['Type','Tâches'], a.byType]; }, show:function(a){ return a.byType.length > 0; } },
-    { k:'etab', h:'Par établissement', svg:function(a, pal){ return vzHBars(a.byEtab, pal, {label:'Par établissement'}); },
-      table:function(a){ return [['Établissement','Tâches'], a.byEtab]; }, show:function(a){ return a.byEtab.length > 0; } },
-    { k:'note', h:'Appréciations des inspections', svg:function(a, pal){ return vzHBars(a.byNote, pal, {label:'Appréciations', colors:pal.seq.slice(1)}); },
-      table:function(a){ return [['Appréciation','Inspections'], a.byNote]; }, show:function(a){ return a.byNote.some(function(x){ return x[1]; }); } },
-    { k:'jour', h:'Jours de la semaine', svg:function(a, pal){ return vzHBars(a.byDay, pal, {label:'Jours de la semaine', labW:90}); },
-      table:function(a){ return [['Jour','Tâches'], a.byDay]; }, show:function(a){ return a.byDay.some(function(x){ return x[1]; }); } }
+  /* ---- Graphiques du bilan configurables ----
+     L'utilisateur choisit les données représentées (BILAN_DATA) et le type de graphique (BILAN_CHART_TYPES)
+     pour chaque graphique ; la liste est rangée dans state.templates.bilanCharts (synchronisée avec
+     Drive) — à défaut, BILAN_DEFAULT_CHARTS. Les tâches suivent la période et le filtre de zones ; les
+     données de la base (enseignant(e)s, établissements) suivent le filtre de zones. */
+  function bcTop(obj, n){ var e = Object.keys(obj).map(function(k){ return [k, obj[k]]; }).sort(function(x,y){ return y[1]-x[1]; });
+    if(n && e.length > n){ var rest = e.slice(n-1).reduce(function(x,y){ return x+y[1]; }, 0); e = e.slice(0, n-1).concat([['Autres', rest]]); } return e; }
+  function bcCount(list, fn){ var o = {}; list.forEach(function(x){ var k = fn(x); if(k==null || k==='') k = 'Non renseigné'; o[k] = (o[k]||0)+1; }); return o; }
+  function bcOrdered(labels, obj){ return labels.map(function(l){ return [l, obj[l]||0]; }); }
+  function bcZoneOfEtab(id){ var e = state.etablissements.find(function(x){ return x.id===id; }); var z = e && e.zoneId ? state.zones.find(function(x){ return x.id===e.zoneId; }) : null; return z ? z.nom : 'Sans zone'; }
+  var BILAN_DATA = [
+    { k:'activite', g:'Tâches de la période', l:'Activité dans le temps (réalisées / à venir)', kind:'time',
+      get:function(a, pal){ return { buckets:a.buckets, series:[{k:'done', l:'Réalisées', color:pal.s1},{k:'todo', l:'À venir / en cours', color:pal.s2}] }; } },
+    { k:'statut', g:'Tâches de la période', l:'Avancement (statut)', kind:'ord', get:function(a){ return a.byWf; } },
+    { k:'type', g:'Tâches de la période', l:'Par type d\'activité', kind:'cat', get:function(a){ return a.byType; } },
+    { k:'etab', g:'Tâches de la période', l:'Par établissement', kind:'cat', get:function(a){ return a.byEtab; } },
+    { k:'zone', g:'Tâches de la période', l:'Par zone', kind:'cat', get:function(a){ return bcTop(bcCount(a.s.list, function(t){ return t.etablissementId ? bcZoneOfEtab(t.etablissementId) : 'Sans établissement'; }), 10); } },
+    { k:'note', g:'Tâches de la période', l:'Appréciations des inspections', kind:'ord', get:function(a){ return a.byNote; } },
+    { k:'jour', g:'Tâches de la période', l:'Jours de la semaine', kind:'ord', get:function(a){ return a.byDay; } },
+    { k:'moment', g:'Tâches de la période', l:'Moment de la journée', kind:'ord', get:function(a){
+      var o = bcCount(a.s.list, function(t){ var h = parseInt(String(t.heureDebut||'').slice(0,2),10); return isNaN(h) ? 'Heure non précisée' : h < 10 ? 'Avant 10 h' : h < 12 ? '10 h – 12 h' : h < 14 ? '12 h – 14 h' : h < 16 ? '14 h – 16 h' : 'Après 16 h'; });
+      return bcOrdered(['Avant 10 h','10 h – 12 h','12 h – 14 h','14 h – 16 h','Après 16 h','Heure non précisée'], o).filter(function(x){ return x[1] || x[0]!=='Heure non précisée'; }); } },
+    { k:'priorite', g:'Tâches de la période', l:'Priorité', kind:'ord', get:function(a){ return bcOrdered(['Haute','Moyenne','Basse'], bcCount(a.s.list, function(t){ var p2 = t.priorite||'moyenne'; return p2.charAt(0).toUpperCase()+p2.slice(1); })); } },
+    { k:'enseignant', g:'Tâches de la période', l:'Enseignant(e)s les plus suivi(e)s', kind:'cat', get:function(a){
+      var o = {}; a.s.list.forEach(function(t){ taskEnsIdsAll(t).forEach(function(id){ var n = ensName(id); if(n) o[n] = (o[n]||0)+1; }); }); return bcTop(o, 10); } },
+    { k:'docs', g:'Tâches de la période', l:'Documents générés par type', kind:'cat', get:function(a){
+      var f = isoDate(a.range.from), t2 = isoDate(a.range.to), tids = {}; a.s.list.forEach(function(t){ tids[t.id] = 1; });
+      return bcTop(bcCount(state.documents.filter(function(d){ return tids[d.taskId] || (d.date && d.date >= f && d.date <= t2); }), function(d){ return docLabel(d); }), 10); } },
+    { k:'ens_cycle', g:'Enseignant(e)s', l:'Enseignant(e)s par cycle', kind:'cat', get:function(){ return bcTop(bcCount(state.enseignants, function(e){ var c = ensCycle(e); return c ? ({primaire:'Primaire', college:'Collégial', qualifiant:'Qualifiant'})[c]||c : 'Non précisé'; })); } },
+    { k:'ens_genre', g:'Enseignant(e)s', l:'Enseignant(e)s par genre', kind:'cat', get:function(){ return bcTop(bcCount(state.enseignants, function(e){ return e.genre==='F' ? 'Femmes' : e.genre==='H' ? 'Hommes' : 'Non précisé'; })); } },
+    { k:'ens_statut', g:'Enseignant(e)s', l:'Titulaires / stagiaires', kind:'cat', get:function(){ return bcTop(bcCount(state.enseignants, function(e){ return e.statut==='stagiaire' ? 'Stagiaires' : 'Titulaires'; })); } },
+    { k:'ens_etab', g:'Enseignant(e)s', l:'Enseignant(e)s par établissement', kind:'cat', get:function(){ return bcTop(bcCount(state.enseignants, function(e){ return etabName(e.etablissementId) || 'Sans établissement'; }), 12); } },
+    { k:'ens_zone', g:'Enseignant(e)s', l:'Enseignant(e)s par zone', kind:'cat', get:function(){ return bcTop(bcCount(state.enseignants, function(e){ return e.etablissementId ? bcZoneOfEtab(e.etablissementId) : 'Sans établissement'; }), 10); } },
+    { k:'ens_cadre', g:'Enseignant(e)s', l:'Enseignant(e)s par cadre', kind:'cat', get:function(){ return bcTop(bcCount(state.enseignants, function(e){ return inspCadreCourt(e.cadre||'') || 'Non précisé'; }), 8); } },
+    { k:'ens_note', g:'Enseignant(e)s', l:'Dernières notes d\'inspection (tranches)', kind:'ord', get:function(){
+      var L = ['Moins de 10','10 – 12','12 – 14','14 – 16','16 – 18','18 et plus','Sans note'];
+      return bcOrdered(L, bcCount(state.enseignants, function(e){ var li = ensLastInspection(e), n = li ? inspNoteNum(li.note) : null; return n==null ? 'Sans note' : n < 10 ? L[0] : n < 12 ? L[1] : n < 14 ? L[2] : n < 16 ? L[3] : n < 18 ? L[4] : L[5]; })); } },
+    { k:'ens_anc', g:'Enseignant(e)s', l:'Ancienneté de la dernière inspection', kind:'ord', get:function(){
+      var L = ['0 – 2 ans','3 – 4 ans','5 – 9 ans','10 ans et plus','Jamais / inconnue'];
+      return bcOrdered(L, bcCount(state.enseignants, function(e){ var li = ensLastInspection(e), y = li ? inspYearsSince(li.date) : null; return y==null ? L[4] : y <= 2 ? L[0] : y <= 4 ? L[1] : y <= 9 ? L[2] : L[3]; })); } },
+    { k:'etab_cycle', g:'Établissements', l:'Établissements par cycle', kind:'cat', get:function(){ return bcTop(bcCount(state.etablissements, function(e){ return ETAB_CYCLE_LABEL[e.cycle] || 'Non précisé'; })); } },
+    { k:'etab_type', g:'Établissements', l:'Établissements publics / privés', kind:'cat', get:function(){ return bcTop(bcCount(state.etablissements, function(e){ return e.type==='prive' ? 'Privés' : 'Publics'; })); } },
+    { k:'etab_zone', g:'Établissements', l:'Établissements par zone', kind:'cat', get:function(){ return bcTop(bcCount(state.etablissements, function(e){ return bcZoneOfEtab(e.id); }), 10); } }
   ];
+  var BILAN_CHART_TYPES = [
+    { k:'hbars', l:'Barres horizontales' }, { k:'columns', l:'Colonnes' }, { k:'line', l:'Courbe' },
+    { k:'donut', l:'Anneau' }, { k:'pie', l:'Secteurs (camembert)' }, { k:'stack100', l:'Barre 100 %' }, { k:'table', l:'Tableau seul' }
+  ];
+  function bcTypesFor(kind){ return kind==='time' ? ['columns','line','table'] : BILAN_CHART_TYPES.map(function(t){ return t.k; }); }
+  var BILAN_DEFAULT_CHARTS = [
+    { id:'d1', data:'activite', type:'columns' }, { id:'d2', data:'statut', type:'stack100' }, { id:'d3', data:'type', type:'hbars' },
+    { id:'d4', data:'etab', type:'hbars' }, { id:'d5', data:'note', type:'hbars' }, { id:'d6', data:'jour', type:'hbars' }
+  ];
+  function bilanChartCfg(){ var c = state.templates.bilanCharts; return Array.isArray(c) ? c : BILAN_DEFAULT_CHARTS; }
+  function bilanChartCfgSet(list){ templatesSet({ bilanCharts: list }); }
+  /* Construit, pour chaque graphique configuré, l'objet {id, h, svg(a,pal), legend?, table(a), show(a)}. */
+  function bilanChartDefs(){
+    return bilanChartCfg().map(function(cf){
+      var D = BILAN_DATA.find(function(x){ return x.k===cf.data; }); if(!D) return null;
+      var type = bcTypesFor(D.kind).indexOf(cf.type)>=0 ? cf.type : bcTypesFor(D.kind)[0];
+      var h = cf.titre || D.l;
+      var def = { id: cf.id, cfg: cf, D: D, type: type, h: h };
+      if(D.kind==='time'){
+        def.show = function(a){ return a.total > 0; };
+        def.legend = type==='table' ? null : function(pal){ return D.get({buckets:[]}, pal).series.map(function(x){ return [x.l, x.color]; }); };
+        def.svg = function(a, pal){ var d = D.get(a, pal); if(type==='table') return ''; return type==='line' ? vzLine(d.buckets, d.series, pal, {label:h}) : vzColumns(d.buckets, d.series, pal, {label:h}); };
+        def.table = function(a){ var d = D.get(a, VIZ_PRINT); return [['Période'].concat(d.series.map(function(x){ return x.l; })), d.buckets.map(function(b){ return [b.label].concat(d.series.map(function(x){ return b[x.k]||0; })); })]; };
+      } else {
+        var colorsFor = function(pal){ return D.kind==='ord' ? pal.seq.concat(pal.cat) : pal.cat; };
+        def.show = function(a){ return D.get(a, VIZ_PRINT).some(function(x){ return x[1]; }); };
+        def.svg = function(a, pal){
+          var e = D.get(a, pal);
+          if(type==='table') return '';
+          if(type==='hbars') return vzHBars(e, pal, {label:h, colors: D.kind==='ord' && D.k==='note' ? pal.seq.slice(1) : null});
+          if(type==='columns' || type==='line'){
+            var bk = e.map(function(x){ return { label:x[0], short: vzTrunc(x[0], 9), v:x[1] }; });
+            return type==='line' ? vzLine(bk, [{k:'v', l:'Nombre', color:pal.s1}], pal, {label:h}) : vzColumns(bk, [{k:'v', l:'Nombre', color:pal.s1}], pal, {label:h});
+          }
+          if(type==='donut' || type==='pie') return vzPie(e, colorsFor(pal), pal, {donut: type==='donut', label:h});
+          if(type==='stack100') return vzStack100(e, colorsFor(pal), pal, {label:h});
+          return '';
+        };
+        def.table = function(a){ return [[D.l, 'Nombre'], D.get(a, VIZ_PRINT)]; };
+      }
+      return def;
+    }).filter(Boolean);
+  }
+  function bcDataOptions(sel){
+    var groups = []; BILAN_DATA.forEach(function(d){ if(groups.indexOf(d.g)<0) groups.push(d.g); });
+    return groups.map(function(g){ return '<optgroup label="'+esc(g)+'">'+BILAN_DATA.filter(function(d){ return d.g===g; }).map(function(d){ return '<option value="'+d.k+'"'+(d.k===sel?' selected':'')+'>'+esc(d.l)+'</option>'; }).join('')+'</optgroup>'; }).join('');
+  }
+  function bcTableOpenHtml(headers, rows){
+    return '<table class="viz-table-open" style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr>'+headers.map(function(h,i){ return '<th style="text-align:'+(i?'right':'left')+';padding:5px 6px;border-bottom:1px solid var(--line);">'+esc(h)+'</th>'; }).join('')+'</tr></thead><tbody>'+
+      rows.map(function(r){ return '<tr>'+r.map(function(c,i){ return '<td style="text-align:'+(i?'right':'left')+';padding:4px 6px;border-bottom:1px solid var(--line);">'+esc(String(c))+'</td>'; }).join('')+'</tr>'; }).join('')+'</tbody></table>';
+  }
   function bilanChartsHtml(a){
     var pct = function(x, t){ return t ? Math.round(x/t*100) : 0; };
     var kpi = function(v, small, label, meter){ return '<div class="kpi"><b class="tnum">'+v+(small?'<small>'+small+'</small>':'')+'</b><span>'+label+'</span>'+(meter!=null?'<div class="meter"><i style="width:'+Math.min(100,meter)+'%"></i></div>':'')+'</div>'; };
@@ -6044,13 +6172,28 @@
       kpi(a.etabCount, '/ '+a.etabTotal, 'Établissements concernés ('+pct(a.etabCount, a.etabTotal)+' %)', pct(a.etabCount, a.etabTotal))+
       kpi(a.late, '', 'En retard (échéance passée)')+
       '</div>';
-    BILAN_CHARTS.forEach(function(c){
-      if(!c.show(a)) return;
-      var tb = c.table(a);
-      html += '<div class="setup-card"><h2>'+esc(c.h)+'</h2>'+
-        (c.legend ? '<div class="viz-legend">'+c.legend(VIZ_SCREEN).map(function(l){ return '<span><i style="background:'+l[1]+'"></i>'+esc(l[0])+'</span>'; }).join('')+'</div>' : '')+
-        c.svg(a, VIZ_SCREEN)+vzTableHtml(tb[0], tb[1].map(function(r){ return r.map(String); }))+'</div>';
+    var defs = bilanChartDefs(), selSt = 'border:1px solid var(--line);background:var(--surface-2);border-radius:8px;padding:5px 6px;font-size:11.5px;max-width:150px;';
+    defs.forEach(function(c, i){
+      var tb = c.table(a), has = c.show(a);
+      var ctrls = '<div style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin:-2px 0 8px;">'+
+        '<select data-bctype="'+esc(c.id)+'" title="Type de graphique" style="'+selSt+'">'+bcTypesFor(c.D.kind).map(function(k){ var t = BILAN_CHART_TYPES.find(function(x){ return x.k===k; }); return '<option value="'+k+'"'+(k===c.type?' selected':'')+'>'+esc(t.l)+'</option>'; }).join('')+'</select>'+
+        '<select data-bcdata="'+esc(c.id)+'" title="Données représentées" style="'+selSt+'">'+bcDataOptions(c.D.k)+'</select>'+
+        '<button type="button" class="icon-btn" data-bcmove="'+esc(c.id)+':-1" title="Monter" style="width:28px;height:28px;"'+(i===0?' disabled':'')+'>↑</button>'+
+        '<button type="button" class="icon-btn" data-bcmove="'+esc(c.id)+':1" title="Descendre" style="width:28px;height:28px;"'+(i===defs.length-1?' disabled':'')+'>↓</button>'+
+        '<button type="button" class="icon-btn" data-bcrm="'+esc(c.id)+'" title="Retirer ce graphique" style="width:28px;height:28px;color:var(--danger);">'+ICONS.trash+'</button></div>';
+      html += '<div class="setup-card"><h2>'+esc(c.h)+'</h2>'+ctrls+
+        (!has ? '<div class="empty" style="padding:8px;">Aucune donnée pour cette période ou ce filtre.</div>' :
+          (c.legend ? '<div class="viz-legend">'+c.legend(VIZ_SCREEN).map(function(l){ return '<span><i style="background:'+l[1]+'"></i>'+esc(l[0])+'</span>'; }).join('')+'</div>' : '')+
+          c.svg(a, VIZ_SCREEN)+(c.type==='table' ? bcTableOpenHtml(tb[0], tb[1]) : vzTableHtml(tb[0], tb[1].map(function(r){ return r.map(String); }))))+'</div>';
     });
+    html += '<div class="setup-card"><h2>Ajouter un graphique</h2>'+
+      '<div class="field"><label for="bcNewData">Données à représenter</label><select id="bcNewData" style="width:100%;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;">'+bcDataOptions(state.bcNewData||'type')+'</select></div>'+
+      '<div class="field"><label for="bcNewType">Type de graphique</label><select id="bcNewType" style="width:100%;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;">'+
+        (function(){ var D = BILAN_DATA.find(function(x){ return x.k===(state.bcNewData||'type'); }) || BILAN_DATA[2]; return bcTypesFor(D.kind).map(function(k){ var t = BILAN_CHART_TYPES.find(function(x){ return x.k===k; }); return '<option value="'+k+'">'+esc(t.l)+'</option>'; }).join(''); })()+'</select></div>'+
+      '<div class="field"><label for="bcNewTitre">Titre <span style="font-weight:400;color:var(--ink-faint);">(facultatif)</span></label><input type="text" id="bcNewTitre" placeholder="Par défaut : le nom des données"></div>'+
+      '<div class="btn-row"><button class="btn primary sm" id="btnBcAdd" type="button">'+ICONS.plus+' Ajouter</button>'+
+      (Array.isArray(state.templates.bilanCharts) ? '<button class="btn ghost sm" id="btnBcReset" type="button">Graphiques par défaut</button>' : '')+'</div>'+
+      '<p style="font-size:11px;color:var(--ink-faint);margin:6px 2px 0;">Les graphiques choisis sont repris dans le bilan imprimé, Word et PDF. Les tâches suivent la période ; enseignant(e)s et établissements suivent le filtre de zones.</p></div>';
     return html;
   }
   /* Graphiques du bilan en images PNG (fond blanc, palette claire) pour Word et PDF. */
@@ -6072,7 +6215,7 @@
     });
   }
   function bilanChartImages(a){
-    var items = BILAN_CHARTS.filter(function(c){ return c.show(a); });
+    var items = bilanChartDefs().filter(function(c){ return c.show(a) && c.type!=='table'; });
     return Promise.all(items.map(function(c){
       var svg = c.svg(a, VIZ_PRINT);
       if(c.legend){
@@ -7672,8 +7815,9 @@
     if(state.bilanCharts !== false){
       var an = bilanAnalytics(), sp = buildBilanSpec(), ind = sp.tables[0];
       if(ind && ind.heading==='Indicateurs') html += '<div class="p-section"><h3>Indicateurs</h3></div><table class="p-table"><tbody>'+ind.rows.map(function(r){ return '<tr><td>'+esc(r[0])+'</td><td>'+esc(r[1])+'</td></tr>'; }).join('')+'</tbody></table>';
-      BILAN_CHARTS.forEach(function(c){
+      bilanChartDefs().forEach(function(c){
         if(!c.show(an)) return;
+        if(c.type==='table'){ var tbp = c.table(an); html += '<div class="p-section" style="break-inside:avoid;"><h3>'+esc(c.h)+'</h3></div><table class="p-table"><thead><tr>'+tbp[0].map(function(x){ return '<th>'+esc(x)+'</th>'; }).join('')+'</tr></thead><tbody>'+tbp[1].map(function(r){ return '<tr>'+r.map(function(x){ return '<td>'+esc(String(x))+'</td>'; }).join('')+'</tr>'; }).join('')+'</tbody></table>'; return; }
         var lg = c.legend ? '<div style="font-size:11px;margin:2px 0 4px;">'+c.legend(VIZ_PRINT).map(function(l){ return '<span style="display:inline-block;margin-right:14px;"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:'+l[1]+';margin-right:5px;vertical-align:-1px;"></span>'+esc(l[0])+'</span>'; }).join('')+'</div>' : '';
         html += '<div class="p-section" style="break-inside:avoid;"><h3>'+esc(c.h)+'</h3>'+lg+'<div style="max-width:150mm;">'+c.svg(an, VIZ_PRINT)+'</div></div>';
       });
@@ -7858,6 +8002,64 @@
     }
   }
 
+  /* ---- Carrousels de l'accueil : défilement automatique + glisser à la main ----
+     La position (px) est gardée par carrousel dans hcPos, pour ne pas sauter quand l'accueil est
+     redessiné. Pendant le glisser, la liste suit le doigt/la souris ; au relâchement, elle garde
+     l'élan du geste puis revient progressivement à la vitesse de l'animation. Survoler à la souris
+     ralentit jusqu'à l'arrêt ; un glisser n'ouvre pas la carte sous le doigt. */
+  var hcPos = {};
+  function hcWire(vc){
+    if(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    var track = vc.querySelector('.hcarousel-track'); if(!track) return;
+    var key = vc.getAttribute('data-hc'), dur = parseFloat(vc.getAttribute('data-hcdur')) || 30;
+    var half = 0, pos = hcPos[key] || 0, vel = null, hover = false, drag = null, last = 0, suppressClick = false;
+    var wrap = function(x){ return half ? ((x % half) + half) % half : x; };
+    var apply = function(){ track.style.transform = 'translateX('+(-pos).toFixed(1)+'px)'; hcPos[key] = pos; };
+    var measure = function(){ half = track.scrollWidth / 2; };
+    measure(); apply();
+    function frame(ts){
+      if(!vc.isConnected) return;
+      var dt = last ? Math.min(0.05, (ts-last)/1000) : 0; last = ts;
+      if(!half) measure();
+      if(!drag && half && document.visibilityState==='visible'){
+        var target = hover ? 0 : half/dur;
+        if(vel===null) vel = target;
+        vel += (target - vel) * Math.min(1, dt*2.2);
+        pos = wrap(pos + vel*dt); apply();
+      }
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+    vc.addEventListener('pointerenter', function(e){ if(e.pointerType==='mouse') hover = true; });
+    vc.addEventListener('pointerleave', function(e){ if(e.pointerType==='mouse') hover = false; });
+    vc.addEventListener('pointerdown', function(e){
+      if(e.pointerType==='mouse' && e.button!==0) return;
+      measure();
+      drag = { id:e.pointerId, x0:e.clientX, p0:pos, lx:e.clientX, lt:performance.now(), v:0, moved:false };
+      vel = 0;
+    });
+    vc.addEventListener('pointermove', function(e){
+      if(!drag || e.pointerId!==drag.id) return;
+      var dx = e.clientX - drag.x0;
+      if(!drag.moved && Math.abs(dx) > 6){ drag.moved = true; vc.classList.add('dragging'); try{ vc.setPointerCapture(e.pointerId); }catch(err){} }
+      if(!drag.moved) return;
+      var now = performance.now(), dtm = Math.max(1, now - drag.lt);
+      drag.v = 0.7*drag.v + 0.3*(-(e.clientX - drag.lx) / dtm * 1000);
+      drag.lx = e.clientX; drag.lt = now;
+      pos = wrap(drag.p0 - dx); apply();
+    });
+    var release = function(e){
+      if(!drag || (e && e.pointerId!==drag.id)) return;
+      if(drag.moved){ suppressClick = true; setTimeout(function(){ suppressClick = false; }, 60); vel = Math.max(-3000, Math.min(3000, drag.v)); }
+      else vel = null;
+      vc.classList.remove('dragging'); drag = null;
+    };
+    vc.addEventListener('pointerup', release);
+    vc.addEventListener('pointercancel', release);
+    vc.addEventListener('lostpointercapture', release);
+    vc.addEventListener('click', function(e){ if(suppressClick){ e.stopPropagation(); e.preventDefault(); suppressClick = false; } }, true);
+  }
+
   /* ---- Accueil (tableau de bord) ---- */
   function etabsByCycleStats(){
     var out = {};
@@ -7946,8 +8148,10 @@
       if(!cards.length) return '';
       var moving = cards.length > 3;
       var dup = moving ? cards.map(function(c){ return c.replace('class="carousel-card"', 'class="carousel-card hc-dup" aria-hidden="true" tabindex="-1"'); }).join('') : '';
-      return '<div class="hcarousel'+(moving ? ' moving' : '')+'" style="--hc-dur:'+Math.max(15, Math.round(cards.length*3))+'s;"><div class="hcarousel-track">'+cards.join('')+dup+'</div></div>';
+      hcCount++;
+      return '<div class="hcarousel'+(moving ? ' moving' : '')+'" data-hc="hc'+hcCount+'" data-hcdur="'+Math.max(15, Math.round(cards.length*3))+'"><div class="hcarousel-track">'+cards.join('')+dup+'</div></div>';
     };
+    var hcCount = 0;
     if(state.etablissements.length){
       html += '<div class="home-head"><h2>Établissements</h2><a data-hometab="etablissements">Voir tout</a></div>';
       html += hcarousel(state.etablissements.slice().sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||''); }).map(function(e){
@@ -7982,12 +8186,7 @@
     host.querySelectorAll('.task-card').forEach(function(el){
       el.onclick = function(){ var t = state.tasks.find(function(x){ return x.id===el.getAttribute('data-id'); }); if(t) openTaskDetail(t); };
     });
-    /* Toucher une liste en mouvement la met en pause quelques secondes, le temps de choisir une carte. */
-    host.querySelectorAll('.hcarousel.moving').forEach(function(vc){
-      var t = null;
-      vc.addEventListener('touchstart', function(){ vc.classList.add('paused'); if(t) clearTimeout(t); }, {passive:true});
-      vc.addEventListener('touchend', function(){ if(t) clearTimeout(t); t = setTimeout(function(){ vc.classList.remove('paused'); }, 3500); }, {passive:true});
-    });
+    host.querySelectorAll('.hcarousel.moving').forEach(hcWire);
     host.querySelectorAll('[data-carouseletab]').forEach(function(el){
       el.onclick = function(){ var e = state.etablissements.find(function(x){ return x.id===el.getAttribute('data-carouseletab'); }); if(e) openEtablissementEditor(e); };
     });
@@ -8432,6 +8631,25 @@
     var bf = $('bilanFrom'); if(bf) bf.onchange = function(){ state.bilanCustomFrom = bf.value; render(); };
     var bt = $('bilanTo'); if(bt) bt.onchange = function(){ state.bilanCustomTo = bt.value; render(); };
     var bbin = $('btnBilanInspNotes'); if(bbin) bbin.onclick = openInspNotesModal;
+    var bcList = function(){ return JSON.parse(JSON.stringify(bilanChartCfg())); };
+    host.querySelectorAll('[data-bctype]').forEach(function(el){ el.onchange = function(){ var l = bcList(), c = l.find(function(x){ return x.id===el.getAttribute('data-bctype'); }); if(c){ c.type = el.value; bilanChartCfgSet(l); } }; });
+    host.querySelectorAll('[data-bcdata]').forEach(function(el){ el.onchange = function(){
+      var l = bcList(), c = l.find(function(x){ return x.id===el.getAttribute('data-bcdata'); }); if(!c) return;
+      var D = BILAN_DATA.find(function(x){ return x.k===el.value; }); c.data = el.value; c.titre = '';
+      if(bcTypesFor(D.kind).indexOf(c.type)<0) c.type = bcTypesFor(D.kind)[0];
+      bilanChartCfgSet(l);
+    }; });
+    host.querySelectorAll('[data-bcmove]').forEach(function(el){ el.onclick = function(){
+      var pr = el.getAttribute('data-bcmove').split(':'), l = bcList(), i = l.findIndex(function(x){ return x.id===pr[0]; }), j = i + parseInt(pr[1],10);
+      if(i<0 || j<0 || j>=l.length) return; var t = l[i]; l[i] = l[j]; l[j] = t; bilanChartCfgSet(l);
+    }; });
+    host.querySelectorAll('[data-bcrm]').forEach(function(el){ el.onclick = function(){ bilanChartCfgSet(bcList().filter(function(x){ return x.id!==el.getAttribute('data-bcrm'); })); }; });
+    var bcNd = $('bcNewData'); if(bcNd) bcNd.onchange = function(){ state.bcNewData = bcNd.value; render(); };
+    var bcAdd = $('btnBcAdd'); if(bcAdd) bcAdd.onclick = function(){
+      var l = bcList(); l.push({ id: uid(), data: $('bcNewData').value, type: $('bcNewType').value, titre: ($('bcNewTitre').value||'').trim() });
+      bilanChartCfgSet(l); toast('Graphique ajouté au bilan.');
+    };
+    var bcRs = $('btnBcReset'); if(bcRs) bcRs.onclick = function(){ if(confirm('Revenir aux graphiques par défaut du bilan ?')) templatesSet({ bilanCharts: null }); };
     $('btnGenBilan').onclick = function(){ withZoneScope(generateBilanDoc); };
     var chkCh = $('chkBilanCharts'); if(chkCh) chkCh.onchange = function(){ state.bilanCharts = chkCh.checked; };
     function runBilanGen(kind, btn){
