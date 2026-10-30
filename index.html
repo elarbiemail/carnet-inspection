@@ -476,7 +476,7 @@
     .p-page[dir="rtl"] .p-head .photo{ right:auto; left:0; }
     .p-meta{ display:flex; justify-content:space-between; font-size:11px; margin-bottom:10px; flex-wrap:wrap; gap:6px; }
     table.p-table{ width:100%; border-collapse:collapse; margin-bottom:12px; }
-    table.p-table th, table.p-table td{ border:1px solid #999; padding:5px 7px; font-size:11px; text-align:left; }
+    table.p-table th, table.p-table td{ border:1px solid #999; padding:5px 7px; font-size:11px; text-align:left; white-space:pre-line; }
     .p-section{ margin-bottom:12px; }
     .p-section h3{ font-size:12.5px; border-bottom:1px solid #bbb; padding-bottom:3px; margin-bottom:6px; }
     .p-sign{ display:flex; justify-content:space-between; margin-top:40px; font-size:11px; }
@@ -7368,7 +7368,7 @@
     '.p-page[dir="rtl"] .p-head .photo{right:auto;left:0;}'+
     '.p-meta{display:flex;justify-content:space-between;font-size:11px;margin-bottom:10px;flex-wrap:wrap;gap:6px;}'+
     'table.p-table{width:100%;border-collapse:collapse;margin-bottom:12px;}'+
-    'table.p-table th,table.p-table td{border:1px solid #999;padding:5px 7px;font-size:11px;text-align:left;}'+
+    'table.p-table th,table.p-table td{border:1px solid #999;padding:5px 7px;font-size:11px;text-align:left;white-space:pre-line;}'+
     'table.p-table th{background:#2F6F62;color:#fff;}'+
     '.p-section{margin-bottom:12px;} .p-section h3{font-size:12.5px;border-bottom:1px solid #bbb;padding-bottom:3px;margin:0 0 6px;}'+
     '.p-sign{display:flex;justify-content:space-between;margin-top:40px;font-size:11px;}'+
@@ -7519,13 +7519,14 @@
     (spec.tables||[]).forEach(function(tb, ti){
       if(tb.heading) children.push(new d.Paragraph({ bidirectional:rtl, alignment:align, spacing:{before:160, after:80}, children:[ new d.TextRun({text:tb.heading, bold:true, size:24, rightToLeft:rtl}) ] }));
       if(tb.note) tb.note.split('\n').forEach(function(line){ children.push(new d.Paragraph({ bidirectional:rtl, alignment:align, spacing:{after:60}, children:[ new d.TextRun({text:line, size:20, rightToLeft:rtl}) ] })); });
-      var headerRow = new d.TableRow({ tableHeader:true, children: tb.headers.map(function(h){
-        return new d.TableCell({ shading:{fill:'2F6F62'}, children:[ new d.Paragraph({bidirectional:rtl, alignment: rtl?d.AlignmentType.CENTER:undefined, children:[new d.TextRun({text:h, bold:true, color:'FFFFFF', size:19, rightToLeft:rtl})]}) ] });
+      var cw = function(i){ return tb.widths && tb.widths[i] ? { size: tb.widths[i], type: d.WidthType.PERCENTAGE } : undefined; };
+      var headerRow = new d.TableRow({ tableHeader:true, children: tb.headers.map(function(h, hi){
+        return new d.TableCell({ width: cw(hi), shading:{type:d.ShadingType.CLEAR, color:'auto', fill:'2F6F62'}, children:[ new d.Paragraph({bidirectional:rtl, alignment: rtl?d.AlignmentType.CENTER:undefined, children:[new d.TextRun({text:h, bold:true, color:'FFFFFF', size:19, rightToLeft:rtl})]}) ] });
       }) });
       var rows = (tb.rows.length ? tb.rows : [tb.headers.map(function(){ return '—'; })]).map(function(r){
-        return new d.TableRow({ children:r.map(function(c){ return new d.TableCell({ children:[ new d.Paragraph({bidirectional:rtl, alignment:align, children:[new d.TextRun({text:String(c||''), rightToLeft:rtl})]}) ] }); }) });
+        return new d.TableRow({ children:r.map(function(c, ci){ return new d.TableCell({ width: cw(ci), children: String(c==null?'':c).split('\n').map(function(line){ return new d.Paragraph({bidirectional:rtl, alignment:align, children:[new d.TextRun({text:line, size: tb.small ? 16 : undefined, rightToLeft:rtl})]}); }) }); }) });
       });
-      children.push(new d.Table({ width:{size:100, type:d.WidthType.PERCENTAGE}, rows:[headerRow].concat(rows) }));
+      children.push(new d.Table({ width:{size:100, type:d.WidthType.PERCENTAGE}, columnWidths: tb.widths ? tb.widths.map(function(w){ return Math.round(w*90); }) : undefined, rows:[headerRow].concat(rows) }));
       children.push(new d.Paragraph({ text:'', spacing:{after:200} }));
       if(ti===0 && chartsAfterFirst) chartsDocx();
     });
@@ -8055,7 +8056,8 @@
     if(state.ensHoraireMode){
       html += '<div class="setup-card"><h2>Qui est en classe à quel moment ?</h2>'+
         '<div class="field"><label>Jour</label><div class="seg" id="horJourSeg">'+JOURS.map(function(j){ return '<button type="button" data-v="'+j+'" aria-pressed="'+(state.horaireJour===j)+'">'+j.slice(0,3)+'</button>'; }).join('')+'</div></div>'+
-        '<div class="field"><label for="horHeure">Heure</label><input type="time" id="horHeure" value="'+esc(state.horaireHeure)+'"></div></div>';
+        '<div class="field"><label for="horHeure">Heure</label><input type="time" id="horHeure" value="'+esc(state.horaireHeure)+'"></div>'+
+        '<div class="btn-row"><button class="btn ghost sm" id="btnHorPrint" type="button">'+ICONS.print+' Imprimer le résultat</button><button class="btn ghost sm" id="btnHorDocx" type="button">Word</button></div></div>';
       var matches = state.enseignants.filter(function(e){ return (e.horaire||[]).some(function(sl){ return slotMatches(sl, state.horaireJour, state.horaireHeure); }); });
       html += '<div class="section-label">'+matches.length+' enseignant(s) en séance</div>';
       html += matches.length ? '<div class="rec-list">'+matches.map(function(e){
@@ -8085,6 +8087,8 @@
     var si = $('ensSearchInput'); if(si) si.oninput = function(){ state.ensQuery = si.value; render(); setTimeout(function(){ var el=$('ensSearchInput'); if(el){ el.focus(); el.selectionStart=el.selectionEnd=el.value.length; } },0); };
     var jseg = $('horJourSeg'); if(jseg) jseg.querySelectorAll('button').forEach(function(b){ b.onclick=function(){ state.horaireJour=b.getAttribute('data-v'); render(); }; });
     var hh = $('horHeure'); if(hh) hh.onchange = function(){ state.horaireHeure = hh.value; render(); };
+    var bhp = $('btnHorPrint'); if(bhp) bhp.onclick = function(){ specExport(withZoneScope(function(){ return buildHoraireSearchSpec(state.horaireJour, state.horaireHeure); }), '', 'print', null, 'Personne en séance à ce créneau.'); };
+    var bhd = $('btnHorDocx'); if(bhd) bhd.onclick = function(){ specExport(withZoneScope(function(){ return buildHoraireSearchSpec(state.horaireJour, state.horaireHeure); }), 'Enseignants_en_seance_'+state.horaireJour+'_'+String(state.horaireHeure).replace(':','h'), 'docx', bhd, 'Personne en séance à ce créneau.'); };
     var be = $('btnExportEns'); if(be) be.onclick = function(){ exportCSV('enseignants'); };
     var bi = $('btnImportEns'); if(bi) bi.onclick = function(){ importTarget='enseignants'; $('fileImportInput').click(); };
     var bne2 = $('btnNamesEns'); if(bne2) bne2.onclick = function(){ completeMissingNames('ens', bne2); };
@@ -8281,7 +8285,7 @@
   function renderEtabsSubview(host){
     var html = '';
     html += '<div class="setup-actions"><button class="btn primary sm" id="btnAddEtab2" type="button">+ Établissement</button>'+
-      '<button class="btn ghost sm" id="btnInspSynthAll" type="button">'+ICONS.print+' Synthèse des notes d\'inspection</button><button class="btn ghost sm" id="btnExportEtab" type="button">Exporter CSV</button><button class="btn ghost sm" id="btnImportEtab" type="button">Importer CSV / Excel</button>'+
+      '<button class="btn ghost sm" id="btnInspSynthAll" type="button">'+ICONS.print+' Notes d\'inspection</button><button class="btn ghost sm" id="btnExportEtab" type="button">Exporter CSV</button><button class="btn ghost sm" id="btnImportEtab" type="button">Importer CSV / Excel</button>'+
       '<button class="btn ghost sm" id="btnNamesEtab" type="button">'+ICONS.ai+' Compléter les noms ar / fr</button>'+
       '<button class="btn ghost sm" id="btnSelEtab" type="button">'+(state.selMode==='etab' ? 'Quitter la sélection' : 'Sélectionner / supprimer')+'</button></div>';
     var dupPairs = state.selMode ? [] : etabDupPairs();
@@ -8322,11 +8326,7 @@
     host.innerHTML = html;
     host.querySelectorAll('[data-etabtype]').forEach(function(el){ el.onclick = function(){ state.etabTypeFilter = el.getAttribute('data-etabtype'); render(); }; });
     var bae = $('btnAddEtab2'); if(bae) bae.onclick = function(){ openEtablissementEditor(null); };
-    var bisa = $('btnInspSynthAll'); if(bisa) bisa.onclick = function(){
-      var ets = state.etablissements.slice().sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||''); });
-      var mode = confirm('Fiche synthèse des notes d\'inspection pour les '+ets.length+' établissement(s) affiché(s).\n\nOK = télécharger en Word · Annuler = imprimer') ? 'docx' : 'print';
-      inspSynthExport(ets, state.zoneFilter && state.zoneFilter.length ? 'zones sélectionnées' : 'tous les établissements', mode, bisa);
-    };
+    var bisa = $('btnInspSynthAll'); if(bisa) bisa.onclick = openInspNotesModal;
     var bxe = $('btnExportEtab'); if(bxe) bxe.onclick = function(){ exportCSV('etablissements'); };
     var bie = $('btnImportEtab'); if(bie) bie.onclick = function(){ importTarget='etablissements'; $('fileImportInput').click(); };
     var bne = $('btnNamesEtab'); if(bne) bne.onclick = function(){ completeMissingNames('etab', bne); };
@@ -8372,6 +8372,7 @@
     html += bilanChartsHtml(an);
     if(!an.total) html += '<div class="empty">Aucune tâche sur cette période : choisissez une autre période pour voir les graphiques.</div>';
 
+    html += '<div class="setup-card"><h2>Notes d\'inspection</h2><p>Liste des dernières notes d\'inspection des enseignant(e)s, globale ou par zone, par établissement ou en liste unique.</p><div class="btn-row"><button class="btn ghost sm" id="btnBilanInspNotes" type="button">'+ICONS.print+' Générer la liste des notes</button></div></div>';
     html += '<div class="setup-card"><h2>Générer un bilan</h2><p>Rédigez une courte synthèse (ou laissez l\'IA la proposer) puis générez le document.</p>'+
       '<div class="field"><textarea id="bilanSynthText" placeholder="Synthèse de la période…"></textarea></div>'+
       (state.sampleReady ? '<div class="btn-row"><button class="btn ai" id="btnAiBilan" type="button">'+ICONS.ai+' Proposer une synthèse</button><button class="btn ghost sm" id="btnTrBilan" type="button">'+ICONS.ai+' Traduire</button></div><div class="banner info" id="bilanAiStatus" hidden style="margin-top:8px;"></div>' : '')+
@@ -8386,6 +8387,7 @@
     host.querySelectorAll('.period-seg button').forEach(function(b){ b.onclick = function(){ state.bilanPeriod = b.getAttribute('data-p'); render(); }; });
     var bf = $('bilanFrom'); if(bf) bf.onchange = function(){ state.bilanCustomFrom = bf.value; render(); };
     var bt = $('bilanTo'); if(bt) bt.onchange = function(){ state.bilanCustomTo = bt.value; render(); };
+    var bbin = $('btnBilanInspNotes'); if(bbin) bbin.onclick = openInspNotesModal;
     $('btnGenBilan').onclick = function(){ withZoneScope(generateBilanDoc); };
     var chkCh = $('chkBilanCharts'); if(chkCh) chkCh.onchange = function(){ state.bilanCharts = chkCh.checked; };
     function runBilanGen(kind, btn){
@@ -8671,6 +8673,7 @@
       if(m.type==='driveSetup') return driveSetupModalHtml(idx, m);
       if(m.type==='search') return searchModalHtml(idx);
       if(m.type==='programme') return programmeAnnuelModalHtml(idx);
+      if(m.type==='inspnotes') return inspNotesModalHtml(idx, m);
       if(m.type==='ficheLink') return ficheLinkModalHtml(idx, m);
       if(m.type==='ficheHub') return ficheHubModalHtml(idx);
       if(m.type==='ficheResponsesQueue') return ficheResponsesQueueModalHtml(idx);
@@ -9570,6 +9573,13 @@
   /* Fiche synthèse des notes d'inspection : un tableau par établissement (enseignant(e)s triés par
      nom, dernière note, date, note précédente, ancienneté de la dernière inspection), suivi d'un
      récapitulatif (moyenne, enseignant(e)s sans note ou inspecté(e)s il y a plus de 4 ans). */
+  /* Cadre abrégé pour garder des colonnes lisibles dans la fiche synthèse (Word/impression). */
+  function inspCadreCourt(c){
+    return String(c||'').replace(/professeur\s+de\s+l.enseignement\s+secondaire\s+qualifiant/i,'PESQ')
+      .replace(/professeur\s+de\s+l.enseignement\s+secondaire\s+coll[ée]gial/i,'PESC')
+      .replace(/professeur\s+de\s+l.enseignement\s+primaire/i,'PEP')
+      .replace(/\(\s*nouveau\s+syst[èe]me\s*\)/i,'(NS)').trim();
+  }
   function inspYearsSince(d){ var y = parseInt(String(d||'').slice(0,4),10); return y ? (new Date().getFullYear() - y) : null; }
   function buildInspSynthSpec(etabs, titreSuffix){
     var allNotes = [], tables = [], nbEns = 0, sansNote = 0, anciennes = 0;
@@ -9583,13 +9593,13 @@
         if(n!=null) allNotes.push(n); else sansNote++;
         var ys = last ? inspYearsSince(last.date) : null;
         if(ys!=null && ys > 4) anciennes++;
-        return [String(k+1), x.nom||'', x.ppr||'', x.cadre||x.matiere||'', last ? (last.note||'—') : '—', last ? (inspDateTxt(last.date)||'—') : '—',
+        return [String(k+1), x.nom||'', x.ppr||'', inspCadreCourt(x.cadre||x.matiere||''), last ? (last.note||'—') : '—', last ? (inspDateTxt(last.date)||'—') : '—',
           prev ? (prev.note||'')+(prev.date ? ' ('+String(prev.date).slice(0,4)+')' : '') : '—', ys!=null ? ys+' an(s)' : '—'];
       });
       var notesEt = list.map(function(x){ var l = ensLastInspection(x); return l ? inspNoteNum(l.note) : null; }).filter(function(v){ return v!=null; });
       tables.push({ heading: et.nom+(et.directeur ? ' — Directeur(trice) : '+et.directeur : ''),
         note: list.length+' enseignant(e)s · '+notesEt.length+' noté(e)s'+(notesEt.length ? ' · moyenne '+(notesEt.reduce(function(a,b){ return a+b; },0)/notesEt.length).toFixed(2)+'/20' : ''),
-        headers: ['N°','Nom et prénom','PPR','Cadre','Dernière note','Date','Note précédente','Depuis'], rows: rows });
+        headers: ['N°','Nom et prénom','PPR','Cadre','Dernière note','Date','Note précédente','Depuis'], widths:[5,25,12,12,11,11,13,11], rows: rows });
     });
     var moy = allNotes.length ? (allNotes.reduce(function(a,b){ return a+b; },0)/allNotes.length).toFixed(2)+'/20' : '—';
     var p = state.templates.profil || DEFAULT_PROFIL;
@@ -9604,6 +9614,121 @@
         'Dernière inspection il y a plus de 4 ans : '+anciennes }],
       signatures: ["Signature de l'inspecteur(trice)"]
     };
+  }
+
+  /* ---- Liste des notes d'inspection : globale, par zone (ou zones du filtre), par établissement
+     ou en liste unique — fenêtre « inspnotes » ouverte depuis Établissements et Bilan. ---- */
+  function inspScopeEtabs(scope){
+    var all = state.etablissements.slice();
+    if(scope==='all') return all;
+    if(scope==='filter'){ var sd = zoneScopedData(); return sd ? sd.etablissements : all; }
+    var known = {}; state.zones.forEach(function(z){ known[z.id] = 1; });
+    if(scope===ZONE_NONE) return all.filter(function(e){ return !e.zoneId || !known[e.zoneId]; });
+    return all.filter(function(e){ return e.zoneId===scope; });
+  }
+  function inspScopeLabel(scope){
+    if(scope==='all') return 'toutes les zones';
+    if(scope==='filter') return 'zones sélectionnées';
+    if(scope===ZONE_NONE) return 'établissements sans zone';
+    var z = state.zones.find(function(x){ return x.id===scope; }); return z ? 'zone '+z.nom : '';
+  }
+  function buildInspListSpec(etabs, suffix){
+    var etIds = {}; etabs.forEach(function(e){ etIds[e.id] = e; });
+    var list = state.enseignants.filter(function(x){ return etIds[x.etablissementId]; }).sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||''); });
+    var notes = [], sans = 0, anc = 0;
+    var rows = list.map(function(x, k){
+      var ins = ensInspections(x), last = ins[0], n = last ? inspNoteNum(last.note) : null, ys = last ? inspYearsSince(last.date) : null;
+      if(n!=null) notes.push(n); else sans++;
+      if(ys!=null && ys > 4) anc++;
+      return [String(k+1), x.nom||'', x.ppr||'', etIds[x.etablissementId].nom||'', inspCadreCourt(x.cadre||''), last ? (last.note||'—') : '—', last ? (inspDateTxt(last.date)||'—') : '—', ys!=null ? ys+' an(s)' : '—'];
+    });
+    var p = state.templates.profil || DEFAULT_PROFIL;
+    var moy = notes.length ? (notes.reduce(function(a,b){ return a+b; },0)/notes.length).toFixed(2)+'/20' : '—';
+    return { titre: "Liste des notes d'inspection"+(suffix ? ' — '+suffix : ''),
+      meta: [['Inspecteur(trice)', p.nomSignature||p.nom||'—'], ['Établissement(s)', String(etabs.length)], ['Enseignant(e)s', String(list.length)], ['Édité le', fmtDate(isoDate(new Date()))]],
+      tables: list.length ? [{ headers:['N°','Nom et prénom','PPR','Établissement','Cadre','Dernière note','Date','Depuis'], widths:[5,23,10,22,9,11,11,9], rows: rows }] : [],
+      sections: [{ heading:'Récapitulatif', text:'Moyenne des dernières notes : '+moy+'\nEnseignant(e)s noté(e)s : '+notes.length+' / '+list.length+'\nSans note d\'inspection enregistrée : '+sans+'\nDernière inspection il y a plus de 4 ans : '+anc }],
+      signatures: ["Signature de l'inspecteur(trice)"] };
+  }
+  function openInspNotesModal(){
+    var f = zoneFilterActive();
+    pushModal({ type:'inspnotes', scope: f ? (f.length===1 ? f[0] : 'filter') : 'all', pres:'etab' });
+  }
+  function inspNotesModalHtml(idx, m){
+    var f = zoneFilterActive();
+    var opts = [['all','Toutes les zones (liste globale)']].concat(f && f.length>1 ? [['filter','Zones sélectionnées dans le filtre']] : [])
+      .concat(state.zones.slice().sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||''); }).map(function(z){ return [z.id, 'Zone : '+z.nom]; }))
+      .concat([[ZONE_NONE, 'Établissements sans zone']]);
+    var n = inspScopeEtabs(m.scope).length;
+    return '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
+      '<div class="sheet-head"><h2>Notes d\'inspection</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
+      '<div class="field"><label for="inScope">Portée</label><select id="inScope" style="width:100%;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:10px 11px;">'+
+        opts.map(function(o){ return '<option value="'+esc(o[0])+'"'+(m.scope===o[0]?' selected':'')+'>'+esc(o[1])+'</option>'; }).join('')+'</select>'+
+        '<p style="font-size:11px;color:var(--ink-faint);margin:5px 2px 0;">'+n+' établissement(s) concerné(s).</p></div>'+
+      '<div class="field"><label>Présentation</label><div class="seg" id="inPresSeg">'+
+        '<button type="button" data-v="etab" aria-pressed="'+(m.pres==='etab')+'">Un tableau par établissement</button>'+
+        '<button type="button" data-v="liste" aria-pressed="'+(m.pres==='liste')+'">Liste unique</button></div></div>'+
+      '<div class="btn-row"><button class="btn ghost" id="btnInPrint" type="button">'+ICONS.print+' Imprimer</button><button class="btn primary" id="btnInDocx" type="button">Word</button></div>'+
+    '</div></div>';
+  }
+  function inspNotesExport(m, mode, btn){
+    var etabs = inspScopeEtabs(m.scope).sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||''); });
+    var label = inspScopeLabel(m.scope);
+    if(m.pres==='etab'){ inspSynthExport(etabs, label, mode, btn); return; }
+    var spec = buildInspListSpec(etabs, label);
+    if(!spec.tables.length){ toast('Aucun(e) enseignant(e) dans cette portée.'); return; }
+    if(mode==='print'){ printFromSpec(spec); return; }
+    if(btn) btn.disabled = true;
+    downloadDocx(spec, safeFileName('Notes_inspection_'+label)).then(function(){ if(btn) btn.disabled = false; }, function(){ if(btn) btn.disabled = false; });
+  }
+
+  /* ---- Emploi du temps hebdomadaire d'un établissement : grille créneaux × jours construite à partir
+     des horaires des enseignant(e)s (feuilles personnelles), suivie du volume horaire de chacun(e). ---- */
+  function hmMin(t){ var m = String(t||'').match(/^(\d{1,2}):(\d{2})/); return m ? parseInt(m[1],10)*60+parseInt(m[2],10) : null; }
+  function buildEtabTimetableSpec(et){
+    var ens = state.enseignants.filter(function(x){ return x.etablissementId===et.id && (x.horaire||[]).length; }).sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||''); });
+    var slots = {}, days = {};
+    ens.forEach(function(x){ (x.horaire||[]).forEach(function(sl){
+      if(!sl.jour || !sl.debut) return;
+      var key = sl.debut+'–'+(sl.fin||''); days[sl.jour] = 1;
+      slots[key] = slots[key] || {}; (slots[key][sl.jour] = slots[key][sl.jour] || []).push(x.nom+([sl.classe, sl.salle ? 'salle '+sl.salle : ''].filter(Boolean).length ? ' ('+[sl.classe, sl.salle ? 'salle '+sl.salle : ''].filter(Boolean).join(', ')+')' : ''));
+    }); });
+    var jours = JOURS.filter(function(j){ return days[j]; });
+    var keys = Object.keys(slots).sort(function(a,b){ return (hmMin(a)||0)-(hmMin(b)||0) || a.localeCompare(b); });
+    var grid = { heading:'Emploi du temps hebdomadaire', headers:['Créneau'].concat(jours), small:true,
+      widths: [12].concat(jours.map(function(){ return Math.floor(88/Math.max(1,jours.length)); })),
+      rows: keys.map(function(k){ return [k].concat(jours.map(function(j){ return (slots[k][j]||[]).join('\n'); })); }) };
+    var vol = { heading:'Volume horaire hebdomadaire', headers:['N°','Enseignant(e)','Matière','Séances','Heures / semaine'], widths:[6,40,24,12,18],
+      rows: ens.map(function(x, i){
+        var min = (x.horaire||[]).reduce(function(acc, sl){ var a = hmMin(sl.debut), b = hmMin(sl.fin); return acc + (a!=null && b!=null && b>a ? b-a : 0); }, 0);
+        return [String(i+1), x.nom||'', x.matiere||'', String((x.horaire||[]).length), (min/60).toFixed(min%60 ? 1 : 0)+' h'];
+      }) };
+    var sans = state.enseignants.filter(function(x){ return x.etablissementId===et.id && !(x.horaire||[]).length; }).map(function(x){ return x.nom; }).sort();
+    return { titre:'Emploi du temps hebdomadaire — '+et.nom,
+      meta:[['Établissement', et.nom], ['Directeur(trice)', et.directeur||'—'], ['Enseignant(e)s avec horaire', String(ens.length)], ['Édité le', fmtDate(isoDate(new Date()))]],
+      tables: ens.length ? [grid, vol] : [],
+      sections: sans.length ? [{ heading:'Enseignant(e)s sans horaire enregistré', text: sans.join('\n') }] : [], signatures:null };
+  }
+  function specExport(spec, fileBase, mode, btn, emptyMsg){
+    if(!spec.tables.length){ toast(emptyMsg || 'Rien à exporter.'); return; }
+    if(mode==='print'){ printFromSpec(spec); return; }
+    if(btn) btn.disabled = true;
+    downloadDocx(spec, safeFileName(fileBase)).then(function(){ if(btn) btn.disabled = false; }, function(){ if(btn) btn.disabled = false; });
+  }
+  /* Résultat de la recherche « Qui est en classe à quel moment ? » (respecte le filtre de zones). */
+  function buildHoraireSearchSpec(jour, heure){
+    var rows = [];
+    state.enseignants.filter(function(e){ return (e.horaire||[]).some(function(sl){ return slotMatches(sl, jour, heure); }); })
+      .sort(function(a,b){ return (etabName(a.etablissementId)||'').localeCompare(etabName(b.etablissementId)||'') || (a.nom||'').localeCompare(b.nom||''); })
+      .forEach(function(e){
+        var sl = (e.horaire||[]).find(function(x){ return slotMatches(x, jour, heure); });
+        rows.push([String(rows.length+1), e.nom||'', etabName(e.etablissementId)||'—', sl.matiere||e.matiere||'', sl.classe||'', sl.salle||'', (sl.debut||'')+'–'+(sl.fin||'')]);
+      });
+    var f = zoneFilterActive();
+    return { titre:'Enseignant(e)s en séance — '+jour+' à '+heure,
+      meta:[['Jour', jour], ['Heure', heure], ['Zone(s)', f ? f.map(function(id){ return id===ZONE_NONE ? 'Sans zone' : ((state.zones.find(function(z){ return z.id===id; })||{}).nom||''); }).join(', ') : 'Toutes'], ['Résultat', rows.length+' enseignant(e)(s)']],
+      tables: rows.length ? [{ headers:['N°','Enseignant(e)','Établissement','Matière','Classe','Salle','Séance'], widths:[6,24,26,13,11,8,12], rows: rows }] : [],
+      sections:[], signatures:null };
   }
   function inspSynthExport(etabs, suffix, mode, btn){
     var spec = buildInspSynthSpec(etabs, suffix);
@@ -9693,6 +9818,7 @@
       '<div class="field"><label>Zone</label><select id="etZone" style="width:100%;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:10px 11px;"><option value="">— Aucune —</option>'+
       state.zones.map(function(z){ return '<option value="'+z.id+'"'+(e.zoneId===z.id?' selected':'')+'>'+esc(z.nom)+'</option>'; }).join('')+'</select></div>'+
       (state.modalStack[idx].isNew ? '' : etabTeachersSectionHtml(e))+
+      (state.modalStack[idx].isNew ? '' : '<div class="field"><label>Emploi du temps hebdomadaire</label><div class="btn-row"><button class="btn ghost sm" id="btnEtabEdtPrint" type="button">'+ICONS.print+' Imprimer</button><button class="btn ghost sm" id="btnEtabEdtDocx" type="button">Word</button></div></div>')+
       (state.modalStack[idx].isNew ? '' : '<div class="field"><label>Fiche synthèse des notes d\'inspection</label><div class="btn-row"><button class="btn ghost sm" id="btnEtabInspPrint" type="button">'+ICONS.print+' Imprimer</button><button class="btn ghost sm" id="btnEtabInspDocx" type="button">Word</button></div></div>')+
       '<div class="field"><label>Type</label><div class="seg" id="etTypeSeg">'+ETAB_TYPES.map(function(t){ return '<button type="button" data-v="'+t.v+'" aria-pressed="'+(e.type===t.v)+'">'+t.l+'</button>'; }).join('')+'</div></div>'+
       '<div class="field"><label>Cycle</label><div class="seg" id="etCycleSeg">'+ETAB_CYCLES.map(function(c){ return '<button type="button" data-v="'+c.v+'" aria-pressed="'+(e.cycle===c.v)+'">'+c.l+'</button>'; }).join('')+'</div>'+
@@ -10795,6 +10921,15 @@
       if(callA) callA.href = telHref(ensTelInput.value);
       if(waA) waA.href = waHref(ensTelInput.value, waGreeting(($('eNom')||{}).value||state.draftRecord.nom));
     };
+    var inScope = $('inScope'); if(inScope){
+      var mIn = state.modalStack[state.modalStack.length-1];
+      inScope.onchange = function(){ mIn.scope = inScope.value; render(); };
+      var inSeg = $('inPresSeg'); if(inSeg) inSeg.querySelectorAll('button').forEach(function(b){ b.onclick = function(){ mIn.pres = b.getAttribute('data-v'); render(); }; });
+      var bInP = $('btnInPrint'); if(bInP) bInP.onclick = function(){ inspNotesExport(mIn, 'print'); };
+      var bInD = $('btnInDocx'); if(bInD) bInD.onclick = function(){ inspNotesExport(mIn, 'docx', bInD); };
+    }
+    var bEtt = $('btnEtabEdtPrint'); if(bEtt) bEtt.onclick = function(){ specExport(buildEtabTimetableSpec(state.draftRecord), '', 'print', null, 'Aucun horaire enregistré pour les enseignant(e)s de cet établissement.'); };
+    var bEtd = $('btnEtabEdtDocx'); if(bEtd) bEtd.onclick = function(){ specExport(buildEtabTimetableSpec(state.draftRecord), 'Emploi_du_temps_'+(state.draftRecord.nom||''), 'docx', bEtd, 'Aucun horaire enregistré pour les enseignant(e)s de cet établissement.'); };
     var bEip = $('btnEtabInspPrint'); if(bEip) bEip.onclick = function(){ var et = state.draftRecord; inspSynthExport([et], et.nom, 'print'); };
     var bEid = $('btnEtabInspDocx'); if(bEid) bEid.onclick = function(){ var et = state.draftRecord; inspSynthExport([et], et.nom, 'docx', bEid); };
     var etDirTelIn = $('etDirTel'), etDirIn = $('etDir'), etTelIn = $('etTel');
