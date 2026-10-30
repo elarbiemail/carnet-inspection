@@ -592,6 +592,22 @@
         Modèles de documents
       </button>
     </div>
+    <div class="side-divider"></div>
+    <div class="side-section-label">Assistance</div>
+    <div class="side-nav">
+      <button type="button" id="btnSideHelp">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.7"/><path d="M9.6 9.4a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.1-2.4 3.7M12 16.8v.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        Aide
+      </button>
+      <button type="button" id="btnSideContact">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><rect x="3.5" y="5.5" width="17" height="13" rx="2" stroke="currentColor" stroke-width="1.7"/><path d="m4.5 7 7.5 6 7.5-6" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+        Contact
+      </button>
+      <button type="button" id="btnSideLogout" style="color:var(--danger);">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M14 4h4a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-4M10 16l-4-4 4-4M6 12h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Déconnexion et fermeture
+      </button>
+    </div>
     <div class="side-foot" id="sideFolderStatus">Dossier Drive : non configuré</div>
   </nav>
 
@@ -8066,7 +8082,7 @@
       '<button class="btn ghost sm" id="btnFicheHub" type="button">'+ICONS.ext+' Fiches à distance</button>'+
       '<button class="btn ghost sm" id="btnFeuillesLot" type="button">'+ICONS.upload+' Joindre des feuilles personnelles (lot)</button></div>';
     if(state.ensHoraireMode){
-      html += '<div class="setup-card"><h2>Qui est en classe à quel moment ?</h2>'+
+      html += '<div class="setup-card"><h2 style="display:flex;align-items:center;gap:8px;">Qui est en classe à quel moment ? '+helpBtn('horaire')+'</h2>'+
         '<div class="field"><label>Jour</label><div class="seg" id="horJourSeg">'+JOURS.map(function(j){ return '<button type="button" data-v="'+j+'" aria-pressed="'+(state.horaireJour===j)+'">'+j.slice(0,3)+'</button>'; }).join('')+'</div></div>'+
         '<div class="field"><label for="horHeure">Heure</label><input type="time" id="horHeure" value="'+esc(state.horaireHeure)+'"></div>'+
         '<div class="btn-row"><button class="btn ghost sm" id="btnHorPrint" type="button">'+ICONS.print+' Imprimer le résultat</button><button class="btn ghost sm" id="btnHorDocx" type="button">Word</button></div></div>';
@@ -8687,6 +8703,9 @@
       if(m.type==='programme') return programmeAnnuelModalHtml(idx);
       if(m.type==='inspnotes') return inspNotesModalHtml(idx, m);
       if(m.type==='customtpl') return customTplModalHtml(idx, m);
+      if(m.type==='help') return helpModalHtml(idx, m);
+      if(m.type==='contact') return contactModalHtml(idx);
+      if(m.type==='logout') return logoutModalHtml(idx);
       if(m.type==='ficheLink') return ficheLinkModalHtml(idx, m);
       if(m.type==='ficheHub') return ficheHubModalHtml(idx);
       if(m.type==='ficheResponsesQueue') return ficheResponsesQueueModalHtml(idx);
@@ -8769,7 +8788,7 @@
     state.draftTaskAutoTitle = autoT;
     var singleTarget = TASK_TYPES_SINGLE_TARGET[t.taskType];
     return '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
-      '<div class="sheet-head"><h2>'+(state.modalStack[idx].isNew?'Nouvelle tâche':'Modifier la tâche')+'</h2>'+
+      '<div class="sheet-head"><h2 style="display:flex;align-items:center;gap:8px;">'+(state.modalStack[idx].isNew?'Nouvelle tâche':'Modifier la tâche')+' '+helpBtn('taches')+'</h2>'+
         '<button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
       '<div class="field"><label for="fTypeSel">Type de tâche</label><select id="fTypeSel" style="width:100%;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:10px 11px;">'+
       TASK_TYPES.map(function(tt){ return '<option value="'+tt.v+'"'+(t.taskType===tt.v?' selected':'')+'>'+tt.l+'</option>'; }).join('')+'</select></div>'+
@@ -8874,7 +8893,7 @@
       '<div class="section-label">Suivi</div><div class="stepper" id="wfStepper">'+WORKFLOW.map(function(w,i){
         return '<button type="button" class="step '+(i<curIdx?'done':(i===curIdx?'current':''))+'" data-v="'+w.v+'"><span class="n">'+(i<curIdx?'✓':(i+1))+'</span>'+w.l+'</button>';
       }).join('')+'</div>'+
-      '<div class="section-label" style="margin-top:6px;">Documents</div>'+
+      '<div class="section-label" style="margin-top:6px;display:flex;align-items:center;gap:6px;">Documents '+helpBtn('documents')+'</div>'+
       '<div class="setup-actions" style="margin-bottom:8px;">'+avail.map(function(dt){ return '<button class="btn ghost sm" data-newdoc="'+dt+'" type="button">'+ICONS.plus+' '+DOC_TYPE_INFO[dt].label+'</button>'; }).join('')+
         customTplsForTask(t).map(function(ct){ return '<button class="btn ghost sm" data-newdoc="custom:'+esc(ct.id)+'" type="button" title="Modèle personnalisé">'+ICONS.plus+' '+esc(ct.nom||'Modèle')+'</button>'; }).join('')+
       (invites.length && avail.indexOf('attestation')!==-1 ? '<button class="btn ghost sm" id="btnGenAttestations" type="button">'+ICONS.plus+' Attestations des invité(e)s ('+invites.length+')</button>' : '')+
@@ -9320,7 +9339,7 @@
      wireModalEvents (garde `if(paCatList)`), donc leur fonctionnement est identique ici. */
   function programmeAnnuelModalHtml(idx){
     return '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
-      '<div class="sheet-head"><h2>Programme annuel — Plan d\'action</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
+      '<div class="sheet-head"><h2 style="display:flex;align-items:center;gap:8px;">Programme annuel — Plan d\'action '+helpBtn('programme')+'</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
       programmeAnnuelTabHtml()+
       '</div></div>';
   }
@@ -9343,7 +9362,7 @@
     var dt = (state.templates.docTemplates||{})[sel] || {};
     var dtFields = dt.fields || {};
     var fields = DOC_TEMPLATE_FIELDS[sel] || [];
-    var html = '<div class="section-label" style="margin-top:18px;">Modèles personnalisés</div>'+
+    var html = '<div class="section-label" style="margin-top:18px;display:flex;align-items:center;gap:6px;">Modèles personnalisés '+helpBtn('modeles','balises')+'</div>'+
       '<p style="font-size:11.5px;color:var(--ink-faint);margin:2px 0 10px;">Pour chaque type de document que l\'application génère, définissez un logo et/ou un texte de départ pour chacun de ses champs — réutilisés automatiquement à chaque nouveau document de ce type. Un texte peut contenir des balises réservées telles que <code>{{etablissement}}</code> ou <code>{{ppr}}</code>, remplacées par les données de l\'application ; il reste ensuite librement modifiable, y compris avec l\'assistant IA.</p>'+
       '<div class="chips" style="margin-bottom:12px;flex-wrap:wrap;">'+types.map(function(t){
         return '<button class="chip" data-tmpltype="'+t+'" aria-pressed="'+(t===sel)+'" type="button">'+esc(DOC_TYPE_INFO[t].label)+'</button>';
@@ -9499,7 +9518,7 @@
     var e = state.draftRecord;
     var av = e.photoAssetId ? '<img src="'+assetUrl(e.photoAssetId)+'" alt="">' : initials(e.nom);
     var html = '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
-      '<div class="sheet-head"><h2>'+(state.modalStack[idx].isNew?'Nouvel enseignant':'Modifier')+'</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
+      '<div class="sheet-head"><h2 style="display:flex;align-items:center;gap:8px;">'+(state.modalStack[idx].isNew?'Nouvel enseignant':'Modifier')+' '+helpBtn('enseignants')+'</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
       '<div class="field photo-picker"><div class="avatar">'+av+'</div><button class="btn ghost sm" id="btnPickPhoto" type="button">'+ICONS.cam+' Photo</button>'+(e.photoAssetId?'<button class="btn ghost sm" id="btnRmPhoto" type="button">Retirer</button>':'')+'</div>'+
       '<div class="field"><label for="eNom">Nom complet</label><input type="text" id="eNom" value="'+esc(e.nom)+'" placeholder="Nom et prénom (français ou arabe)"></div>'+
       bilingualFieldsHtml('e', e, 'ens')+
@@ -9632,6 +9651,118 @@
   }
 
 
+
+  /* ================= Aide, contact, déconnexion ================= */
+  var CONTACT = { nom:'El Arbi EL ADLOUNI', tel:'0700024598', emails:['elarbi.eladlouni@fm6education.net','elarbi.eladlouni@taalim.ma'] };
+  function helpBtn(topic, label){
+    return '<button type="button" class="icon-btn" data-help="'+topic+'" title="Aide'+(label?' : '+esc(label):'')+'" aria-label="Aide" style="width:26px;height:26px;font-weight:700;font-size:13px;border:1px solid var(--line);border-radius:50%;flex:none;">?</button>';
+  }
+  function openHelp(topic){
+    var top = state.modalStack[state.modalStack.length-1];
+    if(top && top.type==='help'){ top.topic = topic||''; render(); return; }
+    pushModal({type:'help', topic: topic||''});
+  }
+  function helpTagRef(){
+    var tags = CT_TAG_GROUPS.map(function(g){
+      return '<p style="margin:8px 0 3px;"><b>'+esc(g.g)+'</b></p><ul style="margin:0 0 0 18px;padding:0;">'+g.tags.map(function(t){ return '<li><code>{{'+esc(t[0])+'}}</code> — '+esc(t[1])+'</li>'; }).join('')+'</ul>';
+    }).join('');
+    var lists = Object.keys(CT_COLL_LABEL).map(function(k){
+      var f = CT_LIST_FILTERS[k]||[];
+      return '<li><b><code>'+k+'</code></b> — '+esc(CT_COLL_LABEL[k])+'<br>Filtres : '+(f.length ? f.map(function(x){ return '<code>'+x[0]+'</code> ('+esc(x[2])+')'; }).join(', ') : 'aucun (invité(e)s de la tâche)')+
+        '<br>Colonnes : '+Object.keys(CT_LIST_COLS[k]).map(function(c){ return '<code>'+c+'</code>'; }).join(', ')+'</li>';
+    }).join('');
+    return tags+'<p style="margin:10px 0 3px;"><b>Listes (tableaux)</b> — seules sur leur ligne :</p>'+
+      '<p style="margin:0 0 4px;"><code>{{liste:collection|filtre=valeur|colonnes=a,b,c|titre=Titre}}</code></p>'+
+      '<p style="margin:0 0 4px;">Exemple : <code>{{liste:enseignants|etablissement=tache|statut=stagiaire|colonnes=n,nom,ppr,signature}}</code></p>'+
+      '<ul style="margin:0 0 0 18px;padding:0;">'+lists+'</ul>'+
+      '<p style="margin:6px 0 0;">La valeur <code>tache</code> reprend l\'établissement, la zone ou l\'enseignant(e) de la tâche ; <code>filtre</code> reprend les zones cochées dans le filtre global ; sinon tapez une partie du nom.</p>';
+  }
+  var HELP_TOPICS = [
+    { id:'demarrer', t:'Bien démarrer', h:function(){ return '<ol style="margin:0 0 0 18px;padding:0;line-height:1.6;">'+
+      '<li>Paramètres (roue dentée) → <b>Profil</b> : nom (français et arabe), grade, matière, académie, direction provinciale, puis logo, cachet et signature.</li>'+
+      '<li>Paramètres → <b>Synchronisation</b> : connectez Google Drive. Vos données sont enregistrées sur l\'appareil et sauvegardées dans votre Drive (fichier sauvegarde-donnees.json).</li>'+
+      '<li>Créez vos <b>zones</b>, puis vos <b>établissements</b> et <b>enseignant(e)s</b> (saisie, import CSV/Excel ou fichiers d\'échange).</li>'+
+      '<li>Planifiez vos <b>tâches</b> avec le bouton + et générez leurs documents.</li></ol>'+
+      '<p>Le bouton de synchronisation (flèches, en haut) envoie et récupère les modifications. Après une mise à jour du carnet, fermez et rouvrez l\'application deux fois.</p>'; } },
+    { id:'taches', t:'Tâches et suivi', h:function(){ return '<p>Une tâche a un type (inspection, visite conseil, réunion, formation, validation des tableaux de service…), une échéance, des horaires et un lieu. Le titre se compose automatiquement.</p>'+
+      '<p>Dans la fiche de la tâche : <b>Suivi</b> (étapes du workflow), <b>Documents</b> (boutons « + » selon le type, plus vos modèles personnalisés), pièces jointes. La poubelle d\'un document le supprime aussi de Google Drive.</p>'+
+      '<p>Pour les visites et inspections, aucune lettre n\'est adressée à l\'enseignant(e) ni à la direction ; seule la demande de voiture de service est proposée.</p>'+
+      '<p><b>Formation</b> : renseignez l\'encadré « Session de formation » et vos notes ; le rapport de synthèse (modèle 4) est pré-rempli et rédigé par l\'IA.</p>'; } },
+    { id:'documents', t:'Documents et exports', h:function(){ return '<p>Chaque document s\'imprime, s\'exporte en Word (.docx) ou PDF, et peut être ouvert sur Google Docs. Les documents en arabe s\'impriment ou s\'exportent en Word (le PDF direct ne gère pas l\'arabe).</p>'+
+      '<p>Le logo, la signature et le cachet viennent de Paramètres → Profil. Une image de travers se corrige avec « Pivoter ».</p>'; } },
+    { id:'modeles', t:'Modèles de documents et balises', h:function(){ return '<p><b>Modèles par défaut</b> : Paramètres → Modèles de documents. Pour chaque document de l\'application, un logo, des textes de départ et des zones IA.</p>'+
+      '<p><b>Mes modèles</b> : créez vos propres documents. Chaque modèle est proposé dans les tâches des types choisis (bouton « + Nom du modèle »). Le texte copié dans le document reste modifiable ; les balises et listes sont remplacées par les données à jour au moment de l\'impression ou de l\'export.</p>'+
+      '<p><b>Mise en forme</b> : <code># Titre</code>, <code>## Sous-titre</code>, <code>### Intertitre</code>, <code>**gras**</code>, <code>[centre]</code> / <code>[droite]</code> / <code>[gauche]</code> / <code>[justifie]</code> en début de ligne. Une ligne vide = un espace.</p>'+
+      '<p><b>Éléments seuls sur leur ligne</b> : <code>{{logo}}</code>, <code>{{entete}}</code>, <code>{{signature}}</code>, <code>{{ia:z1}}</code>, <code>{{liste:…}}</code>.</p>'+
+      '<p><b>Zones IA</b> : dans l\'éditeur du modèle, « Ajouter une zone IA » (libellé + consigne), puis « Insérer dans le texte ». Dans le document, « Générer avec l\'IA » rédige la zone à partir de la consigne et des éléments de la tâche.</p>'+
+      '<p><b>Google Docs</b> : « Modifier ce modèle sur Google Docs », puis « Récupérer le texte de Google Docs » et « Enregistrer le modèle ». Gardez les lignes « === … === ».</p>'+
+      '<p style="margin-top:10px;"><b>Toutes les balises</b> (touchez-les dans la palette « Insérer une balise » pour les placer au curseur) :</p>'+helpTagRef(); } },
+    { id:'enseignants', t:'Enseignant(e)s', h:function(){ return '<p>La fiche regroupe l\'identité, l\'établissement, l\'horaire, les feuilles personnelles (pièces jointes), les <b>notes d\'inspection</b> (rapports du carnet, feuilles personnelles ou saisie manuelle), les tableaux de service et l\'historique des visites. Appel et WhatsApp en un geste.</p>'+
+      '<p>« Joindre des feuilles personnelles (lot) » rattache plusieurs PDF d\'un coup (par PPR ou nom).</p>'; } },
+    { id:'horaire', t:'Recherche par horaire', h:function(){ return '<p>Enseignants → <b>Par horaire</b> : choisissez un jour et une heure pour voir qui est en séance (selon les horaires des fiches). Le résultat s\'imprime ou s\'exporte en Word et respecte le filtre de zones.</p>'; } },
+    { id:'etablissements', t:'Établissements et directeurs', h:function(){ return '<p>La fiche établissement contient le nom en arabe et en français, le code MASSAR, la zone, le cycle, le <b>directeur(trice)</b> et son téléphone (appel et WhatsApp directs), la localisation, la liste des enseignant(e)s et les validations des tableaux de service.</p>'+
+      '<p>Documents disponibles : <b>emploi du temps hebdomadaire</b> et <b>fiche synthèse des notes d\'inspection</b>. « Fusionner avec un doublon » réunit deux fiches (arabe / français).</p>'; } },
+    { id:'notes', t:'Notes d\'inspection', h:function(){ return '<p>La liste des notes (Établissements → « Notes d\'inspection », ou Bilan) se génère pour toutes les zones, une zone, les zones du filtre ou les établissements sans zone, en un tableau par établissement ou en liste unique. Chaque ligne donne la dernière note, sa date, la note précédente et l\'ancienneté.</p>'; } },
+    { id:'zones', t:'Filtre de zones', h:function(){ return '<p>La liste déroulante à cases en haut des écrans limite statistiques, enseignant(e)s, établissements, tâches et bilan aux zones cochées. Le choix est mémorisé sur l\'appareil.</p>'; } },
+    { id:'programme', t:'Programme annuel — Plan d\'action', h:function(){ return '<p>Un onglet <b>Préambule</b> puis un onglet par catégorie. Chaque catégorie a une description ; chaque activité a un intitulé, une description et un calendrier (nombre par mois).</p>'+
+      '<p>Les boutons IA proposent le préambule, la description d\'une catégorie ou d\'une activité, ou toutes les descriptions manquantes d\'un onglet. Pensez à « Enregistrer ».</p>'; } },
+    { id:'ia', t:'Assistant IA', h:function(){ return '<p>Paramètres → <b>Assistant IA</b> : collez votre clé Gemini (gratuite sur Google AI Studio) ou utilisez l\'IA locale. Les boutons « IA » rédigent ou enrichissent un texte à partir de vos notes ; relisez toujours le résultat.</p>'; } },
+    { id:'echange', t:'Import, export et sauvegarde', h:function(){ return '<p>Import CSV/Excel d\'enseignant(e)s et d\'établissements (aperçu et contrôle de conformité avant import). Paramètres → InspectApp : fichiers d\'échange .json (fiches, horaires, directeurs, sauvegarde complète). Les doublons sont rapprochés par PPR, code MASSAR ou nom.</p>'; } },
+    { id:'deconnexion', t:'Déconnexion et fermeture', h:function(){ return '<p>Le menu « Déconnexion et fermeture » synchronise une dernière fois, déconnecte Google Drive et ferme l\'application. Sur un appareil partagé, cochez « Effacer les données de cet appareil » : elles restent dans votre Drive et reviennent à la prochaine connexion.</p>'; } }
+  ];
+  function helpModalHtml(idx, m){
+    var q = (m.q||'').trim().toLowerCase();
+    var list = HELP_TOPICS.filter(function(t){ return !q || (t.t+' '+t.h()).toLowerCase().replace(/<[^>]+>/g,' ').indexOf(q)>=0; });
+    return '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
+      '<div class="sheet-head"><h2>Aide</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
+      '<div class="field"><input type="text" id="helpSearch" value="'+esc(m.q||'')+'" placeholder="Rechercher dans l\'aide (ex. balise, signature, WhatsApp)…"></div>'+
+      (list.length ? list.map(function(t){
+        return '<details class="setup-card" id="help_'+t.id+'" style="margin-bottom:8px;"'+((m.topic===t.id || q) ? ' open' : '')+'><summary style="cursor:pointer;font-weight:700;font-size:14px;">'+esc(t.t)+'</summary>'+
+          '<div style="font-size:12.5px;line-height:1.55;margin-top:8px;">'+t.h()+'</div></details>';
+      }).join('') : '<div class="empty">Aucun résultat.</div>')+
+      '<div class="btn-row" style="margin-top:10px;"><button class="btn ghost sm" id="btnHelpContact" type="button">Une question ? Contact</button></div>'+
+    '</div></div>';
+  }
+  function contactModalHtml(idx){
+    var c = CONTACT;
+    return '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
+      '<div class="sheet-head"><h2>Contact</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
+      '<div class="setup-card"><h2 style="margin-bottom:2px;">'+esc(c.nom)+'</h2><p style="font-size:12px;color:var(--ink-faint);margin:0 0 10px;">Conception et assistance du Carnet d\'Inspection</p>'+
+        '<div class="rec-list">'+
+          '<div class="rec-row"><div class="avatar">'+ICONS.phone+'</div><div class="rec-info"><div class="t">'+esc(c.tel)+'</div><div class="s">Téléphone</div></div>'+
+            '<div class="rec-actions"><a class="icon-btn" href="'+telHref(c.tel)+'" title="Appeler" style="width:32px;height:32px;color:var(--brand);">'+ICONS.phone+'</a>'+
+            '<a class="icon-btn" href="'+waHref(c.tel, 'Bonjour, ')+'" target="_blank" rel="noopener" title="WhatsApp" style="width:32px;height:32px;color:var(--brand);">'+ICONS.chat+'</a></div></div>'+
+          c.emails.map(function(e){ return '<div class="rec-row"><div class="avatar">@</div><div class="rec-info"><div class="t" style="word-break:break-all;">'+esc(e)+'</div><div class="s">Email</div></div>'+
+            '<div class="rec-actions"><a class="icon-btn" href="mailto:'+esc(e)+'?subject='+encodeURIComponent("Carnet d'Inspection")+'" title="Écrire" style="width:32px;height:32px;color:var(--brand);">'+ICONS.link+'</a></div></div>'; }).join('')+
+        '</div></div>'+
+      '<div class="btn-row" style="margin-top:10px;"><a class="btn primary sm" style="text-decoration:none;" href="mailto:'+esc(c.emails.join(','))+'?subject='+encodeURIComponent("Carnet d'Inspection — signalement")+'&body='+encodeURIComponent("Bonjour,\n\nÉcran concerné :\nCe que j'ai fait :\nCe qui s'est passé :\n\nAppareil / navigateur : "+navigator.userAgent+"\n")+'">Signaler un problème par email</a></div>'+
+    '</div></div>';
+  }
+  function logoutModalHtml(idx){
+    return '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
+      '<div class="sheet-head"><h2>Déconnexion et fermeture</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
+      '<p style="font-size:12.5px;line-height:1.55;margin:0 0 10px;">'+(state.mcpReady ? 'Vos dernières modifications vont être synchronisées avec Google Drive, puis Google Drive sera déconnecté et l\'application fermée.' : 'Google Drive n\'est pas connecté : vos données restent enregistrées sur cet appareil. L\'application va être fermée.')+'</p>'+
+      '<label class="chk-row" style="display:flex;align-items:flex-start;gap:8px;font-size:12.5px;margin-bottom:12px;"><input type="checkbox" id="chkLogoutWipe" style="width:17px;height:17px;margin-top:1px;"> <span>Effacer aussi les données de cet appareil (appareil partagé). '+(state.mcpReady ? 'Elles restent dans votre Google Drive.' : '<b style="color:var(--danger);">Attention : sans Drive connecté, elles seront perdues.</b>')+'</span></label>'+
+      '<div class="banner info" id="logoutStatus" hidden style="margin-bottom:8px;"></div>'+
+      '<div class="btn-row"><button class="btn ghost" data-close-modal="1" type="button">Annuler</button><button class="btn danger" id="btnDoLogout" type="button">Se déconnecter et fermer</button></div>'+
+    '</div></div>';
+  }
+  function finishLogout(wipe){
+    if(driveAccessToken && window.google && window.google.accounts && window.google.accounts.oauth2){ try{ window.google.accounts.oauth2.revoke(driveAccessToken, function(){}); }catch(e){} }
+    driveAccessToken = null; driveTokenExpiresAt = 0; state.mcpReady = false;
+    if(wipe){
+      try{ Object.keys(localStorage).filter(function(k){ return /^ci_/.test(k) && k!==LS_KEYS.config; }).forEach(function(k){ localStorage.removeItem(k); }); }catch(e){}
+      try{ if(window.indexedDB && indexedDB.databases) indexedDB.databases().then(function(dbs){ (dbs||[]).forEach(function(db){ if(db.name) indexedDB.deleteDatabase(db.name); }); }); }catch(e){}
+    }
+    state.modalStack = [];
+    try{ window.close(); }catch(e){}
+    setTimeout(function(){
+      document.body.innerHTML = '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:var(--bg,#0b1020);color:var(--ink,#eef);font-family:inherit;">'+
+        '<div style="max-width:360px;text-align:center;"><h1 style="font-size:20px;margin-bottom:8px;">Session fermée</h1>'+
+        '<p style="font-size:13px;opacity:.8;line-height:1.5;">'+(wipe ? 'Les données de cet appareil ont été effacées.' : 'Vous êtes déconnecté(e) de Google Drive.')+' Vous pouvez fermer cet onglet.</p>'+
+        '<button type="button" onclick="location.reload()" style="margin-top:14px;padding:10px 18px;border-radius:10px;border:0;background:#2f6f62;color:#fff;font-weight:600;">Rouvrir le carnet</button></div></div>';
+    }, 300);
+  }
   /* ================= Modèles de documents personnalisés =================
      Créés dans Réglages → Modèles de documents → « Mes modèles », rangés dans
      state.templates.customDocs = [{id, nom, rtl, taskTypes:[…] (vide = toutes les tâches), corps}].
@@ -9998,7 +10129,7 @@
   }
   function customTplsSectionHtml(){
     var list = customTpls();
-    return '<div class="section-label" style="margin-top:18px;">Mes modèles de documents</div>'+
+    return '<div class="section-label" style="margin-top:18px;display:flex;align-items:center;gap:6px;">Mes modèles de documents '+helpBtn('modeles','modèles et balises')+'</div>'+
       '<p style="font-size:11.5px;color:var(--ink-faint);margin:2px 0 10px;">Créez vos propres documents : texte libre, logo, signature, balises de la base (profil, tâche, établissement, enseignant(e)…) et listes d\'enregistrements filtrées. Chaque modèle s\'ajoute aux documents proposés dans les tâches des types choisis.</p>'+
       (list.length ? '<div class="rec-list">'+list.map(function(ct){
         var tt = (ct.taskTypes||[]).length ? ct.taskTypes.map(function(x){ return TT_LABEL[x]||x; }).join(', ') : 'Toutes les tâches';
@@ -10019,7 +10150,7 @@
     var tts = ct.taskTypes || [];
     var prevTasks = state.tasks.filter(function(t){ return !tts.length || tts.indexOf(t.taskType)>=0; }).sort(function(a,b){ return (b.echeance||'').localeCompare(a.echeance||''); }).slice(0,40);
     return '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
-      '<div class="sheet-head"><h2>'+(m.isNew ? 'Nouveau modèle de document' : 'Modifier le modèle')+'</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
+      '<div class="sheet-head"><h2 style="display:flex;align-items:center;gap:8px;">'+(m.isNew ? 'Nouveau modèle de document' : 'Modifier le modèle')+' '+helpBtn('modeles','balises')+'</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
       '<div class="field"><label for="ctNom">Nom du modèle</label><input type="text" id="ctNom" dir="auto" value="'+esc(ct.nom||'')+'" placeholder="Ex. Convocation, liste d\'émargement…"></div>'+
       '<div class="field"><label>Langue / sens d\'écriture</label><div class="seg" id="ctRtlSeg"><button type="button" data-v="0" aria-pressed="'+(!ct.rtl)+'">Français</button><button type="button" data-v="1" aria-pressed="'+(!!ct.rtl)+'">العربية</button></div></div>'+
       '<div class="field"><label>Proposé dans les tâches de type</label><div class="chips" style="flex-wrap:wrap;">'+
@@ -10093,7 +10224,7 @@
       .concat([[ZONE_NONE, 'Établissements sans zone']]);
     var n = inspScopeEtabs(m.scope).length;
     return '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
-      '<div class="sheet-head"><h2>Notes d\'inspection</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
+      '<div class="sheet-head"><h2 style="display:flex;align-items:center;gap:8px;">Notes d\'inspection '+helpBtn('notes')+'</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
       '<div class="field"><label for="inScope">Portée</label><select id="inScope" style="width:100%;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:10px 11px;">'+
         opts.map(function(o){ return '<option value="'+esc(o[0])+'"'+(m.scope===o[0]?' selected':'')+'>'+esc(o[1])+'</option>'; }).join('')+'</select>'+
         '<p style="font-size:11px;color:var(--ink-faint);margin:5px 2px 0;">'+n+' établissement(s) concerné(s).</p></div>'+
@@ -10243,7 +10374,7 @@
   function etablissementModalHtml(idx){
     var e = state.draftRecord;
     return '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
-      '<div class="sheet-head"><h2>'+(state.modalStack[idx].isNew?'Nouvel établissement':'Modifier')+'</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
+      '<div class="sheet-head"><h2 style="display:flex;align-items:center;gap:8px;">'+(state.modalStack[idx].isNew?'Nouvel établissement':'Modifier')+' '+helpBtn('etablissements')+'</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
       '<div class="field"><label for="etNom">Nom</label><input type="text" id="etNom" value="'+esc(e.nom)+'" placeholder="Nom (français ou arabe)"></div>'+
       bilingualFieldsHtml('et', e, 'etab')+
       '<div class="field"><label for="etMassar">Code MASSAR / GRESA <span style="font-weight:400;color:var(--ink-faint);">(rapprochement avec InspectApp)</span></label><input type="text" id="etMassar" value="'+esc(e.codeMassar||'')+'" autocapitalize="characters" placeholder="ex. 12345A"></div>'+
@@ -10355,7 +10486,7 @@
       var ctSrc = customTplById(d.templateId);
       body += '<p style="font-size:11.5px;color:var(--ink-faint);margin:0 0 10px;">Document créé à partir du modèle « '+esc(ctSrc ? ctSrc.nom : d.titre)+' ». Les balises {{…}} et les listes sont remplacées par les données à jour au moment de l\'impression ou de l\'export.</p>'+
         '<div class="field-row"><div class="field"><label for="dCTitre">Titre du document</label><input type="text" id="dCTitre" dir="auto" value="'+esc(d.titre)+'"></div><div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div></div>'+
-        '<div class="field"><label for="dCBody">Contenu</label><textarea id="dCBody" rows="14" dir="'+(d.rtl?'rtl':'ltr')+'" style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;">'+esc(d.corps||'')+'</textarea>'+
+        '<div class="field"><label for="dCBody" style="display:flex;align-items:center;gap:6px;">Contenu '+helpBtn('modeles','balises')+'</label><textarea id="dCBody" rows="14" dir="'+(d.rtl?'rtl':'ltr')+'" style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;">'+esc(d.corps||'')+'</textarea>'+
         ctTagPaletteHtml('dCBody', true)+
         (ctSrc ? '<div class="btn-row" style="margin-top:6px;"><button class="btn ghost sm" id="btnCtReload" type="button">Reprendre le texte du modèle</button></div>' : '')+'</div>'+
         ((d.aiZones||[]).length ? '<div class="section-label" style="margin-top:6px;">Zones rédigées par l\'IA</div>'+
@@ -11370,6 +11501,26 @@
       if(callA) callA.href = telHref(ensTelInput.value);
       if(waA) waA.href = waHref(ensTelInput.value, waGreeting(($('eNom')||{}).value||state.draftRecord.nom));
     };
+    var hs = $('helpSearch'); if(hs){
+      var mH = state.modalStack[state.modalStack.length-1];
+      hs.oninput = function(){ mH.q = hs.value; render(); setTimeout(function(){ var h2 = $('helpSearch'); if(h2){ h2.focus(); h2.selectionStart = h2.selectionEnd = h2.value.length; } }, 0); };
+      if(mH.topic && !mH.scrolled){ mH.scrolled = true; setTimeout(function(){ var el = $('help_'+mH.topic); if(el && el.scrollIntoView) el.scrollIntoView({block:'start'}); }, 30); }
+      var hc = $('btnHelpContact'); if(hc) hc.onclick = function(){ pushModal({type:'contact'}); };
+    }
+    var bLo = $('btnDoLogout'); if(bLo) bLo.onclick = function(){
+      var wipe = !!($('chkLogoutWipe')||{}).checked, st = $('logoutStatus');
+      if(wipe && !state.mcpReady && !confirm('Google Drive n\'est pas connecté : effacer les données de cet appareil les supprimera définitivement. Continuer ?')) return;
+      bLo.disabled = true;
+      if(!(state.mcpReady && state.config.sheetFileId)){ finishLogout(wipe); return; }
+      if(st){ st.hidden = false; st.textContent = 'Synchronisation avec Google Drive…'; }
+      doSync();
+      var t0 = Date.now();
+      (function waitSync(){
+        if(state.syncing && Date.now()-t0 < 60000){ setTimeout(waitSync, 400); return; }
+        if(state.syncError && !confirm('La synchronisation a échoué ('+state.syncError+'). Fermer quand même ?'+(wipe ? ' Les modifications non synchronisées seront perdues.' : ''))){ bLo.disabled = false; if(st) st.hidden = true; return; }
+        finishLogout(wipe);
+      })();
+    };
     var ctBodyEl = $('ctBody'); if(ctBodyEl){
       var mCt = state.modalStack[state.modalStack.length-1];
       var syncCt = function(){ var c = state.draftTpl; c.nom = ($('ctNom')||{}).value||''; c.corps = ctBodyEl.value; c.aiZones = c.aiZones || [];
@@ -12309,6 +12460,16 @@
   $('btnSidebarClose').onclick = closeSidebar;
   $('sidebarBackdrop').onclick = closeSidebar;
   $('btnSideTemplates').onclick = function(){ closeSidebar(); pushModal({type:'settings', tab:'templates'}); };
+  $('btnSideHelp').onclick = function(){ closeSidebar(); openHelp(''); };
+  $('btnSideContact').onclick = function(){ closeSidebar(); pushModal({type:'contact'}); };
+  $('btnSideLogout').onclick = function(){ closeSidebar(); pushModal({type:'logout'}); };
+  /* Boutons d'aide contextuelle « ? » (data-help="sujet") présents dans plusieurs écrans : un seul
+     écouteur délégué, quel que soit l'écran redessiné. */
+  document.addEventListener('click', function(ev){
+    var b = ev.target && ev.target.closest ? ev.target.closest('[data-help]') : null;
+    if(!b) return;
+    ev.preventDefault(); ev.stopPropagation(); openHelp(b.getAttribute('data-help'));
+  }, true);
   /* Le Programme annuel EST le plan d'action tel que conçu par l'inspecteur(trice) (grille officielle
      par catégorie/activité/mois) : ce bouton, très visible dans le menu principal, ouvre directement
      son propre écran (type 'programme', voir renderModals/programmeAnnuelModalHtml) plutôt qu'un
