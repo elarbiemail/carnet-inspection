@@ -1118,7 +1118,7 @@
     visite_conseil:['demande_voiture','observation','rapport','bordereau'],
     reunion_pedagogique:['lettre_information','presence','compte_rendu','attestation','bordereau'],
     cours_experimental:['lettre_information','presence','compte_rendu','attestation','bordereau'],
-    formation:['lettre_information','presence','compte_rendu','attestation','bordereau'],
+    formation:['lettre_information','presence','rapport_formation','attestation','compte_rendu','bordereau'],
     reunion_distance:['lettre_information','compte_rendu','bordereau'],
     reunion_administrative:['lettre_information','compte_rendu','bordereau'],
     recherche_action:['rapport','bordereau'],
@@ -1133,14 +1133,15 @@
     attestation: {label:'Attestation de présence'}, lettre_information: {label:"Lettre d'information"},
     demande_voiture: {label:'Demande de voiture de service'},
     rapport_inspection: {label:"Rapport d'inspection"}, bordereau: {label:"Bordereau d'envoi"},
-    plan_action: {label:"Plan d'action"}
+    plan_action: {label:"Plan d'action"},
+    rapport_formation: {label:'Rapport de synthèse de la formation (modèle 4)'}
   };
   /* Règle de langue (précisée par l'utilisateur) : les rapports — « Rapport de synthèse » (visite
      conseil) et « Rapport d'inspection » — ainsi que la grille d'observation sont rédigés entièrement
      en français ; TOUS les autres documents (y compris le plan d'action) sont rédigés en arabe (langue
      de l'administration marocaine). Voir buildDocSpecInner() : ces trois types y ont des libellés et
      un contenu en français ; tous les autres ont déjà des libellés arabes et rtl:true. */
-  var RTL_DOC_TYPES = { presence:true, compte_rendu:true, attestation:true, lettre_information:true, bordereau:true, plan_action:true, demande_voiture:true };
+  var RTL_DOC_TYPES = { presence:true, compte_rendu:true, attestation:true, lettre_information:true, bordereau:true, plan_action:true, demande_voiture:true, rapport_formation:true };
   /* ---- Modèles personnalisés (Réglages → Modèles de documents → Modèles personnalisés) : un modèle
      par type de document associe un logo optionnel (state.templates.docTemplates[type].logoAssetId,
      utilisé à la place du logo global du profil dans les exports PDF/Word de ce type précis — voir
@@ -1158,7 +1159,8 @@
     lettre_information:['corps'],
     rapport_inspection:['constats','recommandations'],
     bordereau:['observations'],
-    plan_action:['contexte','objectifs']
+    plan_action:['contexte','objectifs'],
+    rapport_formation:['objectifs','axes','conclusions','recommandations']
   };
   /* Catalogue de remarques standard pour la validation des tableaux de service, proposées comme
      observations rapides lors du rejet d'un tableau de service dans le bordereau d'envoi (voir
@@ -1185,7 +1187,7 @@
     appreciationGlobale:'Appréciation globale (collèges pionniers)',
     texte:'Rapport', texteLibre:"Texte de l'attestation", corps:'Corps de la lettre',
     constats:'Constats', recommandations:'Recommandations', observations:'Observations',
-    contexte:'Contexte', objectifs:'Objectifs'
+    contexte:'Contexte', objectifs:'Objectifs', axes:'Axes', conclusions:'Conclusions'
   };
   var DOC_TEMPLATE_TAGS = [
     {tag:'etablissement', label:'Établissement'}, {tag:'enseignant', label:"Enseignant(e)"},
@@ -4685,6 +4687,16 @@
         base.sefrou.localite = offProfil().province || '';
         base.sefrou.nature = task.taskType==='inspection' ? 'inspection' : 'visite';
       }
+    } else if(type==='rapport_formation'){
+      /* Rapport de synthèse d'une session de formation (النموذج رقم 4) : pré-rempli avec les
+         informations de la session saisies dans la tâche (t.formation) — voir formationFieldsHtml. */
+      var fo = task.formation || {};
+      base.lieu = task.lieu || task.etablissementNom || '';
+      base.objet = fo.sujet || task.titre || '';
+      base.organisateur = fo.organisateur || ''; base.formateurs = fo.formateurs || '';
+      base.cible = fo.cible || ''; base.nombre = fo.nombre || (invites.length ? String(invites.length) : '');
+      base.objectifs = fo.objectifs || ''; base.axes = fo.axes || ''; base.conclusions = ''; base.recommandations = '';
+      base.evalFormation = ''; base.evalMethodologie = ''; base.evalGenerale = '';
     } else if(type==='rapport'){
       base.texte='';
     } else if(type==='attestation'){
@@ -6979,6 +6991,66 @@
     off.type = 'demande_voiture';
     return off;
   }
+  /* ---- Rapport de synthèse d'une session de formation (النموذج رقم 4 : تقرير تركيبي حول دورة تكوينية) ----
+     Reproduit le tableau du modèle de la DP de Sefrou : date/lieu, thème, organisateur/formateur(s),
+     public/nombre, objectifs, axes, conclusions, taux d'évaluation (formation, méthodologie,
+     évaluation globale) et recommandations. */
+  var RF_KEYS = ['objectifs','axes','conclusions','recommandations'];
+  var RF_LABELS = { objectifs:'الأهداف العامة والخاصة', axes:'المحاور', conclusions:'الخلاصات', recommandations:'التوصيات والاقتراحات' };
+  function rfPrompt(d, key){
+    var task = state.tasks.find(function(t){ return t.id===d.taskId; }) || {};
+    var fo = task.formation || {};
+    var p = state.templates.profil || DEFAULT_PROFIL;
+    var ctx = [
+      'Thème : '+(d.objet||task.titre||''), 'Date : '+(d.date||task.echeance||''), 'Lieu : '+(d.lieu||task.lieu||''),
+      d.organisateur ? 'Organisateur : '+d.organisateur : '', d.formateurs ? 'Formateur(s) : '+d.formateurs : '',
+      d.cible ? 'Public : '+d.cible : '', d.nombre ? 'Nombre de bénéficiaires : '+d.nombre : '',
+      (task.heureDebut ? 'Horaire : '+task.heureDebut+(task.heureFin ? ' – '+task.heureFin : '') : ''),
+      fo.deroulement ? 'Déroulement / activités réalisées (notes de l\'inspecteur) :\n'+fo.deroulement : '',
+      task.description ? 'Notes de la tâche (manuscrites ou dictées) :\n'+task.description : '',
+      (task.invites||[]).length ? 'Participant(e)s invité(e)s : '+task.invites.length : ''
+    ].concat(RF_KEYS.filter(function(k){ return k!==key && (d[k]||'').trim(); }).map(function(k){ return RF_LABELS[k]+' (déjà rédigé) :\n'+d[k].trim(); }))
+     .concat(d.evalFormation||d.evalMethodologie||d.evalGenerale ? ['Taux d\'évaluation — formation : '+(d.evalFormation||'—')+', méthodologie : '+(d.evalMethodologie||'—')+', évaluation globale : '+(d.evalGenerale||'—')] : [])
+     .filter(Boolean).join('\n');
+    var consigne = {
+      objectifs: "la rubrique « الأهداف العامة والخاصة » : un objectif général puis les objectifs spécifiques, sous forme de liste numérotée courte",
+      axes: "la rubrique « المحاور » : les axes/thèmes traités pendant la session, sous forme de liste numérotée",
+      conclusions: "la rubrique « الخلاصات » : un paragraphe de synthèse du déroulement et des acquis de la session (participation, activités, productions, difficultés relevées)",
+      recommandations: "la rubrique « التوصيات والاقتراحات » : 3 à 5 recommandations et propositions concrètes, sous forme de liste numérotée"
+    }[key];
+    return "Tu es inspecteur(trice) pédagogique"+(p.matiere?" de "+p.matiere:"")+" au Maroc. Rédige, en arabe standard moderne et sur un ton administratif sobre, "+consigne+
+      " du rapport de synthèse d'une session de formation (النموذج رقم 4 : تقرير تركيبي حول دورة تكوينية). Appuie-toi UNIQUEMENT sur les éléments ci-dessous ; "+
+      "n'invente ni chiffres, ni noms, ni activités qui n'y figurent pas. Retourne uniquement le texte de la rubrique, sans titre.\n\nÉléments de la session :\n"+ctx;
+  }
+  function offRapportFormation(d, task){
+    var pf = offProfil();
+    var L = function(t){ return C([P([R(t,{b:true})], {size:12})], {shade:'F2F2F2'}); };
+    var V = function(t, o){ return C(paragraphsOf(t).length ? paragraphsOf(t).map(function(x){ return P(x, {size:12, align:'justify', after:2}); }) : [P('', {size:12})], o||{}); };
+    var rows = [
+      { cells:[ L('التاريخ:'), V(d.date ? dateLongueAr(d.date) : ''), L('المكان'), V(d.lieu) ] },
+      { cells:[ L('الموضوع:'), V(d.objet, {span:3}) ] },
+      { cells:[ L('الجهة المنظمة'), V(d.organisateur), L('المكون(ون)'), V(d.formateurs) ] },
+      { cells:[ L('الفئة المستفيدة'), V(d.cible), L('العدد'), V(d.nombre) ] },
+      { h:40, cells:[ L('الأهداف العامة والخاصة'), V(d.objectifs, {span:3}) ] },
+      { h:40, cells:[ L('المحاور'), V(d.axes, {span:3}) ] },
+      { h:40, cells:[ L('الخلاصات'), V(d.conclusions, {span:3}) ] },
+      { cells:[ C([P([R('معدلات التقييم(*)',{b:true})], {size:12})], {shade:'F2F2F2', rowspan:2}),
+        C([P([R('التكوين',{b:true})], {size:12, align:'center'})]), C([P([R('المنهجية',{b:true})], {size:12, align:'center'})]), C([P([R('التقييم العام',{b:true})], {size:12, align:'center'})]) ] },
+      { cells:[ C([P(d.evalFormation||'', {size:12, align:'center'})]), C([P(d.evalMethodologie||'', {size:12, align:'center'})]), C([P(d.evalGenerale||'', {size:12, align:'center'})]) ] },
+      { h:40, cells:[ L('التوصيات والاقتراحات'), V(d.recommandations, {span:3}) ] }
+    ];
+    var blocks = offHeaderLogo('ministere', 100, 'center').concat([
+      P([R('الأكاديمية الجهوية للتربية والتكوين لجهة '+(pf.academieAr||'فاس مكناس'),{b:true})], {align:'center', size:11, before:2}),
+      P([R('المديرية الإقليمية '+(pf.provinceAr||'صفرو'),{b:true})], {align:'center', size:11, after:10}),
+      { t:'table', border:true, cols:[100], rows:[ { cells:[ C([P([R('النموذج رقم 4 :   تقرير تركيبي حول دورة تكوينية',{b:true})], {align:'center', size:16, before:4, after:4, title:true})]) ] } ] },
+      P('', {size:6}),
+      { t:'table', border:true, cols:[18,32,16,34], rows: rows },
+      P('(*) معدلات التقييم المستخلصة من استمارات تقييم المستفيدين.', {size:9.5, before:4}),
+      P([R('المفتش(ة) التربوي(ة) : ',{b:true}), R(pf.nomAr||pf.nom||'')], {size:12, align:'left', before:12}),
+      {t:'sigimg', align:'left'}
+    ]);
+    return { type:'rapport_formation', rtl:true, margin:15, size:12, fontCss:"Arial,'Traditional Arabic',sans-serif", fontDocx:'Arial', blocks: blocks };
+  }
   /* Modèle officiel du document, ou null pour les types qui gardent le rendu générique. */
   function buildOfficialDoc(d, task){ var off = buildOfficialDocInner(d, task); if(off) applyDocFonts(off); return off; }
   function buildOfficialDocInner(d, task){
@@ -6993,6 +7065,7 @@
     if(d.type==='bordereau') return offBordereau(d, task);
     if(d.type==='lettre_information') return offLettre(d, task);
     if(d.type==='demande_voiture') return offDemandeVoiture(d, task);
+    if(d.type==='rapport_formation') return offRapportFormation(d, task);
     return null;
   }
 
@@ -7042,6 +7115,12 @@
       return { rtl:true, titre:'لائحة الحضور', meta:[['المؤسسة',d.lieu],['التاريخ',fmtDate(d.date)],['الموضوع',d.objet]],
         tables:[{headers:['#','الاسم الكامل','الصفة','التوقيع'], rows:(d.participants||[]).map(function(p,i){ return [String(i+1), p.nom||'', p.fonction||'', '']; })}],
         sections:[], signatures:null };
+    }
+    if(d.type==='rapport_formation'){
+      return { rtl:true, titre:'تقرير تركيبي حول دورة تكوينية', meta:[['التاريخ',fmtDate(d.date)],['المكان',d.lieu],['الموضوع',d.objet],['الجهة المنظمة',d.organisateur],['المكون(ون)',d.formateurs],['الفئة المستفيدة',d.cible],['العدد',d.nombre]],
+        tables:[{heading:'معدلات التقييم', headers:['التكوين','المنهجية','التقييم العام'], rows:[[d.evalFormation||'', d.evalMethodologie||'', d.evalGenerale||'']]}],
+        sections:[{heading:'الأهداف العامة والخاصة', text:d.objectifs||'—'},{heading:'المحاور', text:d.axes||'—'},{heading:'الخلاصات', text:d.conclusions||'—'},{heading:'التوصيات والاقتراحات', text:d.recommandations||'—'}],
+        signatures:['توقيع المفتش(ة) التربوي(ة)'] };
     }
     if(d.type==='compte_rendu'){
       var sections = [{heading:'جدول الأعمال', text:d.ordreJour||'—'},{heading:'النقط التي تمت مناقشتها', text:d.pointsDiscutes||'—'},{heading:'القرارات المتخذة', text:d.decisions||'—'}];
@@ -8648,6 +8727,24 @@
     state.draftTaskAutoTitle = auto;
     var b = $('btnAutoTitre'); if(b) b.hidden = (t.titre === auto);
   }
+  /* Session de formation : informations reprises dans le rapport de synthèse (النموذج رقم 4). */
+  function formationFieldsHtml(t){
+    var fo = t.formation || {};
+    var f = function(id, label, v, ph, area){
+      return '<div class="field"><label for="'+id+'">'+label+'</label>'+(area
+        ? '<textarea id="'+id+'" rows="3" dir="auto"'+(ph?' placeholder="'+esc(ph)+'"':'')+'>'+esc(v||'')+'</textarea>'
+        : '<input type="text" id="'+id+'" dir="auto" value="'+esc(v||'')+'"'+(ph?' placeholder="'+esc(ph)+'"':'')+'>')+'</div>';
+    };
+    return '<div class="setup-card" style="margin:6px 0 12px;"><h2 style="font-size:14px;margin-bottom:4px;">Session de formation</h2>'+
+      '<p style="font-size:11px;color:var(--ink-faint);margin:0 0 8px;">Repris dans le rapport de synthèse (النموذج رقم 4), avec les notes ci-dessous.</p>'+
+      f('fFoSujet','الموضوع — Thème', fo.sujet, 'Thème de la formation')+
+      '<div class="field-row">'+f('fFoOrg','الجهة المنظمة — Organisateur', fo.organisateur, 'Ex. المديرية الإقليمية بصفرو')+f('fFoFormateurs','المكون(ون) — Formateur(s)', fo.formateurs, '')+'</div>'+
+      '<div class="field-row">'+f('fFoCible','الفئة المستفيدة — Public', fo.cible, 'Ex. أساتذة اللغة الفرنسية')+f('fFoNombre','العدد — Nombre', fo.nombre, (t.invites||[]).length ? String(t.invites.length) : '')+'</div>'+
+      f('fFoObjectifs','الأهداف — Objectifs (notes)', fo.objectifs, 'Objectifs prévus (quelques mots suffisent)', true)+
+      f('fFoAxes','المحاور — Axes / programme', fo.axes, 'Axes ou programme de la session', true)+
+      f('fFoDeroulement','Déroulement / activités réalisées', fo.deroulement, 'Ateliers, mises en situation, productions…', true)+
+    '</div>';
+  }
   function taskModalHtml(idx){
     var t = state.draftTask;
     if(state.draftTaskAutoTitle === undefined && t.titre && t.titre === autoTaskTitle(t)) state.draftTaskAutoTitle = t.titre;
@@ -8677,7 +8774,8 @@
       (TASK_TYPES_GRADED[t.taskType] ? '<div class="field"><label>Note globale de l\'inspection</label><div class="seg" id="fNoteSeg">'+NOTE_SCALE.map(function(n){ return '<button type="button" data-v="'+n+'" aria-pressed="'+(t.noteGlobale===n)+'">'+n+'</button>'; }).join('')+'</div></div>' : '')+
       (TASK_TYPES_NOTIFY[t.taskType] ? '<div class="field"><label class="chk-row" style="display:flex;align-items:center;gap:8px;font-weight:500;"><input type="checkbox" id="fNotif"'+(t.notificationEnvoyee?' checked':'')+'> Notification envoyée à l\'administration</label></div>' : '')+
       (TASK_TYPES_NOTIFY[t.taskType] ? taskInvitesFieldHtml(t) : '')+
-      '<div class="field"><label for="fDesc">Notes</label><textarea id="fDesc" placeholder="Détails, observations…">'+esc(t.description)+'</textarea>'+
+      (t.taskType==='formation' ? formationFieldsHtml(t) : '')+
+      '<div class="field"><label for="fDesc">'+(t.taskType==='formation' ? 'Notes de la session (manuscrites ou dictées)' : 'Notes')+'</label><textarea id="fDesc" rows="'+(t.taskType==='formation'?6:3)+'" placeholder="'+(t.taskType==='formation' ? 'Déroulement, interventions, échanges, productions, difficultés, propositions… — base du rapport de synthèse (modèle 4) rédigé par l\'IA' : 'Détails, observations…')+'">'+esc(t.description)+'</textarea>'+
       (state.sampleReady ? '<div class="btn-row" style="margin-top:6px;"><button class="btn ai sm" id="btnAiTaskDesc" type="button">'+ICONS.ai+' Générer une description avec l\'IA</button></div><div class="banner info" id="aiTaskDescStatus" hidden style="margin-top:6px;"></div>' : '')+'</div>'+
       '<div class="btn-row">'+(state.modalStack[idx].isNew ? '' : '<button class="btn danger" id="btnDeleteTask" type="button">Supprimer</button>')+
       '<button class="btn primary" id="btnSaveTask" type="button">Enregistrer</button></div></div></div>';
@@ -9695,6 +9793,23 @@
           return '<div class="rowline"><input type="text" data-part="nom" data-i="'+i+'" value="'+esc(p.nom)+'" placeholder="Nom" style="flex:1;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;">'+
             '<input type="text" data-part="fonction" data-i="'+i+'" value="'+esc(p.fonction)+'" placeholder="Fonction" style="flex:1;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;"><button class="rm" data-rmpart="'+i+'" type="button">'+ICONS.trash+'</button></div>';
         }).join('')+'</div><button class="addline" id="btnAddPart" type="button">'+ICONS.plus+' Ajouter un participant</button><button class="addline" id="btnAddPartMulti" type="button">'+ICONS.users+' Ajouter des enseignant(e)s</button></div>';
+    } else if(m.docType==='rapport_formation'){
+      var rfAi = function(key, label){
+        return '<div class="btn-row" style="margin-top:4px;"><button class="btn ai sm" data-airf="'+key+'" type="button">'+ICONS.ai+' '+((d[key]||'').trim() ? 'Enrichir' : 'Rédiger')+' avec l\'IA</button>'+
+          '<button class="btn ghost sm" data-trrf="'+key+'" type="button">'+ICONS.ai+' Traduire</button></div><div class="banner info" id="dRf_'+key+'Status" hidden style="margin-top:6px;"></div>';
+      };
+      body += '<p style="font-size:11.5px;color:var(--ink-faint);margin:0 0 10px;">النموذج رقم 4 — تقرير تركيبي حول دورة تكوينية. Pré-rempli avec la session décrite dans la tâche ; l\'IA rédige les rubriques à partir des notes de la tâche et des éléments saisis ici (en arabe, langue du modèle).</p>'+
+        '<div class="btn-row" style="margin-bottom:10px;"><button class="btn primary sm" id="btnRfAiAll" type="button">'+ICONS.ai+' Rédiger les rubriques vides avec l\'IA</button></div><div class="banner info" id="rfAiAllStatus" hidden style="margin:-4px 0 10px;"></div>'+
+        dkRow('<div class="field"><label for="dDate">التاريخ — Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div>', dkField('المكان — Lieu','lieu', d.lieu, {dir:'auto'}))+
+        dkField('الموضوع — Thème','objet', d.objet, {dir:'auto'})+
+        dkRow(dkField('الجهة المنظمة — Organisateur','organisateur', d.organisateur, {dir:'auto', ph:'Ex. المديرية الإقليمية بصفرو'}), dkField('المكون(ون) — Formateur(s)','formateurs', d.formateurs, {dir:'auto'}))+
+        dkRow(dkField('الفئة المستفيدة — Public','cible', d.cible, {dir:'auto', ph:'Ex. أساتذة اللغة الفرنسية بالسلك الإعدادي'}), dkField('العدد — Nombre','nombre', d.nombre, {type:'number'}))+
+        dkField('الأهداف العامة والخاصة — Objectifs','objectifs', d.objectifs, {area:true, rows:5, id:'dRf_objectifs', dir:'auto', after: rfAi('objectifs')})+
+        dkField('المحاور — Axes','axes', d.axes, {area:true, rows:5, id:'dRf_axes', dir:'auto', after: rfAi('axes')})+
+        dkField('الخلاصات — Conclusions','conclusions', d.conclusions, {area:true, rows:6, id:'dRf_conclusions', dir:'auto', ph:'Notes rapides ou laissez l\'IA rédiger à partir des notes de la tâche', after: rfAi('conclusions')})+
+        '<div class="field"><label>معدلات التقييم — Taux d\'évaluation (formulaires des participant(e)s)</label>'+
+        dkRow(dkField('التكوين','evalFormation', d.evalFormation, {ph:'Ex. 85%'}), dkField('المنهجية','evalMethodologie', d.evalMethodologie, {ph:'Ex. 80%'}), dkField('التقييم العام','evalGenerale', d.evalGenerale, {ph:'Ex. 82%'}))+'</div>'+
+        dkField('التوصيات والاقتراحات — Recommandations','recommandations', d.recommandations, {area:true, rows:5, id:'dRf_recommandations', dir:'auto', after: rfAi('recommandations')});
     } else if(m.docType==='compte_rendu'){
       body += '<div class="field-row"><div class="field"><label for="dLieu">Lieu</label><input type="text" id="dLieu" value="'+esc(d.lieu)+'"></div><div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div></div>'+
         '<div class="field"><label for="dPresents">Présents</label><input type="text" id="dPresents" value="'+esc(d.presents)+'"></div>'+
@@ -9939,6 +10054,11 @@
       el=$('fHeureDebut'); if(el) t.heureDebut=el.value; el=$('fHeureFin'); if(el) t.heureFin=el.value;
       el=$('fLieu'); if(el) t.lieu=el.value; el=$('fLienConnexion'); if(el) t.lienConnexion=el.value;
       el=$('fDesc'); if(el) t.description=el.value;
+      if($('fFoSujet')){
+        t.formation = t.formation || {};
+        [['fFoSujet','sujet'],['fFoOrg','organisateur'],['fFoFormateurs','formateurs'],['fFoCible','cible'],['fFoNombre','nombre'],['fFoObjectifs','objectifs'],['fFoAxes','axes'],['fFoDeroulement','deroulement']]
+          .forEach(function(pr){ var x = $(pr[0]); if(x) t.formation[pr[1]] = x.value; });
+      }
       el=$('fNotif'); if(el) t.notificationEnvoyee=el.checked;
       /* Les invité(e)s (t.invites) sont mis à jour directement par le sélecteur multiple (voir
          btnPickInvites / data-rminvite) : plus rien à relire dans le formulaire ici. */
@@ -11074,6 +11194,36 @@
     var addAct = $('btnAddAct'); if(addAct) addAct.onclick = function(){ syncDocGenericFields(); state.draftDoc.actions.push({action:'',responsable:'',echeance:''}); render(); };
     document.querySelectorAll('[data-rmact]').forEach(function(el){ el.onclick=function(){ syncDocGenericFields(); state.draftDoc.actions.splice(parseInt(el.getAttribute('data-rmact')),1); render(); }; });
 
+    /* Rapport de formation (modèle 4) : rédaction IA rubrique par rubrique, ou de toutes les rubriques
+       vides à la suite, à partir des éléments de la tâche (notes manuscrites/dictées, session) et des
+       champs déjà remplis du rapport. */
+    document.querySelectorAll('[data-airf]').forEach(function(b){ b.onclick = function(){
+      syncDocGenericFields(); var key = b.getAttribute('data-airf');
+      aiDraft(b, $('dRf_'+key+'Status'), $('dRf_'+key), rfPrompt(state.draftDoc, key));
+    }; });
+    document.querySelectorAll('[data-trrf]').forEach(function(b){ b.onclick = function(){
+      syncDocGenericFields(); var key = b.getAttribute('data-trrf'); aiTranslate(b, $('dRf_'+key+'Status'), $('dRf_'+key));
+    }; });
+    var rfAll = $('btnRfAiAll'); if(rfAll) rfAll.onclick = function(){
+      syncDocGenericFields();
+      if(!aiUsable() || (aiEffectiveProvider()==='local' && !localModelReady())){ toast(geminiErrorMessage({code:'not_configured'})); return; }
+      var d = state.draftDoc, keys = RF_KEYS.filter(function(k){ return !(d[k]||'').trim(); }), st = $('rfAiAllStatus'), k = 0;
+      if(!keys.length){ toast('Toutes les rubriques sont déjà rédigées.'); return; }
+      rfAll.disabled = true; localAiKeepAwake(true);
+      var show = function(msg, cls){ st = $('rfAiAllStatus') || st; if(st){ st.hidden = false; st.className = 'banner '+(cls||'info'); st.textContent = msg; } };
+      var next = function(){
+        if(k >= keys.length){ localAiKeepAwake(false); rfAll.disabled = false; show('✓ '+keys.length+' rubrique(s) rédigée(s) — relisez et complétez avant de générer le document.'); return; }
+        var key = keys[k];
+        show('Rédaction '+(k+1)+'/'+keys.length+' avec '+aiEngineLabel()+' : '+RF_LABELS[key]+'…');
+        syncDocGenericFields();
+        geminiGenerate(rfPrompt(state.draftDoc, key), 1).then(function(text){
+          text = String(text||'').trim();
+          if(text && !(state.draftDoc[key]||'').trim()){ state.draftDoc[key] = text; var f = $('dRf_'+key); if(f) f.value = text; }
+          k++; next();
+        }).catch(function(err){ localAiKeepAwake(false); rfAll.disabled = false; show(geminiErrorMessage(err), 'err'); });
+      };
+      next();
+    };
     var aiPD = $('btnAiPD'); if(aiPD) aiPD.onclick = function(){
       var notes = $('dPD').value;
       if(!notes.trim()){ toast('Ajoutez quelques notes/mots-clés dans le champ avant de lancer l\'IA.'); return; }
