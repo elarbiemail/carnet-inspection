@@ -4666,6 +4666,7 @@
     if(type==='custom'){
       var ct = customTplById(tplId) || {};
       base.templateId = ct.id || ''; base.titre = ct.nom || 'Document personnalisé'; base.corps = ct.corps || ''; base.rtl = !!ct.rtl;
+      base.aiZones = JSON.parse(JSON.stringify(ct.aiZones || [])); base.aiValues = {};
       return base;
     }
     var invites = task.invites || [];
@@ -9706,6 +9707,13 @@
     });
     return v;
   }
+  /* Texte d'une zone IA dans un document : valeur saisie/générée, ou (aperçu du modèle) un repère. */
+  function ctIaText(d, zid){
+    var v = (d.aiValues||{})[zid];
+    if(v && String(v).trim()) return String(v).trim();
+    if(d.id==='apercu'){ var z = (d.aiZones||[]).find(function(x){ return x.id===zid; }); return '[Zone IA : '+((z&&z.label)||zid)+']'; }
+    return '';
+  }
   function ctApplyTags(text, vals){
     return String(text||'').replace(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*\}\}/g, function(m, k){ return vals.hasOwnProperty(k) ? (vals[k]==null ? '' : String(vals[k])) : ''; });
   }
@@ -9785,6 +9793,11 @@
       if(/^\{\{\s*logo\s*\}\}$/i.test(tr)){ out.push({k:'logo'}); return; }
       if(/^\{\{\s*entete\s*\}\}$/i.test(tr)){ out.push({k:'entete'}); return; }
       if(/^\{\{\s*signature\s*\}\}$/i.test(tr)){ out.push({k:'signature'}); return; }
+      if((m = tr.match(/^\{\{\s*ia\s*:\s*([\w-]+)\s*\}\}$/i))){
+        var zt = ctIaText(d, m[1]);
+        String(zt).split('\n').forEach(function(zl){ var z2 = zl.trim(); if(!z2) out.push({k:'blank'}); else { var hm = z2.match(/^(#{1,3})\s+(.*)$/); out.push(hm ? {k: hm[1].length===1 ? 'title' : hm[1].length===2 ? 'h2' : 'h3', text: hm[2], align:''} : {k:'p', text: z2.replace(/^[-*]\s+/, '• '), align:''}); } });
+        return;
+      }
       if((m = tr.match(/^\{\{\s*liste\s*:\s*([\s\S]*?)\}\}$/i))){
         var L = ctParseList(m[1]), defs = CT_LIST_COLS[L.coll];
         if(!defs){ out.push({k:'p', text:'[liste inconnue : '+L.coll+']', align:''}); return; }
@@ -9797,7 +9810,7 @@
       var align = '';
       if((m = tr.match(/^\[(centre|center|droite|gauche|justifie)\]\s*/i))){ align = {centre:'center', center:'center', droite:'right', gauche:'left', justifie:'justify'}[m[1].toLowerCase()]; tr = tr.slice(m[0].length); }
       if((m = tr.match(/^(#{1,3})\s+(.*)$/))){ out.push({k: m[1].length===1 ? 'title' : m[1].length===2 ? 'h2' : 'h3', text: ctApplyTags(m[2], vals), align: align}); return; }
-      out.push({k:'p', text: ctApplyTags(tr, vals), align: align});
+      out.push({k:'p', text: ctApplyTags(tr.replace(/\{\{\s*ia\s*:\s*([\w-]+)\s*\}\}/gi, function(x, zid){ return ctIaText(d, zid).replace(/\n+/g,' '); }), vals), align: align});
     });
     return out;
   }
@@ -9907,11 +9920,82 @@
     };
   }
   var CT_STARTERS = {
+    compte_rendu_ia: { nom:'Compte rendu rédigé par l\'IA', rtl:false, aiZones:[{id:'z1', label:'Synthèse', prompt:'Rédige en 6 à 8 lignes la synthèse de la rencontre « {{tache.titre}} » à partir des notes de la tâche.'},{id:'z2', label:'Recommandations', prompt:'Propose 3 à 5 recommandations concrètes et numérotées découlant de la rencontre.'}],
+      corps:'{{logo}}\n{{entete}}\n\n# Compte rendu — {{tache.titre}}\n\n[centre] {{tache.date}} · {{tache.lieu}}\n\n## Participant(e)s\n{{liste:invites|colonnes=n,nom,etablissement}}\n\n## Synthèse\n{{ia:z1}}\n\n## Recommandations\n{{ia:z2}}\n\n[droite] **{{profil.nom}}**\n{{signature}}\n' },
     vierge: { nom:'Nouveau modèle', rtl:false, corps:'{{logo}}\n{{entete}}\n\n# Titre du document\n\n[droite] {{profil.province}}, le {{date.jour}}\n\nObjet : {{tache.titre}}\n\nTexte du document…\n\n{{signature}}\n' },
     emargement: { nom:'Liste d\'émargement des invité(e)s', rtl:false, corps:'{{logo}}\n{{entete}}\n\n# Liste d\'émargement\n\n[centre] {{tache.titre}} — {{tache.date}} à {{tache.heure}} — {{tache.lieu}}\n\n{{liste:invites|colonnes=n,nom,ppr,etablissement,signature}}\n\n[droite] **{{profil.nom}}**, inspecteur(trice) pédagogique\n{{signature}}\n' },
     enseignants_etab: { nom:'Liste des enseignant(e)s de l\'établissement', rtl:false, corps:'{{logo}}\n\n# Enseignant(e)s — {{etablissement.nom}}\n\n[centre] Directeur(trice) : {{etablissement.directeur}} · Année scolaire {{annee_scolaire}}\n\n{{liste:enseignants|etablissement=tache|colonnes=n,nom,ppr,cadre,derniere_note,date_note,observations}}\n\n{{signature}}\n' },
     convocation_ar: { nom:'استدعاء (عربي)', rtl:true, corps:'{{logo}}\n\n[centre] **الأكاديمية الجهوية للتربية والتكوين لجهة {{profil.academie_ar}}**\n[centre] **المديرية الإقليمية ب{{profil.province_ar}}**\n\n# استدعاء\n\nيتشرف مفتش مادة {{profil.matiere_ar}} بدعوة السادة الأساتذة الواردة أسماؤهم أسفله لحضور {{tache.type_ar}} يوم {{tache.date_ar}} على الساعة {{tache.heure}} بـ {{tache.lieu}}.\n\n{{liste:invites|colonnes=n,nom_ar,ppr,etablissement|titre=لائحة المدعوين}}\n\n[gauche] **{{profil.nom_ar}}**\n{{signature}}\n' }
   };
+  /* Prompt d'une zone IA : consigne de l'utilisateur (balises résolues) + contexte de la tâche. */
+  function ctIaPrompt(d, task, z){
+    var vals = ctTagValues(d, task), t = task || {};
+    var ctx = [
+      t.titre ? 'Tâche : '+t.titre+' ('+(TT_LABEL[t.taskType]||'')+')' : '',
+      t.echeance ? 'Date : '+fmtDate(t.echeance)+(t.heureDebut ? ' à '+t.heureDebut+(t.heureFin ? '–'+t.heureFin : '') : '') : '',
+      (t.lieu || vals['etablissement.nom']) ? 'Lieu / établissement : '+(t.lieu || vals['etablissement.nom']) : '',
+      vals['etablissement.directeur'] ? 'Directeur(trice) : '+vals['etablissement.directeur'] : '',
+      vals['enseignant.nom'] ? 'Enseignant(e) : '+vals['enseignant.nom']+(vals['enseignant.cadre'] ? ' ('+vals['enseignant.cadre']+')' : '') : '',
+      (t.invites||[]).length ? 'Invité(e)s ('+t.invites.length+') : '+t.invites.map(function(iv){ return iv.nom; }).join(', ') : '',
+      t.formation && t.formation.sujet ? 'Thème de la formation : '+t.formation.sujet : '',
+      t.description ? 'Notes de l\'inspecteur(trice) :\n'+t.description : ''
+    ].filter(Boolean).join('\n');
+    var p = offProfil();
+    return "Tu rédiges pour "+(p.nomSignature||p.nom||"un(e) inspecteur(trice) pédagogique")+", inspecteur(trice) pédagogique"+(p.matiere?" de "+p.matiere:"")+" au Maroc, une partie du document « "+(d.titre||'')+" ». "+
+      "Consigne : "+ctApplyTags(z.prompt||z.label||'', vals)+"\n\n"+
+      "Rédige "+(d.rtl ? "en arabe standard moderne" : "en français")+", sur un ton administratif sobre. Appuie-toi uniquement sur le contexte ci-dessous, sans inventer de noms, de chiffres ni de faits. "+
+      "Retourne uniquement le texte demandé, sans titre ni commentaire."+(ctx ? "\n\nContexte :\n"+ctx : "");
+  }
+  /* Modèle personnalisé sur Google Docs : le texte du modèle (et les consignes de ses zones IA) est
+     écrit dans un Google Doc, modifiable dans l'éditeur habituel, puis rapatrié au clic sur
+     « Récupérer le texte » — repères « === … === » à conserver. */
+  var CT_GDOC_BODY = '=== TEXTE DU MODÈLE (ne pas modifier cette ligne) ===';
+  function ctGdocZoneMarker(z){ return '=== ZONE IA '+z.id+' : '+(z.label||'')+' (ne pas modifier cette ligne) ==='; }
+  function ctGdocBuild(ct){
+    var intro = 'Modèle : '+(ct.nom||'')+'\n\nModifiez le texte sous le repère « TEXTE DU MODÈLE » et, plus bas, les consignes des zones IA. '+
+      'Gardez les lignes « === … === » telles quelles, puis touchez « Récupérer le texte de Google Docs » dans le carnet.\n'+
+      'Syntaxe : # Titre · ## Sous-titre · **gras** · [centre] / [droite] en début de ligne · {{logo}}, {{entete}}, {{signature}}, {{ia:z1}} et les listes {{liste:…}} seuls sur leur ligne.\n'+
+      'Balises : '+CT_TAG_GROUPS.map(function(g){ return g.tags.map(function(t){ return '{{'+t[0]+'}}'; }).join(' '); }).join(' ');
+    return intro+'\n\n'+CT_GDOC_BODY+'\n'+(ct.corps||'')+'\n'+(ct.aiZones||[]).map(function(z){ return '\n'+ctGdocZoneMarker(z)+'\n'+(z.prompt||''); }).join('\n');
+  }
+  function ctGdocParse(ct, text){
+    text = String(text||'').replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n');
+    var i = text.indexOf(CT_GDOC_BODY); if(i<0) return null;
+    var start = i + CT_GDOC_BODY.length, marks = [];
+    (ct.aiZones||[]).forEach(function(z){ var k = text.indexOf('=== ZONE IA '+z.id+' ', start); if(k>=0) marks.push({z:z, at:k}); });
+    marks.sort(function(a,b){ return a.at-b.at; });
+    var out = { corps: text.slice(start, marks.length ? marks[0].at : text.length).replace(/^\n/, '').replace(/\s+$/, '')+'\n', prompts:{} };
+    marks.forEach(function(mk, j){
+      var ls = text.indexOf('\n', mk.at); if(ls<0) return;
+      out.prompts[mk.z.id] = text.slice(ls+1, j+1<marks.length ? marks[j+1].at : text.length).trim();
+    });
+    return out;
+  }
+  function ctGdocCreate(ct){
+    return ensureAppFolder().then(function(appFolder){
+      return ensureTemplatesFolder(appFolder.id).catch(function(){ return null; }).then(function(folder){
+        return mcpCall('create_file', { title:'Modèle - '+(ct.nom||'document'), textContent: ctGdocBuild(ct), contentMimeType:'text/plain', parentId:(folder&&folder.id)||appFolder.id, convertToGoogleDoc:true });
+      });
+    }).then(function(res){
+      var f = res && res.payload; if(!f) return Promise.reject({code:'tool_error'});
+      return { gdocFileId: f.id, gdocUrl: googleDocEditUrl(f.id) };
+    });
+  }
+  function ctGdocPull(ct){
+    if(!ct.gdocFileId) return Promise.reject({code:'not_configured'});
+    return mcpCall('download_file_content', {fileId: ct.gdocFileId, exportMimeType:'text/plain'}).then(function(res){
+      var payload = res.payload || {};
+      var parsed = ctGdocParse(ct, payload.content ? b64ToUtf8(payload.content) : '');
+      if(!parsed) return Promise.reject({code:'tool_error', message:'Repère « TEXTE DU MODÈLE » introuvable dans le Google Doc.'});
+      return parsed;
+    });
+  }
+  /* Enregistre tout de suite le lien Google Docs sur le modèle déjà enregistré (sans fermer l'éditeur). */
+  function ctPersistDraftField(patch){
+    Object.assign(state.draftTpl, patch);
+    var list = customTpls().slice(), i = list.findIndex(function(x){ return x.id===state.draftTpl.id; });
+    if(i>=0){ list[i] = Object.assign({}, list[i], patch); templatesSet({ customDocs: list }); } else render();
+  }
   function customTplsSectionHtml(){
     var list = customTpls();
     return '<div class="section-label" style="margin-top:18px;">Mes modèles de documents</div>'+
@@ -9922,7 +10006,7 @@
           '<button class="icon-btn" type="button" data-dupct="'+esc(ct.id)+'" title="Dupliquer" style="width:30px;height:30px;">'+ICONS.plus+'</button></div>';
       }).join('')+'</div>' : '<div class="empty" style="margin-top:2px;">Aucun modèle personnalisé pour l\'instant.</div>')+
       '<div class="field" style="margin-top:10px;"><label for="ctStarter">Nouveau modèle à partir de</label><div class="rowline"><select id="ctStarter" style="flex:1;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;">'+
-        Object.keys(CT_STARTERS).map(function(k){ return '<option value="'+k+'">'+esc(k==='vierge' ? 'Modèle vierge' : CT_STARTERS[k].nom)+'</option>'; }).join('')+'</select>'+
+        Object.keys(CT_STARTERS).sort(function(a,b){ return (b==='vierge')-(a==='vierge'); }).map(function(k){ return '<option value="'+k+'">'+esc(k==='vierge' ? 'Modèle vierge' : CT_STARTERS[k].nom)+'</option>'; }).join('')+'</select>'+
         '<button class="btn primary sm" id="btnNewCt" type="button">'+ICONS.plus+' Créer</button></div></div>';
   }
   function openCustomTplEditor(ct, isNew){
@@ -9944,7 +10028,21 @@
       '<div class="field"><label for="ctBody">Contenu du modèle</label><textarea id="ctBody" rows="16" dir="'+(ct.rtl?'rtl':'ltr')+'" style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;">'+esc(ct.corps||'')+'</textarea>'+
         '<p style="font-size:11px;color:var(--ink-faint);margin:5px 2px 0;line-height:1.5;"># Titre · ## Sous-titre · **gras** · [centre]/[droite] en début de ligne · {{logo}}, {{entete}}, {{signature}} et les listes seuls sur leur ligne.</p>'+
         ctTagPaletteHtml('ctBody', false)+'</div>'+
-      '<div class="field"><label for="ctPrevTask">Aperçu avec la tâche</label><select id="ctPrevTask" style="width:100%;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;"><option value="">— Sans tâche —</option>'+
+      '<div class="section-label" style="margin-top:6px;">Zones de texte rédigées par l\'IA</div>'+
+      '<p style="font-size:11.5px;color:var(--ink-faint);margin:2px 0 8px;">Chaque zone a un libellé et une consigne (prompt). Dans un document créé avec ce modèle, un bouton « Générer avec l\'IA » rédige la zone à partir de la consigne et des éléments de la tâche (notes, établissement, enseignant(e), invité(e)s…). La consigne peut contenir des balises, par ex. {{tache.titre}}. Placez la zone dans le texte avec « Insérer dans le texte » ({{ia:…}}).</p>'+
+      '<div id="ctAiZones">'+(ct.aiZones||[]).map(function(z, i){
+        return '<div class="setup-card" style="margin-bottom:8px;"><div class="field" style="margin-bottom:6px;"><label>Libellé <code style="font-weight:400;">{{ia:'+esc(z.id)+'}}</code></label><input type="text" class="ct-ia-label" data-i="'+i+'" dir="auto" value="'+esc(z.label||'')+'" placeholder="Ex. Synthèse de la rencontre"></div>'+
+          '<div class="field" style="margin-bottom:6px;"><label>Consigne pour l\'IA (prompt)</label><textarea class="ct-ia-prompt" data-i="'+i+'" rows="3" dir="auto" placeholder="Ex. Rédige en 5 à 7 lignes une synthèse des échanges à partir des notes de la tâche, puis 3 recommandations numérotées.">'+esc(z.prompt||'')+'</textarea></div>'+
+          '<div class="btn-row"><button class="btn ghost sm" type="button" data-ctiains="'+esc(z.id)+'">'+ICONS.plus+' Insérer dans le texte</button><button class="btn danger sm" type="button" data-ctiarm="'+i+'">Supprimer</button></div></div>';
+      }).join('')+'</div>'+
+      '<button class="addline" id="btnCtAddIa" type="button">'+ICONS.ai+' Ajouter une zone IA</button>'+
+      '<div class="section-label" style="margin-top:12px;">Google Docs</div>'+
+      '<div class="btn-row">'+(ct.gdocUrl
+        ? '<a class="btn ghost sm" href="'+esc(ct.gdocUrl)+'" target="_blank" rel="noopener">'+ICONS.ext+' Ouvrir sur Google Docs</a><button class="btn primary sm" id="btnCtGdocPull" type="button">'+ICONS.dl+' Récupérer le texte de Google Docs</button><button class="btn ghost sm" id="btnCtGdocNew" type="button">Recréer à partir du texte actuel</button>'
+        : '<button class="btn ghost sm" id="btnCtGdocNew" type="button">'+ICONS.ext+' Modifier ce modèle sur Google Docs</button>')+'</div>'+
+      '<p style="font-size:11px;color:var(--ink-faint);margin:5px 2px 0;">Le texte est copié dans un Google Doc (dossier Modèles de votre Drive) ; modifiez-le, puis récupérez-le ici et enregistrez le modèle. Seul le texte revient (la mise en forme se fait avec #, ** et [centre]).</p>'+
+      '<div class="banner err" id="ctGdocStatus" hidden style="margin-top:6px;"></div>'+
+      '<div class="field" style="margin-top:12px;"><label for="ctPrevTask">Aperçu avec la tâche</label><select id="ctPrevTask" style="width:100%;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;"><option value="">— Sans tâche —</option>'+
         prevTasks.map(function(t){ return '<option value="'+t.id+'"'+(m.prevTask===t.id?' selected':'')+'>'+esc((t.echeance ? fmtDate(t.echeance)+' · ' : '')+t.titre)+'</option>'; }).join('')+'</select>'+
         '<div class="btn-row" style="margin-top:6px;"><button class="btn ghost sm" id="btnCtPreview" type="button">'+ICONS.print+' Aperçu (impression)</button><button class="btn ghost sm" id="btnCtPreviewDocx" type="button">Word</button></div></div>'+
       '<div class="btn-row">'+(m.isNew ? '' : '<button class="btn danger" id="btnCtDelete" type="button">Supprimer</button>')+'<button class="btn primary" id="btnCtSave" type="button">Enregistrer le modèle</button></div>'+
@@ -10259,7 +10357,17 @@
         '<div class="field-row"><div class="field"><label for="dCTitre">Titre du document</label><input type="text" id="dCTitre" dir="auto" value="'+esc(d.titre)+'"></div><div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div></div>'+
         '<div class="field"><label for="dCBody">Contenu</label><textarea id="dCBody" rows="14" dir="'+(d.rtl?'rtl':'ltr')+'" style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;">'+esc(d.corps||'')+'</textarea>'+
         ctTagPaletteHtml('dCBody', true)+
-        (ctSrc ? '<div class="btn-row" style="margin-top:6px;"><button class="btn ghost sm" id="btnCtReload" type="button">Reprendre le texte du modèle</button></div>' : '')+'</div>';
+        (ctSrc ? '<div class="btn-row" style="margin-top:6px;"><button class="btn ghost sm" id="btnCtReload" type="button">Reprendre le texte du modèle</button></div>' : '')+'</div>'+
+        ((d.aiZones||[]).length ? '<div class="section-label" style="margin-top:6px;">Zones rédigées par l\'IA</div>'+
+          ((d.aiZones||[]).length>1 ? '<div class="btn-row" style="margin-bottom:8px;"><button class="btn primary sm" id="btnCtIaAll" type="button">'+ICONS.ai+' Générer les zones vides</button></div><div class="banner info" id="ctIaAllStatus" hidden style="margin:-4px 0 8px;"></div>' : '')+
+          (d.aiZones||[]).map(function(z){
+            var val = (d.aiValues||{})[z.id]||'';
+            return '<div class="field"><label for="dIa_'+esc(z.id)+'">'+esc(z.label||('Zone '+z.id))+'</label>'+
+              '<textarea id="dIa_'+esc(z.id)+'" data-iaval="'+esc(z.id)+'" rows="5" dir="'+(d.rtl?'rtl':'ltr')+'">'+esc(val)+'</textarea>'+
+              '<p style="font-size:10.5px;color:var(--ink-faint);margin:3px 2px 0;">Consigne : '+esc(z.prompt||'—')+'</p>'+
+              '<div class="btn-row" style="margin-top:4px;"><button class="btn ai sm" data-ctiagen="'+esc(z.id)+'" type="button">'+ICONS.ai+' '+(val.trim() ? 'Enrichir' : 'Générer')+' avec l\'IA</button><button class="btn ghost sm" data-ctiatr="'+esc(z.id)+'" type="button">'+ICONS.ai+' Traduire</button></div>'+
+              '<div class="banner info" id="dIa_'+esc(z.id)+'Status" hidden style="margin-top:6px;"></div></div>';
+          }).join('') : '');
     } else if(m.docType==='rapport_formation'){
       var rfAi = function(key, label){
         return '<div class="btn-row" style="margin-top:4px;"><button class="btn ai sm" data-airf="'+key+'" type="button">'+ICONS.ai+' '+((d[key]||'').trim() ? 'Enrichir' : 'Rédiger')+' avec l\'IA</button>'+
@@ -11264,7 +11372,34 @@
     };
     var ctBodyEl = $('ctBody'); if(ctBodyEl){
       var mCt = state.modalStack[state.modalStack.length-1];
-      var syncCt = function(){ var c = state.draftTpl; c.nom = ($('ctNom')||{}).value||''; c.corps = ctBodyEl.value; };
+      var syncCt = function(){ var c = state.draftTpl; c.nom = ($('ctNom')||{}).value||''; c.corps = ctBodyEl.value; c.aiZones = c.aiZones || [];
+        document.querySelectorAll('#overlayRoot .ct-ia-label').forEach(function(x){ var z = c.aiZones[parseInt(x.getAttribute('data-i'))]; if(z) z.label = x.value; });
+        document.querySelectorAll('#overlayRoot .ct-ia-prompt').forEach(function(x){ var z = c.aiZones[parseInt(x.getAttribute('data-i'))]; if(z) z.prompt = x.value; }); };
+      var addIa = $('btnCtAddIa'); if(addIa) addIa.onclick = function(){
+        syncCt(); var c = state.draftTpl, n = 1; c.aiZones = c.aiZones || [];
+        while(c.aiZones.some(function(z){ return z.id==='z'+n; })) n++;
+        c.aiZones.push({ id:'z'+n, label:'', prompt:'' }); render();
+      };
+      document.querySelectorAll('#overlayRoot [data-ctiarm]').forEach(function(b){ b.onclick = function(){ syncCt(); state.draftTpl.aiZones.splice(parseInt(b.getAttribute('data-ctiarm')),1); render(); }; });
+      document.querySelectorAll('#overlayRoot [data-ctiains]').forEach(function(b){ b.onclick = function(){ ctInsertAt(ctBodyEl, '{{ia:'+b.getAttribute('data-ctiains')+'}}', true); syncCt(); toast('Zone insérée dans le texte.'); }; });
+      var gNew = $('btnCtGdocNew'); if(gNew) gNew.onclick = function(){
+        syncCt();
+        if(!state.mcpReady){ toast('Connectez d\'abord Google Drive (Paramètres → Synchronisation).'); return; }
+        var win = window.open('about:blank', '_blank');
+        gNew.disabled = true;
+        ctGdocCreate(state.draftTpl).then(function(g){
+          if(win) win.location.href = g.gdocUrl; else window.open(g.gdocUrl, '_blank', 'noopener');
+          ctPersistDraftField(g);
+        }).catch(function(err){ if(win) win.close(); gNew.disabled = false; var st = $('ctGdocStatus'); if(st){ st.hidden = false; st.textContent = (err&&err.message) || mcpErrorMessage(err); } });
+      };
+      var gPull = $('btnCtGdocPull'); if(gPull) gPull.onclick = function(){
+        syncCt(); gPull.disabled = true;
+        ctGdocPull(state.draftTpl).then(function(r){
+          state.draftTpl.corps = r.corps;
+          (state.draftTpl.aiZones||[]).forEach(function(z){ if(r.prompts.hasOwnProperty(z.id)) z.prompt = r.prompts[z.id]; });
+          render(); toast('Texte récupéré depuis Google Docs — vérifiez puis enregistrez le modèle.');
+        }).catch(function(err){ gPull.disabled = false; var st = $('ctGdocStatus'); if(st){ st.hidden = false; st.textContent = (err&&err.message) || mcpErrorMessage(err); } });
+      };
       wireCtPalette(syncCt);
       var rs = $('ctRtlSeg'); if(rs) rs.querySelectorAll('button').forEach(function(b){ b.onclick = function(){ syncCt(); state.draftTpl.rtl = b.getAttribute('data-v')==='1'; render(); }; });
       document.querySelectorAll('#overlayRoot [data-cttt]').forEach(function(b){ b.onclick = function(){
@@ -11274,7 +11409,7 @@
       }; });
       var pt = $('ctPrevTask'); if(pt) pt.onchange = function(){ mCt.prevTask = pt.value; };
       var prevDoc = function(){ syncCt(); var task = state.tasks.find(function(t){ return t.id===(($('ctPrevTask')||{}).value); }) || null;
-        return { d: { id:'apercu', type:'custom', titre: state.draftTpl.nom, corps: state.draftTpl.corps, rtl: !!state.draftTpl.rtl, date: task ? (task.echeance||todayStr()) : todayStr(), taskId: task ? task.id : null }, task: task }; };
+        return { d: { id:'apercu', type:'custom', titre: state.draftTpl.nom, corps: state.draftTpl.corps, rtl: !!state.draftTpl.rtl, aiZones: state.draftTpl.aiZones||[], aiValues:{}, date: task ? (task.echeance||todayStr()) : todayStr(), taskId: task ? task.id : null }, task: task }; };
       var bpv = $('btnCtPreview'); if(bpv) bpv.onclick = function(){ var x = prevDoc(); printOfficial(buildOfficialDoc(x.d, x.task)); };
       var bpd = $('btnCtPreviewDocx'); if(bpd) bpd.onclick = function(){ var x = prevDoc(); bpd.disabled = true;
         downloadOfficialDocx(buildOfficialDoc(x.d, x.task), safeFileName('Apercu_'+(state.draftTpl.nom||'modele')), null).then(function(){ bpd.disabled = false; }, function(){ bpd.disabled = false; }); };
@@ -11295,17 +11430,42 @@
       wireCtPalette(function(){ state.draftDoc.corps = dCBody.value; });
       var bReload = $('btnCtReload'); if(bReload) bReload.onclick = function(){
         var src = customTplById(state.draftDoc.templateId); if(!src) return;
-        if(!confirm('Remplacer le contenu de ce document par le texte actuel du modèle ?')) return;
-        dCBody.value = src.corps||''; state.draftDoc.corps = dCBody.value; state.draftDoc.rtl = !!src.rtl;
+        if(!confirm('Remplacer le contenu de ce document par le texte actuel du modèle (les textes déjà rédigés dans les zones IA sont conservés) ?')) return;
+        syncDocGenericFields();
+        state.draftDoc.corps = src.corps||''; state.draftDoc.rtl = !!src.rtl; state.draftDoc.aiZones = JSON.parse(JSON.stringify(src.aiZones||[])); render();
+      };
+      var ctDocTask = function(){ var mm = state.modalStack[state.modalStack.length-1]; return state.tasks.find(function(t){ return t.id===mm.taskId; }) || null; };
+      document.querySelectorAll('#overlayRoot [data-ctiagen]').forEach(function(b){ b.onclick = function(){
+        syncDocGenericFields(); var zid = b.getAttribute('data-ctiagen'), z = (state.draftDoc.aiZones||[]).find(function(x){ return x.id===zid; }); if(!z) return;
+        aiDraft(b, $('dIa_'+zid+'Status'), $('dIa_'+zid), ctIaPrompt(state.draftDoc, ctDocTask(), z));
+      }; });
+      document.querySelectorAll('#overlayRoot [data-ctiatr]').forEach(function(b){ b.onclick = function(){ var zid = b.getAttribute('data-ctiatr'); aiTranslate(b, $('dIa_'+zid+'Status'), $('dIa_'+zid)); }; });
+      var iaAll = $('btnCtIaAll'); if(iaAll) iaAll.onclick = function(){
+        syncDocGenericFields();
+        if(!aiUsable() || (aiEffectiveProvider()==='local' && !localModelReady())){ toast(geminiErrorMessage({code:'not_configured'})); return; }
+        var d = state.draftDoc, task = ctDocTask(), zs = (d.aiZones||[]).filter(function(z){ return !((d.aiValues||{})[z.id]||'').trim(); }), k = 0, st = $('ctIaAllStatus');
+        if(!zs.length){ toast('Toutes les zones sont déjà rédigées.'); return; }
+        iaAll.disabled = true; localAiKeepAwake(true);
+        var show = function(msg, cls){ st = $('ctIaAllStatus') || st; if(st){ st.hidden = false; st.className = 'banner '+(cls||'info'); st.textContent = msg; } };
+        var next = function(){
+          if(k >= zs.length){ localAiKeepAwake(false); iaAll.disabled = false; show('✓ '+zs.length+' zone(s) rédigée(s) — relisez avant de générer le document.'); return; }
+          var z = zs[k]; show('Rédaction '+(k+1)+'/'+zs.length+' avec '+aiEngineLabel()+' : '+(z.label||z.id)+'…');
+          geminiGenerate(ctIaPrompt(state.draftDoc, task, z), 1).then(function(text){
+            text = String(text||'').trim(); state.draftDoc.aiValues = state.draftDoc.aiValues || {};
+            if(text && !(state.draftDoc.aiValues[z.id]||'').trim()){ state.draftDoc.aiValues[z.id] = text; var f = $('dIa_'+z.id); if(f) f.value = text; }
+            k++; next();
+          }).catch(function(err){ localAiKeepAwake(false); iaAll.disabled = false; show(geminiErrorMessage(err), 'err'); });
+        };
+        next();
       };
     }
     var btnNewCt = $('btnNewCt'); if(btnNewCt) btnNewCt.onclick = function(){
       var st = CT_STARTERS[($('ctStarter')||{}).value||'vierge'] || CT_STARTERS.vierge;
-      openCustomTplEditor({ id: uid(), nom: st.nom, rtl: st.rtl, taskTypes: [], corps: st.corps }, true);
+      openCustomTplEditor({ id: uid(), nom: st.nom, rtl: st.rtl, taskTypes: [], corps: st.corps, aiZones: JSON.parse(JSON.stringify(st.aiZones||[])) }, true);
     };
     document.querySelectorAll('[data-editct]').forEach(function(el){ el.onclick = function(){ var ct = customTplById(el.getAttribute('data-editct')); if(ct) openCustomTplEditor(ct, false); }; });
     document.querySelectorAll('[data-dupct]').forEach(function(el){ el.onclick = function(ev){ ev.stopPropagation(); var ct = customTplById(el.getAttribute('data-dupct')); if(!ct) return;
-      var c2 = JSON.parse(JSON.stringify(ct)); c2.id = uid(); c2.nom = (ct.nom||'')+' (copie)'; openCustomTplEditor(c2, true); }; });
+      var c2 = JSON.parse(JSON.stringify(ct)); c2.id = uid(); c2.nom = (ct.nom||'')+' (copie)'; delete c2.gdocFileId; delete c2.gdocUrl; openCustomTplEditor(c2, true); }; });
     var inScope = $('inScope'); if(inScope){
       var mIn = state.modalStack[state.modalStack.length-1];
       inScope.onchange = function(){ mIn.scope = inScope.value; render(); };
@@ -11589,6 +11749,7 @@
       document.querySelectorAll('[data-piece]').forEach(function(inp){ var i=parseInt(inp.getAttribute('data-i')); if(d.pieces&&d.pieces[i]) d.pieces[i][inp.getAttribute('data-piece')]=inp.value; });
       document.querySelectorAll('[data-tsval]').forEach(function(inp){ var i=parseInt(inp.getAttribute('data-i')); if(d.tableauxValides&&d.tableauxValides[i]) d.tableauxValides[i][inp.getAttribute('data-tsval')]=inp.value; });
       document.querySelectorAll('[data-tsnv]').forEach(function(inp){ var i=parseInt(inp.getAttribute('data-i')); if(d.tableauxNonValides&&d.tableauxNonValides[i]) d.tableauxNonValides[i][inp.getAttribute('data-tsnv')]=inp.value; });
+      document.querySelectorAll('#overlayRoot [data-iaval]').forEach(function(ta){ d.aiValues = d.aiValues || {}; d.aiValues[ta.getAttribute('data-iaval')] = ta.value; });
       document.querySelectorAll('[data-aizone]').forEach(function(ta){ d.aiZoneValues = d.aiZoneValues || {}; d.aiZoneValues[ta.getAttribute('data-aizone')] = ta.value; });
       /* Champs des modèles officiels : data-dk="champ" ou "objet.champ" (ex. sefrou.manuel). */
       document.querySelectorAll('#overlayRoot [data-dk]').forEach(function(el){
