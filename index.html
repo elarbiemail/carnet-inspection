@@ -834,6 +834,7 @@
     return 'https://wa.me/'+n+(msg ? '?text='+encodeURIComponent(msg) : '');
   }
   function waGreeting(nom){
+    if(/[\u0600-\u06FF]/.test(nom||'')) return 'السلام عليكم السيد(ة) '+nom+'، ';
     return 'Bonjour '+(nom||'')+', ';
   }
 
@@ -1845,7 +1846,7 @@
     });
     if(!keep.nomAr && ar(keep.nom)) keep.nomAr = keep.nom;
     if(!keep.nomFr && !ar(keep.nom)) keep.nomFr = keep.nom;
-    ['codeMassar','adresse','telephone','latitude','longitude','zoneId','notes'].forEach(function(k){ if(!keep[k] && drop[k]) keep[k] = drop[k]; });
+    ['codeMassar','adresse','telephone','directeur','directeurTel','latitude','longitude','zoneId','notes'].forEach(function(k){ if(!keep[k] && drop[k]) keep[k] = drop[k]; });
     if(drop.pionnier && !keep.pionnier) keep.pionnier = true;
     if(drop.extIds && !(keep.extIds && keep.extIds.inspectapp)) keep.extIds = Object.assign({}, drop.extIds, keep.extIds||{});
     var stamp = nowIso(), moved = { enseignants:0, tasks:0, documents:0 };
@@ -4853,8 +4854,8 @@
         cadre:e.cadre||'', statut: (STATUT_ENS.find(function(s){return s.v===e.statut;})||{}).l || 'Titulaire',
         session_titularisation: e.sessionTitularisation||'', telephone:e.telephone, email:e.email, notes:e.notes}; });
     } else {
-      headers = ['nom','zone','type','cycle','adresse','telephone','latitude','longitude','notes'];
-      rows = state.etablissements.map(function(e){ return {nom:e.nom, zone:zoneName(e.zoneId), type:ETAB_TYPE_LABEL[e.type]||e.type||'', cycle:ETAB_CYCLE_LABEL[e.cycle]||e.cycle||'', adresse:e.adresse, telephone:e.telephone, latitude:e.latitude||'', longitude:e.longitude||'', notes:e.notes}; });
+      headers = ['nom','zone','type','cycle','adresse','telephone','directeur','directeur_tel','latitude','longitude','notes'];
+      rows = state.etablissements.map(function(e){ return {nom:e.nom, zone:zoneName(e.zoneId), type:ETAB_TYPE_LABEL[e.type]||e.type||'', cycle:ETAB_CYCLE_LABEL[e.cycle]||e.cycle||'', adresse:e.adresse, telephone:e.telephone, directeur:e.directeur||'', directeur_tel:e.directeurTel||'', latitude:e.latitude||'', longitude:e.longitude||'', notes:e.notes}; });
     }
     var csv = objectsToCSV(headers, rows);
     saveBlob(kind+'.csv', new Blob([csv], {type:'text/csv'})).then(function(){ toast('Export enregistré.'); });
@@ -4936,7 +4937,7 @@
   }
   var IMPORT_HEADER_SYNONYMS = {
     nom_complet: ['nom et prenom','nom prenom','nom complet','nom et prenoms','prenom et nom','nom & prenom','الاسم الكامل','الاسم و النسب','الاسم والنسب'],
-    nom: ['nom','name','enseignant','enseignante','enseignant e','professeur','النسب','الاسم العائلي'],
+    nom: ['nom','name','nom etaba','nom etab','nom etablissement','enseignant','enseignante','enseignant e','professeur','النسب','الاسم العائلي'],
     prenom: ['prenom','prenoms','الاسم الشخصي','الاسم'],
     ppr: ['ppr','matricule','som','n som','numero som','num som','n ppr','numero ppr','رقم التاجير','رقم التأجير','الرقم المالي'],
     etablissement: ['etablissement','nom etablissement','ecole','lycee','college','etab','المؤسسة'],
@@ -4952,6 +4953,8 @@
     zone: ['zone','commune','secteur','الجماعة'],
     type: ['type'],
     adresse: ['adresse','العنوان'],
+    directeur: ['directeur','directrice','nom directeur','nom du directeur','directeur trice','المدير','اسم المدير','المدير ة'],
+    directeur_tel: ['directeur tel','tel directeur','telephone directeur','gsm directeur','carte sim','carte sim n','carte sim no','هاتف المدير','رقم هاتف المدير'],
     latitude: ['latitude','lat'], longitude: ['longitude','lng','lon']
   };
   function canonHeader(h){
@@ -5095,11 +5098,14 @@
             var ch = false;
             if(/[\u0600-\u06FF]/.test(o.nom) && !known.nomAr){ known.nomAr = o.nom; ch = true; }
             ['adresse','telephone','latitude','longitude'].forEach(function(k){ if(o[k] && !known[k]){ known[k] = o[k]; ch = true; } });
+            /* Une liste de directeurs plus récente remplace l'ancien nom/numéro. */
+            if(o.directeur && o.directeur!==known.directeur){ known.directeur = o.directeur; ch = true; }
+            if(o.directeur_tel && o.directeur_tel!==known.directeurTel){ known.directeurTel = o.directeur_tel; ch = true; }
             if(ch){ recordSet('etablissement', known); updated++; }
             return;
           }
           var zId = findOrCreateZone(o.zone);
-          recordSet('etablissement', { id: uid(), nom:o.nom, zoneId:zId, type:parseEtabType(o.type), cycle:parseEtabCycle(o.cycle), adresse:o.adresse||'', telephone:o.telephone||'', latitude:o.latitude||'', longitude:o.longitude||'', notes:o.notes||'' });
+          recordSet('etablissement', { id: uid(), nom:o.nom, zoneId:zId, type:parseEtabType(o.type), cycle:parseEtabCycle(o.cycle), adresse:o.adresse||'', telephone:o.telephone||'', directeur:o.directeur||'', directeurTel:o.directeur_tel||'', latitude:o.latitude||'', longitude:o.longitude||'', notes:o.notes||'' });
           added++;
         });
       }
@@ -5241,7 +5247,7 @@
       inspecteur: { nom: pf.nomSignature || pf.nom || '', nomAr: pf.nomAr || '', matiere: pf.matiere || '', academie: pf.academieRegionale || '', direction: pf.province || '' },
       zones: state.zones.map(function(z){ return { carnetId:z.id, inspectappId:xchExtId(z)||undefined, nom:z.nom, academie:z.academieRegionale||'', direction:z.directionProvinciale||'', commune:z.commune||'', cycle:z.cycle||'', updatedAt:z.updatedAt||'' }; }),
       etablissements: state.etablissements.map(function(e){ return { carnetId:e.id, inspectappId:xchExtId(e)||undefined, nom:e.nom, nomAr:nameInLang(e, e.nom, 'ar', 'etab'), nomFr:nameInLang(e, e.nom, 'fr', 'etab'),
-        codeMassar:e.codeMassar||'', type:e.type||'', cycle:e.cycle||'', pionnier:!!e.pionnier, adresse:e.adresse||'', telephone:e.telephone||'', latitude:e.latitude||'', longitude:e.longitude||'',
+        codeMassar:e.codeMassar||'', type:e.type||'', cycle:e.cycle||'', pionnier:!!e.pionnier, adresse:e.adresse||'', telephone:e.telephone||'', directeur:e.directeur||'', directeurTel:e.directeurTel||'', latitude:e.latitude||'', longitude:e.longitude||'',
         zone: e.zoneId ? { carnetId:e.zoneId, nom:zoneName(e.zoneId) } : null, updatedAt:e.updatedAt||'' }; }),
       enseignants: state.enseignants.map(function(e){ return { carnetId:e.id, inspectappId:xchExtId(e)||undefined, nom:e.nom, nomAr:nameInLang(e, e.nom, 'ar', 'ens'), nomFr:nameInLang(e, e.nom, 'fr', 'ens'),
         ppr:e.ppr||'', genre:e.genre||'', matiere:e.matiere||'', cycle:e.cycle||'', cadre:e.cadre||'', statut:e.statut||'', sessionTitularisation:e.sessionTitularisation||'',
@@ -5331,7 +5337,7 @@
       var isNew = !loc; if(isNew) loc = { id: uid(), nom: e.nom || e.nomFr || e.nomAr, zoneId:null, type:'public', cycle:'', adresse:'', telephone:'', latitude:'', longitude:'', pionnier:false, notes:'' };
       var zid = e.zone ? (zoneMap[e.zone.carnetId||e.zone.inspectappId||e.zone.id||e.zone.nom] || (state.zones.find(function(x){ return e.zone.nom && xchKey(x.nom)===xchKey(e.zone.nom); })||{}).id) : null;
       var nm = { nomAr: e.nomAr && isArabicText(e.nomAr) ? e.nomAr : undefined, nomFr: e.nomFr && !isArabicText(e.nomFr) ? e.nomFr : undefined };
-      var ch = xchMerge(loc, { nomAr:nm.nomAr, nomFr:nm.nomFr, codeMassar:e.codeMassar, type:e.type, cycle:e.cycle, adresse:e.adresse, telephone:e.telephone,
+      var ch = xchMerge(loc, { nomAr:nm.nomAr, nomFr:nm.nomFr, codeMassar:e.codeMassar, type:e.type, cycle:e.cycle, adresse:e.adresse, telephone:e.telephone, directeur:e.directeur, directeurTel:e.directeurTel,
         latitude: e.latitude!=null ? String(e.latitude) : '', longitude: e.longitude!=null ? String(e.longitude) : '', zoneId: zid || undefined }, e, isNew || xchNewer(e, loc));
       if(e.pionnier===true && !loc.pionnier){ loc.pionnier = true; ch = true; }
       ch = xchSetExt(loc, e) || ch;
@@ -8041,7 +8047,8 @@
   }
   function ensRowHtml(e, sub){
     var av = e.photoAssetId ? '<img src="'+assetUrl(e.photoAssetId)+'" alt="">' : initials(e.nom);
-    var tags = [e.statut==='stagiaire' ? 'Stagiaire' : '', e.cadre].filter(Boolean).join(' · ');
+    var li = ensLastInspection(e);
+    var tags = [e.statut==='stagiaire' ? 'Stagiaire' : '', e.cadre, li && li.note ? 'Insp. '+li.note+(li.date ? ' ('+String(li.date).slice(0,4)+')' : '') : ''].filter(Boolean).join(' · ');
     var contactBtns = e.telephone ? ('<div class="rec-actions">'+
       '<a href="'+telHref(e.telephone)+'" class="icon-btn" data-actstop="1" title="Appeler" style="width:28px;height:28px;color:var(--brand);">'+ICONS.phone+'</a>'+
       '<a href="'+waHref(e.telephone, waGreeting(e.nom))+'" target="_blank" rel="noopener" class="icon-btn" data-actstop="1" title="Écrire sur WhatsApp" style="width:28px;height:28px;color:var(--brand);">'+ICONS.chat+'</a>'+
@@ -8195,7 +8202,7 @@
   function renderEtabsSubview(host){
     var html = '';
     html += '<div class="setup-actions"><button class="btn primary sm" id="btnAddEtab2" type="button">+ Établissement</button>'+
-      '<button class="btn ghost sm" id="btnExportEtab" type="button">Exporter CSV</button><button class="btn ghost sm" id="btnImportEtab" type="button">Importer CSV / Excel</button>'+
+      '<button class="btn ghost sm" id="btnInspSynthAll" type="button">'+ICONS.print+' Synthèse des notes d\'inspection</button><button class="btn ghost sm" id="btnExportEtab" type="button">Exporter CSV</button><button class="btn ghost sm" id="btnImportEtab" type="button">Importer CSV / Excel</button>'+
       '<button class="btn ghost sm" id="btnNamesEtab" type="button">'+ICONS.ai+' Compléter les noms ar / fr</button>'+
       '<button class="btn ghost sm" id="btnSelEtab" type="button">'+(state.selMode==='etab' ? 'Quitter la sélection' : 'Sélectionner / supprimer')+'</button></div>';
     var dupPairs = state.selMode ? [] : etabDupPairs();
@@ -8236,6 +8243,11 @@
     host.innerHTML = html;
     host.querySelectorAll('[data-etabtype]').forEach(function(el){ el.onclick = function(){ state.etabTypeFilter = el.getAttribute('data-etabtype'); render(); }; });
     var bae = $('btnAddEtab2'); if(bae) bae.onclick = function(){ openEtablissementEditor(null); };
+    var bisa = $('btnInspSynthAll'); if(bisa) bisa.onclick = function(){
+      var ets = state.etablissements.slice().sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||''); });
+      var mode = confirm('Fiche synthèse des notes d\'inspection pour les '+ets.length+' établissement(s) affiché(s).\n\nOK = télécharger en Word · Annuler = imprimer') ? 'docx' : 'print';
+      inspSynthExport(ets, state.zoneFilter && state.zoneFilter.length ? 'zones sélectionnées' : 'tous les établissements', mode, bisa);
+    };
     var bxe = $('btnExportEtab'); if(bxe) bxe.onclick = function(){ exportCSV('etablissements'); };
     var bie = $('btnImportEtab'); if(bie) bie.onclick = function(){ importTarget='etablissements'; $('fileImportInput').click(); };
     var bne = $('btnNamesEtab'); if(bne) bne.onclick = function(){ completeMissingNames('etab', bne); };
@@ -8245,9 +8257,18 @@
       mergeAllDupPairs(dupPairs);
     };
     host.querySelectorAll('[data-editzone]').forEach(function(el){ el.onclick = function(ev){ ev.stopPropagation(); var z=state.zones.find(function(x){return x.id===el.getAttribute('data-editzone');}); if(z) openZoneEditor(z); }; });
-    host.querySelectorAll('[data-mapstop]').forEach(function(el){ el.onclick = function(ev){ ev.stopPropagation(); }; });
+    host.querySelectorAll('[data-mapstop],[data-actstop]').forEach(function(el){ el.onclick = function(ev){ ev.stopPropagation(); }; });
     host.querySelectorAll('.rec-row').forEach(function(el){ el.onclick = function(){ var e=state.etablissements.find(function(x){return x.id===el.getAttribute('data-id');}); if(e) openEtablissementEditor(e); }; });
     if(state.selMode==='etab') wireSelBar(host, 'etab');
+  }
+  function etabContactBtns(e){
+    var tel = e.directeurTel || e.telephone;
+    if(!tel) return '';
+    var who = e.directeurTel ? 'le/la directeur(trice)' : 'l\'établissement';
+    return '<div class="rec-actions">'+
+      '<a href="'+telHref(tel)+'" class="icon-btn" data-actstop="1" title="Appeler '+who+'" style="width:28px;height:28px;color:var(--brand);">'+ICONS.phone+'</a>'+
+      (e.directeurTel ? '<a href="'+waHref(e.directeurTel, waGreeting(e.directeur))+'" target="_blank" rel="noopener" class="icon-btn" data-actstop="1" title="Écrire au/à la directeur(trice) sur WhatsApp" style="width:28px;height:28px;color:var(--brand);">'+ICONS.chat+'</a>' : '')+
+      '</div>';
   }
   function etabRowHtml(e){
     var nEns = state.enseignants.filter(function(x){ return x.etablissementId===e.id; }).length;
@@ -8255,7 +8276,7 @@
     var tags = ETAB_CYCLE_LABEL[e.cycle] || '';
     var mapLink = (e.latitude && e.longitude) ? ' · <a href="https://www.google.com/maps?q='+encodeURIComponent(e.latitude+','+e.longitude)+'" target="_blank" rel="noopener" class="etab-maplink" data-mapstop="1" style="color:var(--brand);">'+ICONS.pin+' Carte</a>' : '';
     return '<div class="rec-row" data-id="'+e.id+'"'+(state.selMode==='etab' ? ' data-sel="1"' : '')+'>'+(state.selMode==='etab' ? selBox(e.id) : '')+'<div class="avatar t-'+tp+'">'+ICONS.folder+'</div>'+
-      '<div class="rec-info"><div class="t">'+esc(e.nom)+'</div><div class="s"><span class="tag t-'+tp+'">'+(tp==='prive'?'Privé':'Public')+'</span>'+(tags?esc(tags)+' · ':'')+nEns+' enseignant(s)'+(e.adresse?' · '+esc(e.adresse):'')+mapLink+'</div></div></div>';
+      '<div class="rec-info"><div class="t">'+esc(e.nom)+'</div><div class="s"><span class="tag t-'+tp+'">'+(tp==='prive'?'Privé':'Public')+'</span>'+(tags?esc(tags)+' · ':'')+nEns+' enseignant(s)'+(e.directeur?' · Dir. <span dir="auto">'+esc(e.directeur)+'</span>':'')+(e.adresse?' · '+esc(e.adresse):'')+mapLink+'</div></div>'+etabContactBtns(e)+'</div>';
   }
 
   /* ---- Bilan ---- */
@@ -9390,6 +9411,7 @@
       '<div class="field"><label>Pièces jointes</label><div id="attachList">'+(e.attachments||[]).map(function(a,i){ if(a.kind==='feuille_personnelle') return ''; return '<div class="attach-row"><span class="t">'+esc(a.titre)+(a.driveUrl?' <a href="'+esc(a.driveUrl)+'" target="_blank" rel="noopener" style="font-size:10.5px;color:var(--ink-faint);">(sur Drive)</a>':'')+'</span><a href="'+assetUrl(a.assetId)+'" target="_blank" rel="noopener" class="icon-btn" style="width:30px;height:30px;">'+ICONS.ext+'</a><button class="icon-btn" data-rmattach="'+i+'" style="width:30px;height:30px;color:var(--danger);">'+ICONS.trash+'</button></div>'; }).join('')+'</div>'+
       '<button class="addline" id="btnAddAttach" type="button">'+ICONS.upload+' Joindre un document/photo</button></div>'+
       '<div class="field"><label for="eNotes">Notes</label><textarea id="eNotes">'+esc(e.notes)+'</textarea></div>'+
+      ensInspectionsHtml(e)+
       (state.modalStack[idx].isNew ? '' : ensTsHistoryHtml(e))+
       (state.modalStack[idx].isNew ? '' : ensVisitHistoryHtml(e))+
       '<div class="btn-row">'+(state.modalStack[idx].isNew?'':'<button class="btn danger" id="btnDeleteEns" type="button">Supprimer</button>')+'<button class="btn primary" id="btnSaveEns" type="button">Enregistrer</button></div>'+
@@ -9400,6 +9422,98 @@
      avec accès direct à chaque tâche pour retrouver notes et documents générés. */
   /* Feuille personnelle / tableau de service de l'enseignant(e) : statut issu des tâches « Validation des
      tableaux de service » où figure sa feuille (la plus récente d'abord), avec les remarques. */
+
+  /* ---- Notes d'inspection d'un(e) enseignant(e) ----
+     Trois sources, fusionnées par ensInspections() (la plus récente d'abord) :
+     1. les rapports d'inspection générés dans le carnet (document « rapport_inspection » avec une note) ;
+     2. les notes saisies à la main dans la fiche (e.inspections : [{id, date, note, par}]) — date au
+        format AAAA-MM-JJ ou simple année AAAA, comme sur les feuilles personnelles ;
+     3. à défaut, la mention « Dernière note d'inspection 17 (2019) » des notes importées des feuilles
+        personnelles numérisées. */
+  function inspNoteNum(n){ var m = String(n||'').replace(',', '.').match(/(\d+(?:\.\d+)?)/); return m ? parseFloat(m[1]) : null; }
+  function inspNoteTxt(n){ n = String(n||'').trim(); if(!n) return ''; return /\/\s*20$/.test(n) ? n.replace(/\s+/g,'') : n+'/20'; }
+  function inspDateIso(v){
+    v = String(v||'').trim(); var m;
+    if((m = v.match(/^(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{4})$/))) return m[3]+'-'+('0'+m[2]).slice(-2)+'-'+('0'+m[1]).slice(-2);
+    if(/^\d{4}(-\d{2}(-\d{2})?)?$/.test(v)) return v;
+    return v;
+  }
+  function inspDateTxt(d){ d = String(d||''); return /^\d{4}$/.test(d) ? d : (fmtDate(d) || d); }
+  function ensInspections(e){
+    if(!e) return [];
+    var out = [];
+    state.documents.forEach(function(x){
+      if(x.type!=='rapport_inspection' || !x.note || rapportDocEnsId(x)!==e.id) return;
+      out.push({ date:x.date||'', note:inspNoteTxt(x.note), par:'Nous-même', source:'rapport', docId:x.id });
+    });
+    (e.inspections||[]).forEach(function(i){ if(i && (i.note||i.date)) out.push({ id:i.id, date:i.date||'', note:inspNoteTxt(i.note), par:i.par||'', source:'manuel' }); });
+    var m = String(e.notes||'').match(/derni[eè]re note d.inspection\s*:?\s*(\d+(?:[.,]\d+)?)\s*(?:\/\s*20)?\s*\((\d{4})\)/i);
+    if(m && !out.some(function(o){ return String(o.date).slice(0,4)===m[2]; })) out.push({ date:m[2], note:m[1]+'/20', par:'', source:'feuille' });
+    return out.sort(function(a,b){ return String(b.date).localeCompare(String(a.date)); });
+  }
+  function ensLastInspection(e){ return ensInspections(e)[0] || null; }
+  function ensInspectionsHtml(e){
+    var list = ensInspections(e);
+    var src = {rapport:'Rapport du carnet', manuel:'Saisie manuelle', feuille:'Feuille personnelle'};
+    var html = '<div class="field"><label>Notes d\'inspection ('+list.length+')</label>';
+    html += list.length ? '<div class="rec-list">'+list.map(function(i){
+      return '<div class="rec-row"'+(i.docId ? ' data-inspdoc="'+i.docId+'"' : '')+'><div class="avatar" style="font-size:12px;font-weight:700;">'+esc(String(inspNoteNum(i.note)!=null ? inspNoteNum(i.note) : '—'))+'</div>'+
+        '<div class="rec-info"><div class="t">'+esc(i.note||'—')+' · '+esc(inspDateTxt(i.date)||'date inconnue')+'</div><div class="s">'+esc([i.par ? 'Par '+i.par : '', src[i.source]].filter(Boolean).join(' · '))+'</div></div>'+
+        (i.source==='manuel' ? '<button class="icon-btn" type="button" data-rminsp="'+esc(i.id)+'" title="Retirer" style="width:30px;height:30px;color:var(--danger);">'+ICONS.trash+'</button>' : '')+'</div>';
+    }).join('')+'</div>' : '<div class="empty" style="margin-top:2px;">Aucune note d\'inspection enregistrée.</div>';
+    html += '<div class="field-row" style="margin-top:8px;align-items:flex-end;">'+
+      '<div class="field" style="margin-bottom:0;"><label for="eInspNote" style="font-weight:400;font-size:11.5px;">Note /20</label><input type="text" id="eInspNote" inputmode="decimal" placeholder="Ex. 17"></div>'+
+      '<div class="field" style="margin-bottom:0;"><label for="eInspDate" style="font-weight:400;font-size:11.5px;">Date ou année</label><input type="text" id="eInspDate" placeholder="JJ/MM/AAAA ou AAAA"></div>'+
+      '<div class="field" style="margin-bottom:0;"><label for="eInspPar" style="font-weight:400;font-size:11.5px;">Par</label><input type="text" id="eInspPar" placeholder="Inspecteur(trice)"></div></div>'+
+      '<div class="btn-row" style="margin-top:6px;"><button class="btn ghost sm" id="btnAddInsp" type="button">'+ICONS.plus+' Ajouter la note</button></div>'+
+      '<p style="font-size:11px;color:var(--ink-faint);margin:5px 2px 0;">Les notes des rapports d\'inspection générés dans le carnet s\'ajoutent automatiquement.</p></div>';
+    return html;
+  }
+  /* Fiche synthèse des notes d'inspection : un tableau par établissement (enseignant(e)s triés par
+     nom, dernière note, date, note précédente, ancienneté de la dernière inspection), suivi d'un
+     récapitulatif (moyenne, enseignant(e)s sans note ou inspecté(e)s il y a plus de 4 ans). */
+  function inspYearsSince(d){ var y = parseInt(String(d||'').slice(0,4),10); return y ? (new Date().getFullYear() - y) : null; }
+  function buildInspSynthSpec(etabs, titreSuffix){
+    var allNotes = [], tables = [], nbEns = 0, sansNote = 0, anciennes = 0;
+    etabs.forEach(function(et){
+      var list = state.enseignants.filter(function(x){ return x.etablissementId===et.id; }).sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||''); });
+      if(!list.length) return;
+      var rows = list.map(function(x, k){
+        var ins = ensInspections(x), last = ins[0], prev = ins[1];
+        nbEns++;
+        var n = last ? inspNoteNum(last.note) : null;
+        if(n!=null) allNotes.push(n); else sansNote++;
+        var ys = last ? inspYearsSince(last.date) : null;
+        if(ys!=null && ys > 4) anciennes++;
+        return [String(k+1), x.nom||'', x.ppr||'', x.cadre||x.matiere||'', last ? (last.note||'—') : '—', last ? (inspDateTxt(last.date)||'—') : '—',
+          prev ? (prev.note||'')+(prev.date ? ' ('+String(prev.date).slice(0,4)+')' : '') : '—', ys!=null ? ys+' an(s)' : '—'];
+      });
+      var notesEt = list.map(function(x){ var l = ensLastInspection(x); return l ? inspNoteNum(l.note) : null; }).filter(function(v){ return v!=null; });
+      tables.push({ heading: et.nom+(et.directeur ? ' — Directeur(trice) : '+et.directeur : ''),
+        note: list.length+' enseignant(e)s · '+notesEt.length+' noté(e)s'+(notesEt.length ? ' · moyenne '+(notesEt.reduce(function(a,b){ return a+b; },0)/notesEt.length).toFixed(2)+'/20' : ''),
+        headers: ['N°','Nom et prénom','PPR','Cadre','Dernière note','Date','Note précédente','Depuis'], rows: rows });
+    });
+    var moy = allNotes.length ? (allNotes.reduce(function(a,b){ return a+b; },0)/allNotes.length).toFixed(2)+'/20' : '—';
+    var p = state.templates.profil || DEFAULT_PROFIL;
+    return {
+      titre: "Fiche synthèse des notes d'inspection"+(titreSuffix ? ' — '+titreSuffix : ''),
+      meta: [['Inspecteur(trice)', p.nomSignature||p.nom||'—'], ['Établissement(s)', String(etabs.length)], ['Enseignant(e)s', String(nbEns)], ['Édité le', fmtDate(isoDate(new Date()))]],
+      tables: tables,
+      sections: [{ heading:'Récapitulatif', text:
+        'Moyenne des dernières notes : '+moy+'\n'+
+        'Enseignant(e)s noté(e)s : '+allNotes.length+' / '+nbEns+'\n'+
+        'Sans note d\'inspection enregistrée : '+sansNote+'\n'+
+        'Dernière inspection il y a plus de 4 ans : '+anciennes }],
+      signatures: ["Signature de l'inspecteur(trice)"]
+    };
+  }
+  function inspSynthExport(etabs, suffix, mode, btn){
+    var spec = buildInspSynthSpec(etabs, suffix);
+    if(!spec.tables.length){ toast('Aucun(e) enseignant(e) rattaché(e) à '+(etabs.length===1 ? 'cet établissement' : 'ces établissements')+'.'); return; }
+    if(mode==='print'){ printFromSpec(spec); return; }
+    if(btn) btn.disabled = true;
+    downloadDocx(spec, safeFileName('Synthese_notes_inspection_'+(suffix||'etablissements'))).then(function(){ if(btn) btn.disabled = false; }, function(){ if(btn) btn.disabled = false; });
+  }
   function ensTsHistoryHtml(e){
     var h = tsHistoryForEns(e.id);
     var fp = (e.attachments||[]).map(function(a,i){ return {a:a, i:i}; }).filter(function(x){ return x.a.kind==='feuille_personnelle'; });
@@ -9481,13 +9595,20 @@
       '<div class="field"><label>Zone</label><select id="etZone" style="width:100%;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:10px 11px;"><option value="">— Aucune —</option>'+
       state.zones.map(function(z){ return '<option value="'+z.id+'"'+(e.zoneId===z.id?' selected':'')+'>'+esc(z.nom)+'</option>'; }).join('')+'</select></div>'+
       (state.modalStack[idx].isNew ? '' : etabTeachersSectionHtml(e))+
+      (state.modalStack[idx].isNew ? '' : '<div class="field"><label>Fiche synthèse des notes d\'inspection</label><div class="btn-row"><button class="btn ghost sm" id="btnEtabInspPrint" type="button">'+ICONS.print+' Imprimer</button><button class="btn ghost sm" id="btnEtabInspDocx" type="button">Word</button></div></div>')+
       '<div class="field"><label>Type</label><div class="seg" id="etTypeSeg">'+ETAB_TYPES.map(function(t){ return '<button type="button" data-v="'+t.v+'" aria-pressed="'+(e.type===t.v)+'">'+t.l+'</button>'; }).join('')+'</div></div>'+
       '<div class="field"><label>Cycle</label><div class="seg" id="etCycleSeg">'+ETAB_CYCLES.map(function(c){ return '<button type="button" data-v="'+c.v+'" aria-pressed="'+(e.cycle===c.v)+'">'+c.l+'</button>'; }).join('')+'</div>'+
       '<p style="font-size:11px;color:var(--ink-faint);margin:5px 2px 0;">Le primaire ne compte qu\'un seul cycle ; en secondaire, une même zone d\'inspection peut réunir des établissements collégiaux et qualifiants.</p></div>'+
       '<div class="field"><label class="chk-row" style="display:flex;align-items:center;gap:8px;font-weight:600;"><input type="checkbox" id="etPionnier"'+(e.pionnier?' checked':'')+' style="width:17px;height:17px;"> Collège pionnier</label>'+
       '<p style="font-size:11px;color:var(--ink-faint);margin:5px 2px 0;">Les grilles d\'observation « Collèges Pionniers » (séance ordinaire / séance de synthèse) seront proposées par défaut pour les observations réalisées dans cet établissement.</p></div>'+
       '<div class="field"><label for="etAdr">Adresse</label><input type="text" id="etAdr" value="'+esc(e.adresse)+'"></div>'+
-      '<div class="field"><label for="etTel">Téléphone</label><input type="tel" id="etTel" value="'+esc(e.telephone)+'"></div>'+
+      '<div class="field"><label for="etTel">Téléphone de l\'établissement</label><input type="tel" id="etTel" value="'+esc(e.telephone)+'"></div>'+
+      /* Directeur(trice) : nom et numéro (carte SIM de fonction), avec appel et WhatsApp directs. */
+      '<div class="field-row"><div class="field"><label for="etDir">Directeur(trice)</label><input type="text" id="etDir" dir="auto" value="'+esc(e.directeur||'')+'" placeholder="Nom du/de la directeur(trice)"></div>'+
+      '<div class="field"><label for="etDirTel">Téléphone du/de la directeur(trice)</label><input type="tel" id="etDirTel" value="'+esc(e.directeurTel||'')+'" placeholder="Ex. 0700025805"></div></div>'+
+      '<div class="btn-row"><a class="btn ghost sm" id="btnEtabDirCall" href="'+telHref(e.directeurTel)+'">'+ICONS.phone+' Appeler le/la directeur(trice)</a>'+
+      '<a class="btn ghost sm" id="btnEtabDirWa" href="'+waHref(e.directeurTel, waGreeting(e.directeur))+'" target="_blank" rel="noopener">'+ICONS.chat+' WhatsApp</a>'+
+      '<a class="btn ghost sm" id="btnEtabCall" href="'+telHref(e.telephone)+'">'+ICONS.phone+' Appeler l\'établissement</a></div>'+
       '<div class="field"><label>Localisation (Google Maps)</label>'+
       '<div class="field-row"><div class="field"><label for="etLat" style="font-weight:400;font-size:11.5px;color:var(--ink-faint);">Latitude</label><input type="text" inputmode="decimal" id="etLat" value="'+esc(e.latitude)+'" placeholder="Ex. 33.8319"></div>'+
       '<div class="field"><label for="etLng" style="font-weight:400;font-size:11.5px;color:var(--ink-faint);">Longitude</label><input type="text" inputmode="decimal" id="etLng" value="'+esc(e.longitude)+'" placeholder="Ex. -4.8318"></div></div>'+
@@ -10554,6 +10675,31 @@
       if(callA) callA.href = telHref(ensTelInput.value);
       if(waA) waA.href = waHref(ensTelInput.value, waGreeting(($('eNom')||{}).value||state.draftRecord.nom));
     };
+    var bEip = $('btnEtabInspPrint'); if(bEip) bEip.onclick = function(){ var et = state.draftRecord; inspSynthExport([et], et.nom, 'print'); };
+    var bEid = $('btnEtabInspDocx'); if(bEid) bEid.onclick = function(){ var et = state.draftRecord; inspSynthExport([et], et.nom, 'docx', bEid); };
+    var etDirTelIn = $('etDirTel'), etDirIn = $('etDir'), etTelIn = $('etTel');
+    var etDirRefresh = function(){
+      var c = $('btnEtabDirCall'), w = $('btnEtabDirWa'), c2 = $('btnEtabCall');
+      if(c) c.href = telHref(etDirTelIn && etDirTelIn.value);
+      if(w) w.href = waHref(etDirTelIn && etDirTelIn.value, waGreeting(etDirIn && etDirIn.value));
+      if(c2) c2.href = telHref(etTelIn && etTelIn.value);
+    };
+    [etDirTelIn, etDirIn, etTelIn].forEach(function(x){ if(x && $('btnEtabDirCall')) x.addEventListener('input', etDirRefresh); });
+    [['btnEtabDirCall','etDirTel',telHref],['btnEtabDirWa','etDirTel',waHref],['btnEtabCall','etTel',telHref]].forEach(function(b){
+      var a = $(b[0]); if(a) a.onclick = function(ev){ if(!b[2](($(b[1])||{}).value)){ ev.preventDefault(); toast('Ajoutez un numéro de téléphone.'); } };
+    });
+    var btnAddInsp = $('btnAddInsp'); if(btnAddInsp) btnAddInsp.onclick = function(){
+      var note = ($('eInspNote').value||'').trim(), date = inspDateIso($('eInspDate').value), par = ($('eInspPar').value||'').trim();
+      if(!note){ toast('Saisissez la note d\'inspection.'); return; }
+      if(inspNoteNum(note)==null || inspNoteNum(note) > 20){ toast('Note invalide : saisissez une note sur 20.'); return; }
+      syncEnsFields();
+      var e = state.draftRecord; e.inspections = (e.inspections||[]).concat([{ id:uid(), note:note.replace(/\s*\/\s*20$/,''), date:date, par:par }]);
+      render();
+    };
+    document.querySelectorAll('[data-rminsp]').forEach(function(b){ b.onclick = function(ev){
+      ev.stopPropagation(); syncEnsFields();
+      var e = state.draftRecord, id = b.getAttribute('data-rminsp'); e.inspections = (e.inspections||[]).filter(function(i){ return i.id!==id; }); render();
+    }; });
     var btnEnsCall = $('btnEnsCall'); if(btnEnsCall) btnEnsCall.onclick = function(ev){ if(!telHref(($('eTel')||{}).value)){ ev.preventDefault(); toast('Ajoutez un numéro de téléphone.'); } };
     var btnEnsWa = $('btnEnsWa'); if(btnEnsWa) btnEnsWa.onclick = function(ev){ if(!waHref(($('eTel')||{}).value)){ ev.preventDefault(); toast('Ajoutez un numéro de téléphone.'); } };
     var btnEnsFicheLink = $('btnEnsFicheLink'); if(btnEnsFicheLink) btnEnsFicheLink.onclick = function(){ syncEnsFields(); openFicheLinkModal(state.draftRecord); };
@@ -10676,7 +10822,7 @@
     /* -- etablissement / zone editors -- */
     function syncEtabFields(){
       var e = state.draftRecord, el;
-      el=$('etNom'); if(el) e.nom=el.value; el=$('etAdr'); if(el) e.adresse=el.value; el=$('etTel'); if(el) e.telephone=el.value;
+      el=$('etNom'); if(el) e.nom=el.value; el=$('etAdr'); if(el) e.adresse=el.value; el=$('etTel'); if(el) e.telephone=el.value; el=$('etDir'); if(el) e.directeur=el.value.trim(); el=$('etDirTel'); if(el) e.directeurTel=el.value.trim();
       el=$('etLat'); if(el) e.latitude=el.value; el=$('etLng'); if(el) e.longitude=el.value; el=$('etNotes'); if(el) e.notes=el.value;
       el=$('etPionnier'); if(el) e.pionnier=el.checked;
       el=$('etNomAr'); if(el) e.nomAr=el.value.trim(); el=$('etNomFr'); if(el) e.nomFr=el.value.trim();
@@ -10707,7 +10853,7 @@
     };
     var saveEtab = $('btnSaveEtab');
     if(saveEtab) saveEtab.onclick = function(){
-      var e = state.draftRecord; e.nom=$('etNom').value.trim()||'(sans nom)'; e.zoneId=$('etZone').value||null; e.adresse=$('etAdr').value; e.telephone=$('etTel').value;
+      var e = state.draftRecord; e.nom=$('etNom').value.trim()||'(sans nom)'; e.zoneId=$('etZone').value||null; e.adresse=$('etAdr').value; e.telephone=$('etTel').value; if($('etDir')){ e.directeur=$('etDir').value.trim(); e.directeurTel=$('etDirTel').value.trim(); }
       e.latitude=$('etLat').value.trim(); e.longitude=$('etLng').value.trim(); e.notes=$('etNotes').value;
       e.pionnier = $('etPionnier') ? $('etPionnier').checked : !!e.pionnier;
       if($('etNomAr')){ e.nomAr = $('etNomAr').value.trim(); e.nomFr = $('etNomFr').value.trim(); }

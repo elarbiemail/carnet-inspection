@@ -38,7 +38,7 @@ de l'autre (le carnet dans `extIds.inspectapp`) et le renvoie au prochain échan
 **Zone** : `carnetId, inspectappId, nom, academie, direction, commune, cycle, updatedAt`
 
 **Établissement** : `carnetId, inspectappId, nom, nomAr, nomFr, codeMassar, type (public|prive),
-cycle (primaire|college|qualifiant|college_qualifiant), pionnier (bool), adresse, telephone,
+cycle (primaire|college|qualifiant|college_qualifiant), pionnier (bool), adresse, telephone, directeur, directeurTel (nom et téléphone du/de la directeur(trice)),
 latitude, longitude, zone {carnetId|inspectappId, nom}, updatedAt`
 
 **Enseignant(e)** : `carnetId, inspectappId, nom, nomAr, nomFr, ppr, genre (F|H), matiere, cycle,
