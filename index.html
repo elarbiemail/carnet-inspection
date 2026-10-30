@@ -1134,8 +1134,12 @@
     demande_voiture: {label:'Demande de voiture de service'},
     rapport_inspection: {label:"Rapport d'inspection"}, bordereau: {label:"Bordereau d'envoi"},
     plan_action: {label:"Plan d'action"},
-    rapport_formation: {label:'Rapport de synthèse de la formation (modèle 4)'}
+    rapport_formation: {label:'Rapport de synthèse de la formation (modèle 4)'},
+    custom: {label:'Document personnalisé'}
   };
+  /* Libellé affiché d'un document : pour un document créé à partir d'un modèle personnalisé
+     (type « custom »), le nom du modèle / titre du document plutôt que le libellé générique. */
+  function docLabel(d){ if(!d) return ''; if(d.type==='custom') return d.titre || 'Document personnalisé'; return (DOC_TYPE_INFO[d.type]||{}).label || d.titre || d.type || ''; }
   /* Règle de langue (précisée par l'utilisateur) : les rapports — « Rapport de synthèse » (visite
      conseil) et « Rapport d'inspection » — ainsi que la grille d'observation sont rédigés entièrement
      en français ; TOUS les autres documents (y compris le plan d'action) sont rédigés en arabe (langue
@@ -1771,7 +1775,7 @@
     if(already) return;
     var d = buildDefaultDoc(task, 'bordereau');
     var otherDocs = state.documents.filter(function(x){ return x.taskId===task.id; });
-    if(otherDocs.length) d.pieces = otherDocs.map(function(x){ return {designation:(DOC_TYPE_INFO[x.type]||{}).label||x.titre||'', nombre:'1'}; });
+    if(otherDocs.length) d.pieces = otherDocs.map(function(x){ return {designation:docLabel(x), nombre:'1'}; });
     recordSet('document', d);
     toast(DOC_TYPE_INFO.bordereau.label+' généré automatiquement pour cette tâche clôturée.');
   }
@@ -3709,7 +3713,7 @@
     var t = state.tasks.find(function(x){ return x.id===d.taskId; });
     if(!state.mcpReady || !t || !t.driveFolderId) return Promise.resolve({ files:[], ambiguous:0 });
     var sameType = state.documents.filter(function(x){ return x.taskId===d.taskId && x.type===d.type; }).length;
-    var prefix = safeFileName((DOC_TYPE_INFO[d.type]||{}).label+'_');
+    var prefix = safeFileName(docLabel(d)+'_');
     var q = "title = 'Documents générés' and mimeType = 'application/vnd.google-apps.folder' and '"+t.driveFolderId+"' in parents";
     return mcpCall('search_files', {query:q, pageSize:3, excludeContentSnippets:true}).then(function(res){
       var folder = ((res.payload && res.payload.files) || [])[0];
@@ -3737,7 +3741,7 @@
   }
   function deleteDocumentEverywhere(d, opts){
     opts = opts || {};
-    var label = (DOC_TYPE_INFO[d.type]||{}).label || 'Document';
+    var label = docLabel(d) || 'Document';
     return legacyDocDriveFiles(d).then(function(leg){
       var ids = docDriveIds(d).concat(leg.files.map(function(f){ return f.id; }).filter(function(id){ return docDriveIds(d).indexOf(id)<0; }));
       var names = (d.driveFiles||[]).map(function(f){ return f.name; }).concat(leg.files.map(function(f){ return f.title; }));
@@ -4651,14 +4655,19 @@
     return out.sort();
   }
   function datalistOptionsHtml(values){ return values.map(function(v){ return '<option value="'+esc(v)+'">'; }).join(''); }
-  function openDocEditor(taskId, docType, existingDoc){
+  function openDocEditor(taskId, docType, existingDoc, tplId){
     var task = state.tasks.find(function(t){ return t.id===taskId; });
-    var d = existingDoc ? JSON.parse(JSON.stringify(existingDoc)) : buildDefaultDoc(task, docType);
+    var d = existingDoc ? JSON.parse(JSON.stringify(existingDoc)) : buildDefaultDoc(task, docType, tplId);
     state.draftDoc = d;
     pushModal({type:'docedit', docType: docType, taskId: taskId, isNew: !existingDoc});
   }
-  function buildDefaultDoc(task, type){
+  function buildDefaultDoc(task, type, tplId){
     var base = { id: uid(), taskId: task.id, type: type, titre: DOC_TYPE_INFO[type].label, date: task.echeance || todayStr() };
+    if(type==='custom'){
+      var ct = customTplById(tplId) || {};
+      base.templateId = ct.id || ''; base.titre = ct.nom || 'Document personnalisé'; base.corps = ct.corps || ''; base.rtl = !!ct.rtl;
+      return base;
+    }
     var invites = task.invites || [];
     if(type==='presence'){
       /* Priorité à la liste d'enseignant(e)s invité(e)s explicitement choisie pour la tâche (réunion
@@ -7066,6 +7075,7 @@
     if(d.type==='lettre_information') return offLettre(d, task);
     if(d.type==='demande_voiture') return offDemandeVoiture(d, task);
     if(d.type==='rapport_formation') return offRapportFormation(d, task);
+    if(d.type==='custom') return offCustomDoc(d, task);
     return null;
   }
 
@@ -7116,6 +7126,7 @@
         tables:[{headers:['#','الاسم الكامل','الصفة','التوقيع'], rows:(d.participants||[]).map(function(p,i){ return [String(i+1), p.nom||'', p.fonction||'', '']; })}],
         sections:[], signatures:null };
     }
+    if(d.type==='custom') return customDocSpec(d, task);
     if(d.type==='rapport_formation'){
       return { rtl:true, titre:'تقرير تركيبي حول دورة تكوينية', meta:[['التاريخ',fmtDate(d.date)],['المكان',d.lieu],['الموضوع',d.objet],['الجهة المنظمة',d.organisateur],['المكون(ون)',d.formateurs],['الفئة المستفيدة',d.cible],['العدد',d.nombre]],
         tables:[{heading:'معدلات التقييم', headers:['التكوين','المنهجية','التقييم العام'], rows:[[d.evalFormation||'', d.evalMethodologie||'', d.evalGenerale||'']]}],
@@ -7855,7 +7866,7 @@
     state.documents.forEach(function(d){
       var t = state.tasks.find(function(x){ return x.id===d.taskId; });
       out.push({ ts: d.updatedAt||d.createdAt, icon: ICONS.doc,
-        title: 'Document généré : '+((DOC_TYPE_INFO[d.type]||{}).label||d.titre||''),
+        title: 'Document généré : '+docLabel(d),
         sub: t ? t.titre : '',
         onClick: t ? (function(task){ return function(){ openTaskDetail(task); }; })(t) : null });
     });
@@ -8471,8 +8482,8 @@
   function genDocRowHtml(d){
     var task = state.tasks.find(function(t){ return t.id===d.taskId; });
     var ctx = task ? [task.enseignantNom||ensName(task.enseignantId), task.etablissementNom||etabName(task.etablissementId)].filter(Boolean).join(' · ') : '';
-    var rtl = !!RTL_DOC_TYPES[d.type];
-    var label = (DOC_TYPE_INFO[d.type]?DOC_TYPE_INFO[d.type].label:d.type) + (rtl ? ' <span style="font-size:10px;color:var(--ink-faint);font-weight:500;">(عربي)</span>' : '');
+    var rtl = d.type==='custom' ? !!d.rtl : !!RTL_DOC_TYPES[d.type];
+    var label = esc(docLabel(d)) + (rtl ? ' <span style="font-size:10px;color:var(--ink-faint);font-weight:500;">(عربي)</span>' : '');
     return '<div class="doc-row" data-opendoc="'+d.id+'" style="cursor:pointer;"><div class="doc-ico">'+ICONS.doc+'</div>'+
       '<div class="doc-info"><div class="t">'+label+'</div><div class="s">'+[esc(ctx), fmtDate(d.date)].filter(Boolean).join(' · ')+'</div></div></div>';
   }
@@ -8568,7 +8579,7 @@
   function autosaveLabel(snap){
     var top = snap.stack[snap.stack.length-1];
     if(!top) return snap.ai && snap.ai.label ? snap.ai.label : 'texte en cours de rédaction';
-    if(top.type==='docedit') return (DOC_TYPE_INFO[top.docType] ? DOC_TYPE_INFO[top.docType].label : 'document');
+    if(top.type==='docedit') return top.docType==='custom' ? docLabel(state.draftDoc) : (DOC_TYPE_INFO[top.docType] ? DOC_TYPE_INFO[top.docType].label : 'document');
     if(top.type==='task'){ var t = snap.draftTask; return 'tâche'+(t && t.titre ? ' « '+t.titre+' »' : ''); }
     if(top.type==='enseignant') return 'fiche enseignant'+(snap.draftRecord && snap.draftRecord.nom ? ' « '+snap.draftRecord.nom+' »' : '');
     if(top.type==='etablissement') return 'fiche établissement';
@@ -8674,6 +8685,7 @@
       if(m.type==='search') return searchModalHtml(idx);
       if(m.type==='programme') return programmeAnnuelModalHtml(idx);
       if(m.type==='inspnotes') return inspNotesModalHtml(idx, m);
+      if(m.type==='customtpl') return customTplModalHtml(idx, m);
       if(m.type==='ficheLink') return ficheLinkModalHtml(idx, m);
       if(m.type==='ficheHub') return ficheHubModalHtml(idx);
       if(m.type==='ficheResponsesQueue') return ficheResponsesQueueModalHtml(idx);
@@ -8863,11 +8875,12 @@
       }).join('')+'</div>'+
       '<div class="section-label" style="margin-top:6px;">Documents</div>'+
       '<div class="setup-actions" style="margin-bottom:8px;">'+avail.map(function(dt){ return '<button class="btn ghost sm" data-newdoc="'+dt+'" type="button">'+ICONS.plus+' '+DOC_TYPE_INFO[dt].label+'</button>'; }).join('')+
+        customTplsForTask(t).map(function(ct){ return '<button class="btn ghost sm" data-newdoc="custom:'+esc(ct.id)+'" type="button" title="Modèle personnalisé">'+ICONS.plus+' '+esc(ct.nom||'Modèle')+'</button>'; }).join('')+
       (invites.length && avail.indexOf('attestation')!==-1 ? '<button class="btn ghost sm" id="btnGenAttestations" type="button">'+ICONS.plus+' Attestations des invité(e)s ('+invites.length+')</button>' : '')+
       '</div>'+
       (docs.length ? '<div class="doc-list">'+docs.map(function(d){ var nDrive = docDriveIds(d).length;
         return '<div class="doc-row" data-opendoc="'+d.id+'" style="cursor:pointer;"><div class="doc-ico">'+ICONS.doc+'</div>'+
-        '<div class="doc-info"><div class="t">'+esc(DOC_TYPE_INFO[d.type].label)+(d.beneficiaireNom?' — '+esc(d.beneficiaireNom):'')+'</div><div class="s">'+fmtDate(d.date)+(nDrive ? ' · '+nDrive+' fichier(s) sur Drive' : '')+'</div></div>'+
+        '<div class="doc-info"><div class="t">'+esc(docLabel(d))+(d.beneficiaireNom?' — '+esc(d.beneficiaireNom):'')+'</div><div class="s">'+fmtDate(d.date)+(nDrive ? ' · '+nDrive+' fichier(s) sur Drive' : '')+'</div></div>'+
         '<button class="icon-btn" data-deldoc="'+d.id+'" type="button" title="Supprimer le document (et ses fichiers Drive)" style="width:34px;height:34px;color:var(--danger);flex-shrink:0;">'+ICONS.trash+'</button></div>'; }).join('')+'</div>'+
         (docs.length>1 ? '<div class="btn-row" style="margin:6px 0 4px;"><button class="btn ghost sm" id="btnDelAllDocs" type="button" style="color:var(--danger);">'+ICONS.trash+' Supprimer tous les documents ('+docs.length+')</button></div>' : '')
         : '<div class="empty">Aucun document généré pour cette tâche.</div>')+
@@ -9016,6 +9029,7 @@
       html += '<div class="field"><label for="tmplEntete">En-tête des documents (utilisé sur les impressions)</label><textarea id="tmplEntete" rows="2">'+esc(state.templates.entete)+'</textarea></div>'+
         '<div class="btn-row"><button class="btn ghost" id="btnResetTmpl" type="button">Réinitialiser</button><button class="btn primary" id="btnSaveTmpl" type="button">Enregistrer l\'en-tête</button></div>'+
         '<p style="font-size:11px;color:var(--ink-faint);margin:2px 0 0;">Les critères de la grille d\'observation et les autres éléments personnalisables (textes de départ, zones IA…) se règlent maintenant ci-dessous, par type de document.</p>'+
+        customTplsSectionHtml()+
         docTemplatesEditorHtml();
     } else if(tab==='referentiel'){
       html += referentielTabHtml();
@@ -9323,7 +9337,7 @@
      enregistré pour ce type précis dans state.templates.docTemplates[type].fields, tous modifiables et
      enregistrés ensemble d'un même clic sur « Enregistrer ce modèle ». */
   function docTemplatesEditorHtml(){
-    var types = Object.keys(DOC_TYPE_INFO);
+    var types = Object.keys(DOC_TYPE_INFO).filter(function(t){ return t!=='custom'; });
     var sel = (state.tmplEditorType && DOC_TYPE_INFO[state.tmplEditorType]) ? state.tmplEditorType : types[0];
     var dt = (state.templates.docTemplates||{})[sel] || {};
     var dtFields = dt.fields || {};
@@ -9616,6 +9630,326 @@
     };
   }
 
+
+  /* ================= Modèles de documents personnalisés =================
+     Créés dans Réglages → Modèles de documents → « Mes modèles », rangés dans
+     state.templates.customDocs = [{id, nom, rtl, taskTypes:[…] (vide = toutes les tâches), corps}].
+     Chaque modèle apparaît comme bouton « + Nom » dans les documents des tâches des types choisis ;
+     le document créé (type « custom ») garde une copie modifiable du texte (d.corps), dont les balises
+     sont résolues au moment de l'impression/export (listes toujours à jour).
+     Syntaxe du texte :
+       # Titre   ## Sous-titre   ### Intertitre     **gras**
+       [centre] / [droite] / [gauche] / [justifie] en début de ligne pour l'alignement
+       {{logo}} {{entete}} {{signature}} seuls sur leur ligne (images et en-tête)
+       {{liste:collection|filtre=valeur|colonnes=a,b,c|titre=…}} seul sur sa ligne (tableau)
+       {{profil.nom}}, {{tache.date}}, {{etablissement.directeur}}… n'importe où dans le texte. */
+  var CT_APP_NAME = "Carnet d'Inspection";
+  function customTpls(){ return (state.templates.customDocs||[]); }
+  function customTplById(id){ return customTpls().find(function(x){ return x.id===id; }) || null; }
+  function customTplsForTask(t){ return customTpls().filter(function(ct){ return !(ct.taskTypes||[]).length || ct.taskTypes.indexOf(t.taskType)>=0; }); }
+  var CT_TAG_GROUPS = [
+    { g:'Images et en-tête', tags:[['logo','Logo du profil'],['entete','En-tête des documents'],['signature','Signature + cachet']] },
+    { g:'Profil', tags:[['profil.nom','Nom'],['profil.nom_ar','Nom (arabe)'],['profil.grade','Grade'],['profil.matiere','Matière'],['profil.matiere_ar','Matière (arabe)'],['profil.academie','Académie'],['profil.academie_ar','Académie (arabe)'],['profil.province','Direction provinciale'],['profil.province_ar','DP (arabe)'],['profil.telephone','Téléphone'],['profil.email','Email']] },
+    { g:'Application et dates', tags:[['app.nom','Nom de l\'application'],['date.jour','Date du jour'],['date.jour_ar','Date du jour (arabe)'],['annee_scolaire','Année scolaire'],['doc.date','Date du document'],['doc.date_ar','Date du document (arabe)'],['doc.titre','Titre du document']] },
+    { g:'Tâche', tags:[['tache.titre','Titre'],['tache.type','Type'],['tache.type_ar','Type (arabe)'],['tache.date','Date'],['tache.date_ar','Date (arabe)'],['tache.heure','Heure de début'],['tache.heure_fin','Heure de fin'],['tache.lieu','Lieu'],['tache.description','Notes'],['tache.statut','Statut'],['tache.nb_invites','Nombre d\'invité(e)s'],['tache.lien','Lien de connexion']] },
+    { g:'Établissement de la tâche', tags:[['etablissement.nom','Nom'],['etablissement.nom_ar','Nom (arabe)'],['etablissement.nom_fr','Nom (français)'],['etablissement.directeur','Directeur(trice)'],['etablissement.directeur_tel','Tél. directeur(trice)'],['etablissement.telephone','Téléphone'],['etablissement.adresse','Adresse'],['etablissement.code','Code MASSAR'],['etablissement.zone','Zone'],['etablissement.nb_enseignants','Nombre d\'enseignant(e)s']] },
+    { g:'Enseignant(e) de la tâche', tags:[['enseignant.nom','Nom'],['enseignant.nom_ar','Nom (arabe)'],['enseignant.civilite','Civilité'],['enseignant.ppr','PPR'],['enseignant.cadre','Cadre'],['enseignant.matiere','Matière'],['enseignant.telephone','Téléphone'],['enseignant.email','Email'],['enseignant.statut','Statut'],['enseignant.derniere_note','Dernière note d\'inspection'],['enseignant.date_derniere_note','Date de la dernière note']] }
+  ];
+  /* Listes : colonnes disponibles par collection — [libellé FR, libellé AR, poids de largeur]. */
+  var CT_LIST_COLS = {
+    enseignants: { n:['N°','ر.ت',5], nom:['Nom et prénom','الاسم الكامل',24], nom_ar:['Nom (arabe)','الاسم بالعربية',22], ppr:['PPR','رقم التأجير',11], cadre:['Cadre','الإطار',12],
+      matiere:['Matière','المادة',12], etablissement:['Établissement','المؤسسة',22], zone:['Zone','المنطقة',14], telephone:['Téléphone','الهاتف',13], statut:['Statut','الوضعية',10],
+      derniere_note:['Dernière note','آخر نقطة',9], date_note:['Date','تاريخها',10], signature:['Signature','التوقيع',16], observations:['Observations','ملاحظات',18] },
+    etablissements: { n:['N°','ر.ت',5], nom:['Établissement','المؤسسة',26], nom_ar:['Nom (arabe)','الاسم بالعربية',24], zone:['Zone','المنطقة',16], cycle:['Cycle','السلك',12], type:['Type','النوع',9],
+      directeur:['Directeur(trice)','المدير(ة)',20], directeur_tel:['Tél. directeur','هاتف المدير',13], telephone:['Téléphone','الهاتف',13], nb_enseignants:['Enseignant(e)s','عدد الأساتذة',10], observations:['Observations','ملاحظات',18] },
+    taches: { n:['N°','ر.ت',5], titre:['Tâche','المهمة',26], type:['Type','النوع',14], date:['Date','التاريخ',11], heure:['Heure','الساعة',8], statut:['Statut','الحالة',12],
+      etablissement:['Établissement','المؤسسة',20], enseignant:['Enseignant(e)','الأستاذ(ة)',20], lieu:['Lieu','المكان',16], observations:['Observations','ملاحظات',18] }
+  };
+  CT_LIST_COLS.invites = CT_LIST_COLS.enseignants;
+  var CT_LIST_FILTERS = {
+    enseignants: [['etablissement','Établissement','tache = celui de la tâche, ou un nom'],['zone','Zone','tache, filtre (zones cochées) ou un nom'],['cycle','Cycle','primaire, college ou qualifiant'],['statut','Statut','titulaire ou stagiaire'],['genre','Genre','F ou H'],['matiere','Matière','texte'],['note','Note','avec ou sans']],
+    invites: [],
+    etablissements: [['zone','Zone','tache, filtre ou un nom'],['cycle','Cycle','primaire, college, qualifiant…'],['type','Type','public ou prive'],['pionnier','Collège pionnier','oui']],
+    taches: [['type','Type','inspection, formation…'],['statut','Statut','a_planifier, realisee…'],['etablissement','Établissement','tache ou un nom'],['enseignant','Enseignant(e)','tache ou un nom'],['du','Du','AAAA-MM-JJ'],['au','Au','AAAA-MM-JJ']]
+  };
+  var CT_COLL_LABEL = { enseignants:'Enseignant(e)s', invites:'Invité(e)s de la tâche', etablissements:'Établissements', taches:'Tâches' };
+  function ctNorm(v){ return normalizeSearch(String(v||'')).trim(); }
+  function ctTaskCtx(task){
+    var et = task && task.etablissementId ? state.etablissements.find(function(x){ return x.id===task.etablissementId; }) : null;
+    var en = task && task.enseignantId ? state.enseignants.find(function(x){ return x.id===task.enseignantId; }) : null;
+    if(!et && en && en.etablissementId) et = state.etablissements.find(function(x){ return x.id===en.etablissementId; }) || null;
+    return { et: et, en: en };
+  }
+  function ctTagValues(d, task){
+    var p = offProfil(), c = ctTaskCtx(task), et = c.et, en = c.en, t = task || {};
+    var zoneOf = function(e){ var z = e && e.zoneId ? state.zones.find(function(x){ return x.id===e.zoneId; }) : null; return z ? z.nom : ''; };
+    var li = en ? ensLastInspection(en) : null;
+    var today = isoDate(new Date());
+    var v = Object.assign({}, docTemplateMergeValues('custom', d||{}, task||null), {
+      'profil.nom': p.nomSignature||p.nom||'', 'profil.nom_ar': p.nomAr||'', 'profil.grade': p.grade||'', 'profil.matiere': p.matiere||'', 'profil.matiere_ar': p.matiereAr||'',
+      'profil.academie': p.academieRegionale||'', 'profil.academie_ar': p.academieAr||'', 'profil.province': p.province||'', 'profil.province_ar': p.provinceAr||'',
+      'profil.telephone': p.telephone||'', 'profil.email': p.email||'',
+      'app.nom': CT_APP_NAME, 'date.jour': fmtDate(today), 'date.jour_ar': dateLongueAr(today), 'annee_scolaire': anneeScolaireCourante((d&&d.date)||today),
+      'doc.date': d&&d.date ? fmtDate(d.date) : '', 'doc.date_ar': d&&d.date ? dateLongueAr(d.date) : '', 'doc.titre': (d&&d.titre)||'',
+      'tache.titre': t.titre||'', 'tache.type': TT_LABEL[t.taskType]||'', 'tache.type_ar': TT_AR[t.taskType]||'', 'tache.date': t.echeance ? fmtDate(t.echeance) : '', 'tache.date_ar': t.echeance ? dateLongueAr(t.echeance) : '',
+      'tache.heure': t.heureDebut||'', 'tache.heure_fin': t.heureFin||'', 'tache.lieu': t.lieu||(et?et.nom:'')||'', 'tache.description': t.description||'', 'tache.statut': WF_LABEL[t.statut]||'',
+      'tache.nb_invites': task ? String((t.invites||[]).length) : '', 'tache.lien': t.lienConnexion||'',
+      'etablissement.nom': et ? et.nom : (t.etablissementNom||''), 'etablissement.nom_ar': et ? etabNameLang('ar', et.id, et.nom) : '', 'etablissement.nom_fr': et ? etabNameLang('fr', et.id, et.nom) : '',
+      'etablissement.directeur': et ? (et.directeur||'') : '', 'etablissement.directeur_tel': et ? (et.directeurTel||'') : '', 'etablissement.telephone': et ? (et.telephone||'') : '',
+      'etablissement.adresse': et ? (et.adresse||'') : '', 'etablissement.code': et ? (et.codeMassar||'') : '', 'etablissement.zone': zoneOf(et),
+      'etablissement.nb_enseignants': et ? String(state.enseignants.filter(function(x){ return x.etablissementId===et.id; }).length) : '',
+      'enseignant.nom': en ? en.nom : (t.enseignantNom||''), 'enseignant.nom_ar': en ? ensNameLang('ar', en.id, en.nom) : '', 'enseignant.civilite': en ? (en.genre==='F' ? 'Mme' : en.genre==='H' ? 'M.' : '') : '',
+      'enseignant.ppr': en ? (en.ppr||'') : '', 'enseignant.cadre': en ? (en.cadre||'') : '', 'enseignant.matiere': en ? (en.matiere||'') : '', 'enseignant.telephone': en ? (en.telephone||'') : '',
+      'enseignant.email': en ? (en.email||'') : '', 'enseignant.statut': en ? (en.statut==='stagiaire' ? 'Stagiaire' : 'Titulaire') : '',
+      'enseignant.derniere_note': li ? (li.note||'') : '', 'enseignant.date_derniere_note': li ? inspDateTxt(li.date) : '',
+      'zone.nom': zoneOf(et)
+    });
+    return v;
+  }
+  function ctApplyTags(text, vals){
+    return String(text||'').replace(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_.]*)\s*\}\}/g, function(m, k){ return vals.hasOwnProperty(k) ? (vals[k]==null ? '' : String(vals[k])) : ''; });
+  }
+  function ctParseList(spec){
+    var parts = String(spec||'').split('|').map(function(x){ return x.trim(); }).filter(Boolean);
+    var o = { coll: (parts.shift()||'').toLowerCase(), filters:{}, cols:null, titre:'' };
+    parts.forEach(function(pp){
+      var i = pp.indexOf('='); if(i<0) return;
+      var k = pp.slice(0,i).trim().toLowerCase(), v = pp.slice(i+1).trim();
+      if(k==='colonnes') o.cols = v.split(',').map(function(x){ return x.trim(); }).filter(Boolean);
+      else if(k==='titre') o.titre = v; else o.filters[k] = v;
+    });
+    return o;
+  }
+  function ctMatchEtab(v, task){
+    if(ctNorm(v)==='tache'){ var c = ctTaskCtx(task); return c.et ? [c.et.id] : []; }
+    var n = ctNorm(v); return state.etablissements.filter(function(e){ return [e.nom, e.nomAr, e.nomFr].some(function(x){ return x && ctNorm(x).indexOf(n)>=0; }); }).map(function(e){ return e.id; });
+  }
+  function ctMatchZone(v, task){
+    var n = ctNorm(v);
+    if(n==='tache'){ var c = ctTaskCtx(task); return c.et && c.et.zoneId ? [c.et.zoneId] : []; }
+    if(n==='filtre'){ return zoneFilterActive() || []; }
+    return state.zones.filter(function(z){ return ctNorm(z.nom).indexOf(n)>=0; }).map(function(z){ return z.id; });
+  }
+  function ctListRows(L, task){
+    var f = L.filters, rows = [];
+    var zoneName = function(id){ var z = state.zones.find(function(x){ return x.id===id; }); return z ? z.nom : ''; };
+    var etOf = function(id){ return state.etablissements.find(function(x){ return x.id===id; }) || null; };
+    if(L.coll==='enseignants' || L.coll==='invites'){
+      var list;
+      if(L.coll==='invites') list = ((task&&task.invites)||[]).map(function(iv){ return findEns(iv.enseignantId, iv.nom) || { nom: iv.nom, ppr: iv.ppr||'' }; });
+      else list = state.enseignants.slice();
+      if(f.etablissement){ var eids = ctMatchEtab(f.etablissement, task); list = list.filter(function(x){ return eids.indexOf(x.etablissementId)>=0; }); }
+      if(f.zone){ var zids = ctMatchZone(f.zone, task); list = list.filter(function(x){ var e = etOf(x.etablissementId); return e && zids.indexOf(e.zoneId)>=0; }); }
+      if(f.cycle) list = list.filter(function(x){ return ensCycle(x)===ctNorm(f.cycle).replace('college','college'); });
+      if(f.statut) list = list.filter(function(x){ return ctNorm(x.statut||'titulaire')===ctNorm(f.statut); });
+      if(f.genre) list = list.filter(function(x){ return (x.genre||'').toUpperCase()===f.genre.toUpperCase(); });
+      if(f.matiere) list = list.filter(function(x){ return ctNorm(x.matiere).indexOf(ctNorm(f.matiere))>=0; });
+      if(f.note){ var avec = /^avec/i.test(f.note); list = list.filter(function(x){ return !!ensLastInspection(x)===avec; }); }
+      if(L.coll!=='invites') list.sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||''); });
+      rows = list.map(function(x, i){ var li = x.id ? ensLastInspection(x) : null, e = etOf(x.etablissementId); return {
+        n:String(i+1), nom:x.nom||'', nom_ar: x.id ? ensNameLang('ar', x.id, x.nom) : '', ppr:x.ppr||'', cadre:inspCadreCourt(x.cadre||''), matiere:x.matiere||'',
+        etablissement: e ? e.nom : '', zone: e ? zoneName(e.zoneId) : '', telephone:x.telephone||'', statut: x.id ? (x.statut==='stagiaire' ? 'Stagiaire' : 'Titulaire') : '',
+        derniere_note: li ? li.note : '', date_note: li ? inspDateTxt(li.date) : '', signature:'', observations:'' }; });
+    } else if(L.coll==='etablissements'){
+      var le = state.etablissements.slice();
+      if(f.zone){ var z2 = ctMatchZone(f.zone, task); le = le.filter(function(e){ return z2.indexOf(e.zoneId)>=0; }); }
+      if(f.cycle) le = le.filter(function(e){ return ctNorm(e.cycle)===ctNorm(f.cycle); });
+      if(f.type) le = le.filter(function(e){ return (e.type==='prive' ? 'prive' : 'public')===ctNorm(f.type); });
+      if(f.pionnier) le = le.filter(function(e){ return !!e.pionnier; });
+      le.sort(function(a,b){ return (a.nom||'').localeCompare(b.nom||''); });
+      rows = le.map(function(e, i){ return { n:String(i+1), nom:e.nom||'', nom_ar: etabNameLang('ar', e.id, e.nom), zone: zoneName(e.zoneId), cycle: ETAB_CYCLE_LABEL[e.cycle]||e.cycle||'',
+        type: e.type==='prive' ? 'Privé' : 'Public', directeur: e.directeur||'', directeur_tel: e.directeurTel||'', telephone: e.telephone||'',
+        nb_enseignants: String(state.enseignants.filter(function(x){ return x.etablissementId===e.id; }).length), observations:'' }; });
+    } else if(L.coll==='taches'){
+      var lt = state.tasks.slice();
+      if(f.type) lt = lt.filter(function(t){ return ctNorm(t.taskType)===ctNorm(f.type) || ctNorm(TT_LABEL[t.taskType])===ctNorm(f.type); });
+      if(f.statut) lt = lt.filter(function(t){ return ctNorm(t.statut)===ctNorm(f.statut) || ctNorm(WF_LABEL[t.statut])===ctNorm(f.statut); });
+      if(f.etablissement){ var e3 = ctMatchEtab(f.etablissement, task); lt = lt.filter(function(t){ return e3.indexOf(t.etablissementId)>=0; }); }
+      if(f.enseignant){ var en3 = ctNorm(f.enseignant)==='tache' ? [task && task.enseignantId].filter(Boolean) : state.enseignants.filter(function(x){ return ctNorm(x.nom).indexOf(ctNorm(f.enseignant))>=0; }).map(function(x){ return x.id; });
+        lt = lt.filter(function(t){ return en3.indexOf(t.enseignantId)>=0; }); }
+      if(f.du) lt = lt.filter(function(t){ return (t.echeance||'') >= f.du; });
+      if(f.au) lt = lt.filter(function(t){ return (t.echeance||'') && t.echeance <= f.au; });
+      lt.sort(function(a,b){ return (a.echeance||'').localeCompare(b.echeance||''); });
+      rows = lt.map(function(t, i){ return { n:String(i+1), titre:t.titre||'', type:TT_LABEL[t.taskType]||'', date: t.echeance ? fmtDate(t.echeance) : '', heure: t.heureDebut||'',
+        statut: WF_LABEL[t.statut]||'', etablissement: t.etablissementNom||etabName(t.etablissementId)||'', enseignant: t.enseignantNom||'', lieu: t.lieu||'', observations:'' }; });
+    }
+    return rows;
+  }
+  function ctDefaultCols(coll){ return coll==='etablissements' ? ['n','nom','zone','directeur','directeur_tel'] : coll==='taches' ? ['n','titre','type','date','statut','etablissement'] : ['n','nom','ppr','etablissement','signature']; }
+  /* Analyse le texte en éléments : {k:'title'|'h2'|'h3'|'p'|'blank'|'logo'|'entete'|'signature'|'table', …} */
+  function ctItems(d, task){
+    var vals = ctTagValues(d, task), rtl = !!d.rtl, out = [];
+    String(d.corps||'').split('\n').forEach(function(raw){
+      var line = raw.replace(/\s+$/,''), tr = line.trim(), m;
+      if(!tr){ out.push({k:'blank'}); return; }
+      if(/^\{\{\s*logo\s*\}\}$/i.test(tr)){ out.push({k:'logo'}); return; }
+      if(/^\{\{\s*entete\s*\}\}$/i.test(tr)){ out.push({k:'entete'}); return; }
+      if(/^\{\{\s*signature\s*\}\}$/i.test(tr)){ out.push({k:'signature'}); return; }
+      if((m = tr.match(/^\{\{\s*liste\s*:\s*([\s\S]*?)\}\}$/i))){
+        var L = ctParseList(m[1]), defs = CT_LIST_COLS[L.coll];
+        if(!defs){ out.push({k:'p', text:'[liste inconnue : '+L.coll+']', align:''}); return; }
+        var cols = (L.cols||ctDefaultCols(L.coll)).filter(function(c){ return defs[c]; });
+        var rows = ctListRows(L, task);
+        out.push({k:'table', titre: ctApplyTags(L.titre, vals), headers: cols.map(function(c){ return defs[c][rtl?1:0]; }), weights: cols.map(function(c){ return defs[c][2]; }),
+          rows: rows.map(function(r){ return cols.map(function(c){ return r[c]==null ? '' : String(r[c]); }); }), empty: !rows.length });
+        return;
+      }
+      var align = '';
+      if((m = tr.match(/^\[(centre|center|droite|gauche|justifie)\]\s*/i))){ align = {centre:'center', center:'center', droite:'right', gauche:'left', justifie:'justify'}[m[1].toLowerCase()]; tr = tr.slice(m[0].length); }
+      if((m = tr.match(/^(#{1,3})\s+(.*)$/))){ out.push({k: m[1].length===1 ? 'title' : m[1].length===2 ? 'h2' : 'h3', text: ctApplyTags(m[2], vals), align: align}); return; }
+      out.push({k:'p', text: ctApplyTags(tr, vals), align: align});
+    });
+    return out;
+  }
+  function ctRuns(text, base){
+    base = base || {};
+    var parts = String(text||'').split(/(\*\*[^*]+\*\*)/g).filter(function(x){ return x!==''; });
+    return parts.map(function(x){ var b = /^\*\*[^*]+\*\*$/.test(x); return R(b ? x.slice(2,-2) : x, Object.assign({}, base, b ? {b:true} : {})); });
+  }
+  function offCustomDoc(d, task){
+    var rtl = !!d.rtl, blocks = [];
+    ctItems(d, task).forEach(function(it){
+      if(it.k==='blank') blocks.push(P('', {size:6}));
+      else if(it.k==='logo'){ var pf = offProfil(); blocks.push((pf.logoAssetId && assetUrl(pf.logoAssetId)) ? {t:'img', key:'logo', w:110, maxH:26, align:'center'} : {t:'img', key:'ministere', w:100, align:'center'}); }
+      else if(it.k==='entete') String(state.templates.entete||'').split('\n').filter(Boolean).forEach(function(l){ blocks.push(P([R(l,{b:true})], {align:'center', size:10})); });
+      else if(it.k==='signature') blocks.push({t:'sigimg', align: rtl ? 'left' : 'right'});
+      else if(it.k==='title') blocks.push(P(ctRuns(it.text, {b:true}), {align: it.align||'center', size:16, before:6, after:6, title:true}));
+      else if(it.k==='h2') blocks.push(P(ctRuns(it.text, {b:true}), {align: it.align||undefined, size:13, before:6, after:3}));
+      else if(it.k==='h3') blocks.push(P(ctRuns(it.text, {b:true}), {align: it.align||undefined, size:11.5, before:4, after:2}));
+      else if(it.k==='p') blocks.push(P(ctRuns(it.text), {align: it.align||(rtl?undefined:'justify'), size:11.5, after:3}));
+      else if(it.k==='table'){
+        if(it.titre) blocks.push(P([R(it.titre,{b:true})], {size:11.5, before:6, after:3}));
+        var tot = it.weights.reduce(function(a,b){ return a+b; }, 0) || 1;
+        var cols = it.weights.map(function(w){ return Math.round(w*100/tot); });
+        var rows = [{ cells: it.headers.map(function(h){ return C([P([R(h,{b:true})], {size:10, align:'center'})], {shade:'F2F2F2', v:'middle'}); }) }];
+        (it.empty ? [it.headers.map(function(){ return '—'; })] : it.rows).forEach(function(r){ rows.push({ cantSplit:true, cells: r.map(function(c){ return C([P(c, {size:10})]); }) }); });
+        blocks.push({ t:'table', border:true, cols: cols, rows: rows });
+      }
+    });
+    return { type:'custom', rtl: rtl, margin:16, size:11.5, fontCss: rtl ? "Arial,'Traditional Arabic',sans-serif" : "Calibri,Arial,sans-serif", fontDocx: rtl ? 'Arial' : 'Calibri', blocks: blocks };
+  }
+  /* Rendu générique (repli) du même contenu. */
+  function customDocSpec(d, task){
+    var tables = [], sections = [], cur = null;
+    ctItems(d, task).forEach(function(it){
+      if(it.k==='table'){ tables.push({ heading: it.titre||'', headers: it.headers, rows: it.rows }); return; }
+      if(it.k==='h2' || it.k==='h3'){ cur = { heading: it.text, text:'' }; sections.push(cur); return; }
+      if(it.k==='p'){ if(!cur){ cur = { heading:'', text:'' }; sections.push(cur); } cur.text += (cur.text ? '\n' : '')+it.text.replace(/\*\*/g,''); }
+    });
+    var title = (ctItems(d, task).find(function(it){ return it.k==='title'; })||{}).text || d.titre || 'Document';
+    return { rtl: !!d.rtl, titre: title, meta: [['Date', fmtDate(d.date)]], tables: tables, sections: sections, signatures: null };
+  }
+  /* Palette de balises (insertion au curseur) + constructeur de liste. */
+  function ctTagPaletteHtml(target, compact){
+    return '<details style="margin-top:6px;"'+(compact?'':' open')+'><summary style="cursor:pointer;font-size:12px;font-weight:600;">Insérer une balise</summary>'+
+      CT_TAG_GROUPS.map(function(gr){
+        return '<div style="margin-top:6px;"><div style="font-size:10.5px;color:var(--ink-faint);font-weight:600;text-transform:uppercase;letter-spacing:.03em;">'+esc(gr.g)+'</div><div class="chips" style="flex-wrap:wrap;margin-top:3px;">'+
+          gr.tags.map(function(tg){ return '<button class="chip" type="button" data-instag="'+esc(tg[0])+'" data-instarget="'+target+'" title="{{'+esc(tg[0])+'}}" style="font-size:11px;">'+esc(tg[1])+'</button>'; }).join('')+'</div></div>';
+      }).join('')+
+      '<div style="margin-top:6px;"><div style="font-size:10.5px;color:var(--ink-faint);font-weight:600;text-transform:uppercase;letter-spacing:.03em;">Mise en forme</div><div class="chips" style="flex-wrap:wrap;margin-top:3px;">'+
+        [['# ','Titre'],['## ','Sous-titre'],['[centre] ','Centrer'],['[droite] ','Aligner à droite'],['**texte**','Gras']].map(function(x){ return '<button class="chip" type="button" data-insraw="'+esc(x[0])+'" data-instarget="'+target+'" style="font-size:11px;">'+esc(x[1])+'</button>'; }).join('')+'</div></div>'+
+    '</details>'+ctListBuilderHtml(target);
+  }
+  function ctListBuilderHtml(target){
+    var lb = state.ctListBuilder || { coll:'enseignants', filters:{}, cols: ctDefaultCols('enseignants') };
+    var defs = CT_LIST_COLS[lb.coll], fl = CT_LIST_FILTERS[lb.coll] || [];
+    return '<details style="margin-top:6px;"><summary style="cursor:pointer;font-size:12px;font-weight:600;">Insérer une liste d\'enregistrements (tableau)</summary><div class="setup-card" style="margin-top:6px;">'+
+      '<div class="field"><label for="ctlColl">Liste</label><select id="ctlColl" data-ctltarget="'+target+'" style="width:100%;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;">'+
+        Object.keys(CT_COLL_LABEL).map(function(k){ return '<option value="'+k+'"'+(lb.coll===k?' selected':'')+'>'+esc(CT_COLL_LABEL[k])+'</option>'; }).join('')+'</select></div>'+
+      (fl.length ? '<div class="field"><label>Filtres <span style="font-weight:400;color:var(--ink-faint);">(laisser vide = pas de filtre)</span></label>'+fl.map(function(fx){
+        return '<div class="rowline" style="margin-bottom:4px;"><span style="min-width:96px;font-size:12px;">'+esc(fx[1])+'</span><input type="text" class="ctl-filter" data-k="'+fx[0]+'" value="'+esc(lb.filters[fx[0]]||'')+'" placeholder="'+esc(fx[2])+'" style="flex:1;border:1px solid var(--line);background:var(--surface-2);border-radius:8px;padding:7px 8px;font-size:12px;"></div>';
+      }).join('')+'</div>' : '')+
+      '<div class="field"><label>Colonnes</label><div class="chips" style="flex-wrap:wrap;">'+Object.keys(defs).map(function(c){
+        return '<label style="display:inline-flex;align-items:center;gap:4px;font-size:12px;margin:2px 8px 2px 0;"><input type="checkbox" class="ctl-col" value="'+c+'"'+(lb.cols.indexOf(c)>=0?' checked':'')+'> '+esc(defs[c][0])+'</label>';
+      }).join('')+'</div></div>'+
+      '<div class="field"><label for="ctlTitre">Titre au-dessus du tableau <span style="font-weight:400;color:var(--ink-faint);">(facultatif)</span></label><input type="text" id="ctlTitre" dir="auto" value="'+esc(lb.titre||'')+'"></div>'+
+      '<div class="btn-row"><button class="btn ghost sm" type="button" id="btnCtlInsert" data-ctltarget="'+target+'">'+ICONS.plus+' Insérer la liste</button></div>'+
+    '</div></details>';
+  }
+  function ctInsertAt(ta, text, block){
+    if(!ta) return;
+    var st = ta.selectionStart!=null ? ta.selectionStart : ta.value.length, en = ta.selectionEnd!=null ? ta.selectionEnd : st, v = ta.value;
+    if(block){
+      if(st>0 && v.charAt(st-1)!=='\n') text = '\n'+text;
+      if(v.charAt(en)!=='\n') text = text+'\n';
+    }
+    ta.value = v.slice(0,st)+text+v.slice(en);
+    var pos = st+text.length; ta.focus(); try{ ta.setSelectionRange(pos, pos); }catch(e){}
+  }
+  function wireCtPalette(onChange){
+    document.querySelectorAll('#overlayRoot [data-instag]').forEach(function(b){ b.onclick = function(){
+      var k = b.getAttribute('data-instag'), block = /^(logo|entete|signature)$/.test(k);
+      ctInsertAt($(b.getAttribute('data-instarget')), '{{'+k+'}}', block); if(onChange) onChange();
+    }; });
+    document.querySelectorAll('#overlayRoot [data-insraw]').forEach(function(b){ b.onclick = function(){
+      var ta = $(b.getAttribute('data-instarget')), raw = b.getAttribute('data-insraw');
+      if(raw==='**texte**' && ta && ta.selectionEnd > ta.selectionStart){ var sel = ta.value.slice(ta.selectionStart, ta.selectionEnd); ctInsertAt(ta, '**'+sel+'**', false); }
+      else ctInsertAt(ta, raw, false);
+      if(onChange) onChange();
+    }; });
+    var readLb = function(){
+      var lb = state.ctListBuilder || { coll:'enseignants', filters:{}, cols: ctDefaultCols('enseignants') };
+      var f = {}; document.querySelectorAll('#overlayRoot .ctl-filter').forEach(function(i){ if(i.value.trim()) f[i.getAttribute('data-k')] = i.value.trim(); });
+      lb.filters = f; lb.cols = Array.prototype.map.call(document.querySelectorAll('#overlayRoot .ctl-col:checked'), function(c){ return c.value; });
+      var tt = $('ctlTitre'); lb.titre = tt ? tt.value : ''; state.ctListBuilder = lb; return lb;
+    };
+    var coll = $('ctlColl'); if(coll) coll.onchange = function(){
+      if(onChange) onChange();
+      state.ctListBuilder = { coll: coll.value, filters:{}, cols: ctDefaultCols(coll.value), titre:'' }; render();
+      setTimeout(function(){ var c2 = $('ctlColl'); if(c2 && c2.closest('details')) c2.closest('details').open = true; }, 0);
+    };
+    var ins = $('btnCtlInsert'); if(ins) ins.onclick = function(){
+      var lb = readLb();
+      if(!lb.cols.length){ toast('Cochez au moins une colonne.'); return; }
+      var tag = '{{liste:'+lb.coll+Object.keys(lb.filters).map(function(k){ return '|'+k+'='+lb.filters[k]; }).join('')+'|colonnes='+lb.cols.join(',')+(lb.titre ? '|titre='+lb.titre : '')+'}}';
+      ctInsertAt($(ins.getAttribute('data-ctltarget')), tag, true); if(onChange) onChange();
+      toast('Liste insérée.');
+    };
+  }
+  var CT_STARTERS = {
+    vierge: { nom:'Nouveau modèle', rtl:false, corps:'{{logo}}\n{{entete}}\n\n# Titre du document\n\n[droite] {{profil.province}}, le {{date.jour}}\n\nObjet : {{tache.titre}}\n\nTexte du document…\n\n{{signature}}\n' },
+    emargement: { nom:'Liste d\'émargement des invité(e)s', rtl:false, corps:'{{logo}}\n{{entete}}\n\n# Liste d\'émargement\n\n[centre] {{tache.titre}} — {{tache.date}} à {{tache.heure}} — {{tache.lieu}}\n\n{{liste:invites|colonnes=n,nom,ppr,etablissement,signature}}\n\n[droite] **{{profil.nom}}**, inspecteur(trice) pédagogique\n{{signature}}\n' },
+    enseignants_etab: { nom:'Liste des enseignant(e)s de l\'établissement', rtl:false, corps:'{{logo}}\n\n# Enseignant(e)s — {{etablissement.nom}}\n\n[centre] Directeur(trice) : {{etablissement.directeur}} · Année scolaire {{annee_scolaire}}\n\n{{liste:enseignants|etablissement=tache|colonnes=n,nom,ppr,cadre,derniere_note,date_note,observations}}\n\n{{signature}}\n' },
+    convocation_ar: { nom:'استدعاء (عربي)', rtl:true, corps:'{{logo}}\n\n[centre] **الأكاديمية الجهوية للتربية والتكوين لجهة {{profil.academie_ar}}**\n[centre] **المديرية الإقليمية ب{{profil.province_ar}}**\n\n# استدعاء\n\nيتشرف مفتش مادة {{profil.matiere_ar}} بدعوة السادة الأساتذة الواردة أسماؤهم أسفله لحضور {{tache.type_ar}} يوم {{tache.date_ar}} على الساعة {{tache.heure}} بـ {{tache.lieu}}.\n\n{{liste:invites|colonnes=n,nom_ar,ppr,etablissement|titre=لائحة المدعوين}}\n\n[gauche] **{{profil.nom_ar}}**\n{{signature}}\n' }
+  };
+  function customTplsSectionHtml(){
+    var list = customTpls();
+    return '<div class="section-label" style="margin-top:18px;">Mes modèles de documents</div>'+
+      '<p style="font-size:11.5px;color:var(--ink-faint);margin:2px 0 10px;">Créez vos propres documents : texte libre, logo, signature, balises de la base (profil, tâche, établissement, enseignant(e)…) et listes d\'enregistrements filtrées. Chaque modèle s\'ajoute aux documents proposés dans les tâches des types choisis.</p>'+
+      (list.length ? '<div class="rec-list">'+list.map(function(ct){
+        var tt = (ct.taskTypes||[]).length ? ct.taskTypes.map(function(x){ return TT_LABEL[x]||x; }).join(', ') : 'Toutes les tâches';
+        return '<div class="rec-row" data-editct="'+esc(ct.id)+'"><div class="avatar">'+ICONS.doc+'</div><div class="rec-info"><div class="t" dir="auto">'+esc(ct.nom||'Sans nom')+'</div><div class="s">'+esc(tt)+(ct.rtl?' · عربي':'')+'</div></div>'+
+          '<button class="icon-btn" type="button" data-dupct="'+esc(ct.id)+'" title="Dupliquer" style="width:30px;height:30px;">'+ICONS.plus+'</button></div>';
+      }).join('')+'</div>' : '<div class="empty" style="margin-top:2px;">Aucun modèle personnalisé pour l\'instant.</div>')+
+      '<div class="field" style="margin-top:10px;"><label for="ctStarter">Nouveau modèle à partir de</label><div class="rowline"><select id="ctStarter" style="flex:1;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;">'+
+        Object.keys(CT_STARTERS).map(function(k){ return '<option value="'+k+'">'+esc(k==='vierge' ? 'Modèle vierge' : CT_STARTERS[k].nom)+'</option>'; }).join('')+'</select>'+
+        '<button class="btn primary sm" id="btnNewCt" type="button">'+ICONS.plus+' Créer</button></div></div>';
+  }
+  function openCustomTplEditor(ct, isNew){
+    state.draftTpl = JSON.parse(JSON.stringify(ct));
+    state.ctListBuilder = null;
+    pushModal({ type:'customtpl', isNew: !!isNew });
+  }
+  function customTplModalHtml(idx, m){
+    var ct = state.draftTpl || {};
+    var tts = ct.taskTypes || [];
+    var prevTasks = state.tasks.filter(function(t){ return !tts.length || tts.indexOf(t.taskType)>=0; }).sort(function(a,b){ return (b.echeance||'').localeCompare(a.echeance||''); }).slice(0,40);
+    return '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
+      '<div class="sheet-head"><h2>'+(m.isNew ? 'Nouveau modèle de document' : 'Modifier le modèle')+'</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
+      '<div class="field"><label for="ctNom">Nom du modèle</label><input type="text" id="ctNom" dir="auto" value="'+esc(ct.nom||'')+'" placeholder="Ex. Convocation, liste d\'émargement…"></div>'+
+      '<div class="field"><label>Langue / sens d\'écriture</label><div class="seg" id="ctRtlSeg"><button type="button" data-v="0" aria-pressed="'+(!ct.rtl)+'">Français</button><button type="button" data-v="1" aria-pressed="'+(!!ct.rtl)+'">العربية</button></div></div>'+
+      '<div class="field"><label>Proposé dans les tâches de type</label><div class="chips" style="flex-wrap:wrap;">'+
+        '<button class="chip" type="button" data-cttt="" aria-pressed="'+(!tts.length)+'">Toutes</button>'+
+        TASK_TYPES.map(function(tt){ return '<button class="chip" type="button" data-cttt="'+tt.v+'" aria-pressed="'+(tts.indexOf(tt.v)>=0)+'">'+esc(tt.l)+'</button>'; }).join('')+'</div></div>'+
+      '<div class="field"><label for="ctBody">Contenu du modèle</label><textarea id="ctBody" rows="16" dir="'+(ct.rtl?'rtl':'ltr')+'" style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;">'+esc(ct.corps||'')+'</textarea>'+
+        '<p style="font-size:11px;color:var(--ink-faint);margin:5px 2px 0;line-height:1.5;"># Titre · ## Sous-titre · **gras** · [centre]/[droite] en début de ligne · {{logo}}, {{entete}}, {{signature}} et les listes seuls sur leur ligne.</p>'+
+        ctTagPaletteHtml('ctBody', false)+'</div>'+
+      '<div class="field"><label for="ctPrevTask">Aperçu avec la tâche</label><select id="ctPrevTask" style="width:100%;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;"><option value="">— Sans tâche —</option>'+
+        prevTasks.map(function(t){ return '<option value="'+t.id+'"'+(m.prevTask===t.id?' selected':'')+'>'+esc((t.echeance ? fmtDate(t.echeance)+' · ' : '')+t.titre)+'</option>'; }).join('')+'</select>'+
+        '<div class="btn-row" style="margin-top:6px;"><button class="btn ghost sm" id="btnCtPreview" type="button">'+ICONS.print+' Aperçu (impression)</button><button class="btn ghost sm" id="btnCtPreviewDocx" type="button">Word</button></div></div>'+
+      '<div class="btn-row">'+(m.isNew ? '' : '<button class="btn danger" id="btnCtDelete" type="button">Supprimer</button>')+'<button class="btn primary" id="btnCtSave" type="button">Enregistrer le modèle</button></div>'+
+    '</div></div>';
+  }
   /* ---- Liste des notes d'inspection : globale, par zone (ou zones du filtre), par établissement
      ou en liste unique — fenêtre « inspnotes » ouverte depuis Établissements et Bilan. ---- */
   function inspScopeEtabs(scope){
@@ -9919,6 +10253,13 @@
           return '<div class="rowline"><input type="text" data-part="nom" data-i="'+i+'" value="'+esc(p.nom)+'" placeholder="Nom" style="flex:1;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;">'+
             '<input type="text" data-part="fonction" data-i="'+i+'" value="'+esc(p.fonction)+'" placeholder="Fonction" style="flex:1;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;"><button class="rm" data-rmpart="'+i+'" type="button">'+ICONS.trash+'</button></div>';
         }).join('')+'</div><button class="addline" id="btnAddPart" type="button">'+ICONS.plus+' Ajouter un participant</button><button class="addline" id="btnAddPartMulti" type="button">'+ICONS.users+' Ajouter des enseignant(e)s</button></div>';
+    } else if(m.docType==='custom'){
+      var ctSrc = customTplById(d.templateId);
+      body += '<p style="font-size:11.5px;color:var(--ink-faint);margin:0 0 10px;">Document créé à partir du modèle « '+esc(ctSrc ? ctSrc.nom : d.titre)+' ». Les balises {{…}} et les listes sont remplacées par les données à jour au moment de l\'impression ou de l\'export.</p>'+
+        '<div class="field-row"><div class="field"><label for="dCTitre">Titre du document</label><input type="text" id="dCTitre" dir="auto" value="'+esc(d.titre)+'"></div><div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div></div>'+
+        '<div class="field"><label for="dCBody">Contenu</label><textarea id="dCBody" rows="14" dir="'+(d.rtl?'rtl':'ltr')+'" style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;">'+esc(d.corps||'')+'</textarea>'+
+        ctTagPaletteHtml('dCBody', true)+
+        (ctSrc ? '<div class="btn-row" style="margin-top:6px;"><button class="btn ghost sm" id="btnCtReload" type="button">Reprendre le texte du modèle</button></div>' : '')+'</div>';
     } else if(m.docType==='rapport_formation'){
       var rfAi = function(key, label){
         return '<div class="btn-row" style="margin-top:4px;"><button class="btn ai sm" data-airf="'+key+'" type="button">'+ICONS.ai+' '+((d[key]||'').trim() ? 'Enrichir' : 'Rédiger')+' avec l\'IA</button>'+
@@ -10116,7 +10457,7 @@
        propres au type. La valeur de chaque zone pour CE document précis vit dans d.aiZoneValues[zone.id]
        (créé à la volée, jamais dans buildDefaultDoc, pour qu'une zone ajoutée au modèle APRÈS la création
        du document apparaisse quand même — avec un texte vide — dès la prochaine ouverture). */
-    var rtl = !!RTL_DOC_TYPES[m.docType];
+    var rtl = m.docType==='custom' ? !!d.rtl : !!RTL_DOC_TYPES[m.docType];
     var aiZonesTmpl = ((state.templates.docTemplates||{})[m.docType]||{}).aiZones || [];
     if(aiZonesTmpl.length){
       d.aiZoneValues = d.aiZoneValues || {};
@@ -10128,7 +10469,7 @@
       }).join('');
     }
     return '<div class="overlay" style="z-index:'+(50+idx)+'" data-overlay="'+idx+'"><div class="sheet" role="dialog" aria-modal="true">'+
-      '<div class="sheet-head"><h2>'+DOC_TYPE_INFO[m.docType].label+'</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
+      '<div class="sheet-head"><h2>'+esc(m.docType==='custom' ? docLabel(d) : DOC_TYPE_INFO[m.docType].label)+'</h2><button class="icon-btn" data-close-modal="1" aria-label="Fermer">'+ICONS.close+'</button></div>'+
       body+'<div class="btn-row">'+(m.isNew?'':'<button class="btn danger" id="btnDeleteDoc" type="button">Supprimer</button>')+
       '<button class="btn primary" id="btnSaveDoc" type="button">Enregistrer</button></div>'+
       '<div class="section-label" style="margin-top:14px;">Générer un fichier</div>'+
@@ -10302,7 +10643,7 @@
       list.reduce(function(p, d){ return p.then(function(){ return deleteDocumentEverywhere(d, {noConfirm:true}).then(function(r){ if(r){ n++; tot.trashed += r.trashed; tot.ambiguous += r.ambiguous; } }); }); }, Promise.resolve())
         .then(function(){ toast(n+' document(s) supprimé(s)'+(tot.trashed>0 ? ', '+tot.trashed+' fichier(s) mis à la corbeille de Drive' : tot.trashed<0 ? ' ; fichiers Drive effacés à la prochaine connexion' : '')+(tot.ambiguous ? ' ; '+tot.ambiguous+' ancien(s) fichier(s) à vérifier dans le dossier Drive de la tâche' : '')+'.'); });
     };
-    document.querySelectorAll('[data-newdoc]').forEach(function(el){ el.onclick = function(){ var m=state.modalStack[state.modalStack.length-1]; openDocEditor(m.taskId, el.getAttribute('data-newdoc'), null); }; });
+    document.querySelectorAll('[data-newdoc]').forEach(function(el){ el.onclick = function(){ var m=state.modalStack[state.modalStack.length-1]; var nd = el.getAttribute('data-newdoc'); if(nd.indexOf('custom:')===0) openDocEditor(m.taskId, 'custom', null, nd.slice(7)); else openDocEditor(m.taskId, nd, null); }; });
     document.querySelectorAll('[data-opendoc]').forEach(function(el){ el.onclick = function(){ var d=state.documents.find(function(x){ return x.id===el.getAttribute('data-opendoc'); }); if(d) openDocEditor(d.taskId, d.type, d); }; });
     var editTaskBtn = $('btnEditTask'); if(editTaskBtn) editTaskBtn.onclick = function(){ var m=state.modalStack[state.modalStack.length-1]; var t=state.tasks.find(function(x){return x.id===m.taskId;}); openTaskEditor(t); };
     var delTask2 = $('btnDeleteTask2'); if(delTask2) delTask2.onclick = function(){ var m=state.modalStack[state.modalStack.length-1]; recordDelete('task', m.taskId).then(function(){ closeTopModal(); toast('Tâche supprimée.'); }); };
@@ -10921,6 +11262,50 @@
       if(callA) callA.href = telHref(ensTelInput.value);
       if(waA) waA.href = waHref(ensTelInput.value, waGreeting(($('eNom')||{}).value||state.draftRecord.nom));
     };
+    var ctBodyEl = $('ctBody'); if(ctBodyEl){
+      var mCt = state.modalStack[state.modalStack.length-1];
+      var syncCt = function(){ var c = state.draftTpl; c.nom = ($('ctNom')||{}).value||''; c.corps = ctBodyEl.value; };
+      wireCtPalette(syncCt);
+      var rs = $('ctRtlSeg'); if(rs) rs.querySelectorAll('button').forEach(function(b){ b.onclick = function(){ syncCt(); state.draftTpl.rtl = b.getAttribute('data-v')==='1'; render(); }; });
+      document.querySelectorAll('#overlayRoot [data-cttt]').forEach(function(b){ b.onclick = function(){
+        syncCt(); var v = b.getAttribute('data-cttt'), c = state.draftTpl; c.taskTypes = c.taskTypes || [];
+        if(!v) c.taskTypes = []; else { var i = c.taskTypes.indexOf(v); if(i>=0) c.taskTypes.splice(i,1); else c.taskTypes.push(v); }
+        render();
+      }; });
+      var pt = $('ctPrevTask'); if(pt) pt.onchange = function(){ mCt.prevTask = pt.value; };
+      var prevDoc = function(){ syncCt(); var task = state.tasks.find(function(t){ return t.id===(($('ctPrevTask')||{}).value); }) || null;
+        return { d: { id:'apercu', type:'custom', titre: state.draftTpl.nom, corps: state.draftTpl.corps, rtl: !!state.draftTpl.rtl, date: task ? (task.echeance||todayStr()) : todayStr(), taskId: task ? task.id : null }, task: task }; };
+      var bpv = $('btnCtPreview'); if(bpv) bpv.onclick = function(){ var x = prevDoc(); printOfficial(buildOfficialDoc(x.d, x.task)); };
+      var bpd = $('btnCtPreviewDocx'); if(bpd) bpd.onclick = function(){ var x = prevDoc(); bpd.disabled = true;
+        downloadOfficialDocx(buildOfficialDoc(x.d, x.task), safeFileName('Apercu_'+(state.draftTpl.nom||'modele')), null).then(function(){ bpd.disabled = false; }, function(){ bpd.disabled = false; }); };
+      var bsv = $('btnCtSave'); if(bsv) bsv.onclick = function(){
+        syncCt(); var c = state.draftTpl;
+        if(!c.nom.trim()){ toast('Donnez un nom au modèle.'); return; }
+        c.updatedAt = nowIso();
+        var list = customTpls().slice(), i = list.findIndex(function(x){ return x.id===c.id; });
+        if(i>=0) list[i] = c; else list.push(c);
+        state.modalStack.pop(); templatesSet({ customDocs: list }); toast('Modèle « '+c.nom+' » enregistré.');
+      };
+      var bdl = $('btnCtDelete'); if(bdl) bdl.onclick = function(){
+        if(!confirm('Supprimer le modèle « '+(state.draftTpl.nom||'')+' » ? Les documents déjà créés avec lui sont conservés.')) return;
+        var id = state.draftTpl.id; state.modalStack.pop(); templatesSet({ customDocs: customTpls().filter(function(x){ return x.id!==id; }) });
+      };
+    }
+    var dCBody = $('dCBody'); if(dCBody){
+      wireCtPalette(function(){ state.draftDoc.corps = dCBody.value; });
+      var bReload = $('btnCtReload'); if(bReload) bReload.onclick = function(){
+        var src = customTplById(state.draftDoc.templateId); if(!src) return;
+        if(!confirm('Remplacer le contenu de ce document par le texte actuel du modèle ?')) return;
+        dCBody.value = src.corps||''; state.draftDoc.corps = dCBody.value; state.draftDoc.rtl = !!src.rtl;
+      };
+    }
+    var btnNewCt = $('btnNewCt'); if(btnNewCt) btnNewCt.onclick = function(){
+      var st = CT_STARTERS[($('ctStarter')||{}).value||'vierge'] || CT_STARTERS.vierge;
+      openCustomTplEditor({ id: uid(), nom: st.nom, rtl: st.rtl, taskTypes: [], corps: st.corps }, true);
+    };
+    document.querySelectorAll('[data-editct]').forEach(function(el){ el.onclick = function(){ var ct = customTplById(el.getAttribute('data-editct')); if(ct) openCustomTplEditor(ct, false); }; });
+    document.querySelectorAll('[data-dupct]').forEach(function(el){ el.onclick = function(ev){ ev.stopPropagation(); var ct = customTplById(el.getAttribute('data-dupct')); if(!ct) return;
+      var c2 = JSON.parse(JSON.stringify(ct)); c2.id = uid(); c2.nom = (ct.nom||'')+' (copie)'; openCustomTplEditor(c2, true); }; });
     var inScope = $('inScope'); if(inScope){
       var mIn = state.modalStack[state.modalStack.length-1];
       inScope.onchange = function(){ mIn.scope = inScope.value; render(); };
@@ -11192,7 +11577,7 @@
     /* -- document editor -- */
     function syncDocGenericFields(){
       var d = state.draftDoc;
-      ['dObjet:objet','dLieu:lieu','dDate:date','dPresents:presents','dOJ:ordreJour','dPD:pointsDiscutes','dDec:decisions',
+      ['dCTitre:titre','dCBody:corps','dObjet:objet','dLieu:lieu','dDate:date','dPresents:presents','dOJ:ordreJour','dPD:pointsDiscutes','dDec:decisions',
        'dEns:enseignantNom','dClasse:classe','dMat:matiere','dDuree:duree','dPF:pointsForts','dAA:axesAmelioration','dSynth:synthese','dTexte:texte',
        'dBenef:beneficiaireNom','dFonction:fonction','dDestinataire:destinataire','dRef:reference','dCorps:corps',
        'dConstats:constats','dRecom:recommandations','dObs:observations','dContexte:contexte','dObjectifs:objectifs','dTexteLibre:texteLibre',
@@ -11486,7 +11871,7 @@
     function docFileBase(){
       var m = state.modalStack[state.modalStack.length-1];
       var task = state.tasks.find(function(t){ return t.id===m.taskId; });
-      return safeFileName(DOC_TYPE_INFO[state.draftDoc.type].label+'_'+(task?task.titre:state.draftDoc.titre||'document'));
+      return safeFileName(docLabel(state.draftDoc)+'_'+(task?task.titre:state.draftDoc.titre||'document'));
     }
     function runGenFile(kind, btn){
       syncDocGenericFields();
