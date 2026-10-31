@@ -4474,7 +4474,7 @@
   function etabIdByName(nom){
     var n = String(nom||'').trim().toLowerCase();
     if(!n) return '';
-    var e = state.etablissements.find(function(x){ return (x.nom||'').trim().toLowerCase()===n; });
+    var e = state.etablissements.find(function(x){ return [x.nom, x.nomAr, x.nomFr].some(function(v){ return (v||'').trim().toLowerCase()===n; }); });
     return e ? e.id : '';
   }
   function ensPickFiltered(){
@@ -4690,6 +4690,14 @@
     state.draftDoc = d;
     pushModal({type:'docedit', docType: docType, taskId: taskId, isNew: !existingDoc});
   }
+  /* Ligne de la liste de présence : nom, PPR et établissement (nom arabe si connu, le document étant
+     en arabe) — à partir de la fiche de l'enseignant(e) et/ou de l'invitation de la tâche. */
+  function presenceRowFor(e, iv){
+    iv = iv || {};
+    var etId = (e && e.etablissementId) || null;
+    var etNom = etId ? etabNameLang('ar', etId, etabName(etId)) : (iv.etablissementNom || '');
+    return { nom: (e && e.nom) || iv.nom || '', ppr: (e && e.ppr) || iv.ppr || '', etablissement: etNom || '' };
+  }
   function buildDefaultDoc(task, type, tplId){
     var base = { id: uid(), taskId: task.id, type: type, titre: DOC_TYPE_INFO[type].label, date: task.echeance || todayStr() };
     if(type==='custom'){
@@ -4703,8 +4711,8 @@
       /* Priorité à la liste d'enseignant(e)s invité(e)s explicitement choisie pour la tâche (réunion
          pédagogique / cours expérimental) — plus fiable que l'ancien repli « tous les enseignants de
          l'établissement », gardé pour les tâches qui n'ont pas (encore) de liste d'invités. */
-      var parts = invites.length ? invites.map(function(iv){ return {nom:iv.nom, fonction:'Enseignant(e)'}; })
-        : state.enseignants.filter(function(e){ return e.etablissementId===task.etablissementId; }).map(function(e){ return {nom:e.nom, fonction:'Enseignant(e)'}; });
+      var parts = invites.length ? invites.map(function(iv){ return presenceRowFor(findEns(iv.enseignantId, iv.nom), iv); })
+        : state.enseignants.filter(function(e){ return e.etablissementId===task.etablissementId; }).map(function(e){ return presenceRowFor(e); });
       base.objet = task.titre; base.lieu = task.lieu||task.etablissementNom||''; base.participants = parts;
     } else if(type==='compte_rendu'){
       base.lieu = task.lieu||task.etablissementNom||''; base.presents= invites.length ? invites.map(function(iv){ return iv.nom; }).join(', ') : '';
@@ -7299,7 +7307,10 @@
   function buildDocSpecInner(d, task){
     if(d.type==='presence'){
       return { rtl:true, titre:'لائحة الحضور', meta:[['المؤسسة',d.lieu],['التاريخ',fmtDate(d.date)],['الموضوع',d.objet]],
-        tables:[{headers:['#','الاسم الكامل','الصفة','التوقيع'], rows:(d.participants||[]).map(function(p,i){ return [String(i+1), p.nom||'', p.fonction||'', '']; })}],
+        tables:[{headers:['#','الاسم الكامل','رقم التأجير','المؤسسة','التوقيع'], widths:[5,30,14,31,20], rows:(d.participants||[]).map(function(p,i){
+          /* anciens documents (colonne « الصفة ») : PPR et établissement retrouvés depuis la fiche */
+          var r = (!p.ppr || !p.etablissement) && p.nom ? presenceRowFor(findEns(null, p.nom)) : {};
+          return [String(i+1), p.nom||'', p.ppr||r.ppr||'', p.etablissement||r.etablissement||'', '']; })}],
         sections:[], signatures:null };
     }
     if(d.type==='custom') return customDocSpec(d, task);
@@ -10787,8 +10798,11 @@
       body += '<div class="field"><label for="dObjet">Objet</label><input type="text" id="dObjet" value="'+esc(d.objet)+'"></div>'+
         '<div class="field-row"><div class="field"><label for="dLieu">Lieu</label><input type="text" id="dLieu" value="'+esc(d.lieu)+'"></div><div class="field"><label for="dDate">Date</label><input type="date" id="dDate" value="'+esc(d.date)+'"></div></div>'+
         '<div class="field"><label>Participants</label><div id="partList">'+(d.participants||[]).map(function(p,i){
-          return '<div class="rowline"><input type="text" data-part="nom" data-i="'+i+'" value="'+esc(p.nom)+'" placeholder="Nom" style="flex:1;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;">'+
-            '<input type="text" data-part="fonction" data-i="'+i+'" value="'+esc(p.fonction)+'" placeholder="Fonction" style="flex:1;border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;"><button class="rm" data-rmpart="'+i+'" type="button">'+ICONS.trash+'</button></div>';
+          var ist = 'border:1px solid var(--line);background:var(--surface-2);border-radius:9px;padding:9px 10px;min-width:0;';
+          return '<div style="border:1px solid var(--line);border-radius:11px;padding:7px;margin-bottom:6px;"><div class="rowline" style="margin:0 0 5px;"><span style="font-size:11px;color:var(--ink-faint);min-width:18px;">'+(i+1)+'</span>'+
+            '<input type="text" data-part="nom" data-i="'+i+'" value="'+esc(p.nom)+'" placeholder="Nom et prénom" style="flex:1;'+ist+'"><button class="rm" data-rmpart="'+i+'" type="button">'+ICONS.trash+'</button></div>'+
+            '<div class="rowline" style="margin:0;"><input type="text" data-part="ppr" data-i="'+i+'" value="'+esc(p.ppr||'')+'" placeholder="PPR" inputmode="numeric" style="flex:0 0 32%;'+ist+'">'+
+            '<input type="text" data-part="etablissement" data-i="'+i+'" value="'+esc(p.etablissement||'')+'" placeholder="Établissement" dir="auto" style="flex:1;'+ist+'"></div></div>';
         }).join('')+'</div><button class="addline" id="btnAddPart" type="button">'+ICONS.plus+' Ajouter un participant</button><button class="addline" id="btnAddPartMulti" type="button">'+ICONS.users+' Ajouter des enseignant(e)s</button></div>';
     } else if(m.docType==='custom'){
       var ctSrc = customTplById(d.templateId);
@@ -12258,7 +12272,7 @@
     }
     var addTsValM = $('btnAddTsValMulti'); if(addTsValM) addTsValM.onclick = function(){ addEnsRows('tableauxValides', function(e){ return {etablissement: etabName(e.etablissementId)||'', enseignant: e.nom||'', ppr: e.ppr||''}; }); };
     var addTsNvM = $('btnAddTsNvMulti'); if(addTsNvM) addTsNvM.onclick = function(){ addEnsRows('tableauxNonValides', function(e, old){ return {etablissement: etabName(e.etablissementId)||'', enseignant: e.nom||'', ppr: e.ppr||'', observation: old ? (old.observation||'') : ''}; }); };
-    var addPartM = $('btnAddPartMulti'); if(addPartM) addPartM.onclick = function(){ addEnsRows('participants', function(e, old){ return {nom: e.nom||'', fonction: (old && old.fonction) || 'Enseignant(e)'}; }); };
+    var addPartM = $('btnAddPartMulti'); if(addPartM) addPartM.onclick = function(){ addEnsRows('participants', function(e){ return presenceRowFor(e); }); };
     var addTsVal = $('btnAddTsVal'); if(addTsVal) addTsVal.onclick = function(){ syncDocGenericFields(); (state.draftDoc.tableauxValides=state.draftDoc.tableauxValides||[]).push({etablissement:'',enseignant:'',ppr:''}); render(); };
     document.querySelectorAll('[data-rmtsval]').forEach(function(el){ el.onclick=function(){ syncDocGenericFields(); state.draftDoc.tableauxValides.splice(parseInt(el.getAttribute('data-rmtsval')),1); render(); }; });
     document.querySelectorAll('[data-picktsval]').forEach(function(el){
@@ -12342,7 +12356,7 @@
     var obsVarSeg = $('obsVarianteSeg'); if(obsVarSeg) obsVarSeg.querySelectorAll('button').forEach(function(b){
       b.onclick = function(){ syncDocGenericFields(); applyObsVariante(state.draftDoc, b.getAttribute('data-v')); render(); };
     });
-    var addPart = $('btnAddPart'); if(addPart) addPart.onclick = function(){ syncDocGenericFields(); state.draftDoc.participants.push({nom:'',fonction:'Enseignant(e)'}); render(); };
+    var addPart = $('btnAddPart'); if(addPart) addPart.onclick = function(){ syncDocGenericFields(); state.draftDoc.participants.push({nom:'', ppr:'', etablissement:''}); render(); };
     document.querySelectorAll('[data-rmpart]').forEach(function(el){ el.onclick=function(){ syncDocGenericFields(); state.draftDoc.participants.splice(parseInt(el.getAttribute('data-rmpart')),1); render(); }; });
     var addAct = $('btnAddAct'); if(addAct) addAct.onclick = function(){ syncDocGenericFields(); state.draftDoc.actions.push({action:'',responsable:'',echeance:''}); render(); };
     document.querySelectorAll('[data-rmact]').forEach(function(el){ el.onclick=function(){ syncDocGenericFields(); state.draftDoc.actions.splice(parseInt(el.getAttribute('data-rmact')),1); render(); }; });
