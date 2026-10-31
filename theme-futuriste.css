@@ -171,7 +171,7 @@ html[data-skin="futur"] .step.current{ box-shadow:0 0 14px rgba(34,227,196,.25);
 html[data-skin="futur"] .step.done{ box-shadow:0 0 10px rgba(74,222,128,.18); }
 
 /* ---------- champs de saisie ---------- */
-html[data-skin="futur"] .field input[type="text"], html[data-skin="futur"] .field input[type="date"], html[data-skin="futur"] .field input[type="time"],
+html[data-skin="futur"] .field input[type="text"], html[data-skin="futur"] .field input[type="password"], html[data-skin="futur"] .field input[type="date"], html[data-skin="futur"] .field input[type="time"],
 html[data-skin="futur"] .field input[type="tel"], html[data-skin="futur"] .field input[type="email"], html[data-skin="futur"] .field input[type="number"],
 html[data-skin="futur"] .field textarea, html[data-skin="futur"] .field select, html[data-skin="futur"] .search-row input,
 html[data-skin="futur"] .rowline input, html[data-skin="futur"] .rowline textarea, html[data-skin="futur"] select.ai-words{
