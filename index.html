@@ -2845,6 +2845,22 @@
     if(pr.id==='openrouter'){ headers['HTTP-Referer'] = location.origin; headers['X-Title'] = "Carnet d'inspection"; }
     return serverGenerate(prompt, onText, onReason, { url: base + '/chat/completions', headers: headers, model: cloudAiModelName(), cloud: true });
   }
+  /* Certains fournisseurs (Mistral : modèles Magistral, Mistral Large 4…) envoient « content » sous
+     forme de liste de morceaux typés ({type:'text', text}, {type:'thinking', thinking:[…]}) au lieu
+     d'une simple chaîne : on sépare le texte de la réflexion. */
+  function chatContentParts(c){
+    var out = { text:'', reasoning:'' };
+    if(c == null) return out;
+    if(typeof c === 'string'){ out.text = c; return out; }
+    var flat = function(v){ return v == null ? '' : typeof v === 'string' ? v : Array.isArray(v) ? v.map(flat).join('') : (v.text != null ? flat(v.text) : v.thinking != null ? flat(v.thinking) : v.content != null ? flat(v.content) : ''); };
+    (Array.isArray(c) ? c : [c]).forEach(function(part){
+      if(part == null) return;
+      if(typeof part === 'string'){ out.text += part; return; }
+      if(part.type === 'thinking' || part.type === 'reasoning') out.reasoning += flat(part.thinking != null ? part.thinking : part.text != null ? part.text : part.content);
+      else out.text += flat(part);
+    });
+    return out;
+  }
   function serverGenerate(prompt, onText, onReason, opts){
     opts = opts || {};
     var url = opts.url || (aiServerUrl() + '/v1/chat/completions');
@@ -2863,7 +2879,7 @@
           return Promise.reject({code: code, message: String(msg||'').slice(0, 220), status: res.status});
         }
         return Promise.reject({code:'server_error', message:'HTTP '+res.status+(t?' — '+t.slice(0,160):'')}); });
-      if(!res.body || !res.body.getReader) return res.json().then(function(j){ raw = (j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content)||''; });
+      if(!res.body || !res.body.getReader) return res.json().then(function(j){ var cp0 = chatContentParts(j.choices&&j.choices[0]&&j.choices[0].message&&j.choices[0].message.content); raw = cp0.text; reasonSep = cp0.reasoning; });
       var reader = res.body.getReader(), dec = new TextDecoder(), buf = '';
       function pump(){
         return reader.read().then(function(r){
@@ -2877,10 +2893,11 @@
             if(!data || data==='[DONE]') return;
             try{
               var j = JSON.parse(data), d = (j.choices && j.choices[0] && j.choices[0].delta) || {};
-              var rc = d.reasoning_content || d.reasoning;
-              if(rc || d.content){ nTok++; if(!tFirst) tFirst = Date.now(); }
+              var cp = chatContentParts(d.content);
+              var rc = chatContentParts(d.reasoning_content || d.reasoning).text + cp.reasoning;
+              if(rc || cp.text){ nTok++; if(!tFirst) tFirst = Date.now(); }
               if(rc){ reasonSep += rc; if(onReason) onReason(reasonSep); }
-              if(d.content){ raw += d.content; var sp = splitThink(raw); if(sp.reasoning && onReason) onReason(reasonSep + sp.reasoning); if(onText) onText(sp.text); }
+              if(cp.text){ raw += cp.text; var sp = splitThink(raw); if(sp.reasoning && onReason) onReason(reasonSep + sp.reasoning); if(onText) onText(sp.text); }
             }catch(e){}
           });
           return pump();
