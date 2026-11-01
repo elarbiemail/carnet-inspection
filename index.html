@@ -2506,7 +2506,7 @@
      déroulante : une <datalist> ne montre sur Android que les suggestions qui commencent comme le
      texte déjà saisi, donc rien quand un modèle est déjà indiqué. */
   var cloudModelsCache = {}, cloudModelsMsg = null;
-  function cloudChatModel(id){ return !/whisper|tts|guard|playai|orpheus|embed|moderation|transcri|speech|audio|image|vision-preview|rerank/i.test(id); }
+  function cloudChatModel(id){ return !/whisper|tts|guard|playai|orpheus|embed|moderation|transcri|speech|audio|voxtral|ocr|image|vision-preview|rerank|dall-e|realtime/i.test(id); }
   function cloudListModels(){
     var pr = cloudAiPreset();
     if(!cloudAiKey() || !cloudAiBase()) return Promise.reject({code:'cloud_not_configured'});
@@ -2514,7 +2514,9 @@
       if(!r.ok) return r.text().then(function(t){ throw {code: r.status===401||r.status===403 ? 'cloud_key' : r.status===429 ? 'cloud_rate' : 'server_error', message:'HTTP '+r.status+(t ? ' — '+t.slice(0,160) : '')}; });
       return r.json();
     }, function(e){ throw {code:'cloud_unreachable', message: e && e.message}; }).then(function(j){
-      var ids = ((j && (j.data || j.models)) || []).map(function(m){ return typeof m==='string' ? m : (m.id || m.name); }).filter(Boolean).filter(cloudChatModel);
+      // Mistral (et d'autres) décrivent les capacités de chaque modèle : on ne garde que ceux qui rédigent (chat)
+      var ids = ((j && (j.data || j.models)) || []).filter(function(m){ return !(m && m.capabilities && m.capabilities.completion_chat === false); })
+        .map(function(m){ return typeof m==='string' ? m : (m.id || m.name); }).filter(Boolean).filter(cloudChatModel);
       if(pr.id==='openrouter') ids = ids.filter(function(x){ return /:free$/.test(x); });
       ids = ids.filter(function(x, i){ return ids.indexOf(x)===i; }).sort();
       cloudModelsCache[pr.id] = ids;
