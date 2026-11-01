@@ -2502,6 +2502,25 @@
       note:'Gratuit sans carte bancaire, environ 1 million de jetons par jour, très rapide.' },
     { id:'custom', label:'Autre (compatible OpenAI)', base:'', model:'', keyUrl:'', note:'Indiquez l\'adresse de l\'API (se terminant en général par /v1), votre clé et le nom du modèle.' }
   ];
+  /* Modèles renvoyés par le fournisseur (mémoire de la session), affichés dans une vraie liste
+     déroulante : une <datalist> ne montre sur Android que les suggestions qui commencent comme le
+     texte déjà saisi, donc rien quand un modèle est déjà indiqué. */
+  var cloudModelsCache = {}, cloudModelsMsg = null;
+  function cloudChatModel(id){ return !/whisper|tts|guard|playai|orpheus|embed|moderation|transcri|speech|audio|image|vision-preview|rerank/i.test(id); }
+  function cloudListModels(){
+    var pr = cloudAiPreset();
+    if(!cloudAiKey() || !cloudAiBase()) return Promise.reject({code:'cloud_not_configured'});
+    return fetch(cloudAiBase()+'/models', { headers: { 'Authorization':'Bearer '+cloudAiKey() } }).then(function(r){
+      if(!r.ok) return r.text().then(function(t){ throw {code: r.status===401||r.status===403 ? 'cloud_key' : r.status===429 ? 'cloud_rate' : 'server_error', message:'HTTP '+r.status+(t ? ' — '+t.slice(0,160) : '')}; });
+      return r.json();
+    }, function(e){ throw {code:'cloud_unreachable', message: e && e.message}; }).then(function(j){
+      var ids = ((j && (j.data || j.models)) || []).map(function(m){ return typeof m==='string' ? m : (m.id || m.name); }).filter(Boolean).filter(cloudChatModel);
+      if(pr.id==='openrouter') ids = ids.filter(function(x){ return /:free$/.test(x); });
+      ids = ids.filter(function(x, i){ return ids.indexOf(x)===i; }).sort();
+      cloudModelsCache[pr.id] = ids;
+      return ids;
+    });
+  }
   function cloudAiCfg(){ return Object.assign({ preset:'groq', keys:{}, models:{}, base:'' }, (state.config && state.config.cloudAi) || {}); }
   function cloudAiPreset(){ var c = cloudAiCfg(); return CLOUD_AI_PRESETS.filter(function(x){ return x.id===c.preset; })[0] || CLOUD_AI_PRESETS[0]; }
   function cloudAiBase(){ var pr = cloudAiPreset(); return String(pr.id==='custom' ? (cloudAiCfg().base||'') : pr.base).trim().replace(/\/+$/, '').replace(/\/chat\/completions$/, ''); }
@@ -9476,9 +9495,17 @@
           '<p style="font-size:11.5px;color:var(--ink-faint);margin:6px 0 0;">'+esc(cp.note)+(cp.keyUrl ? ' <a href="'+esc(cp.keyUrl)+'" target="_blank" rel="noopener">Créer une clé '+esc(cp.label)+'</a>' : '')+'</p></div>'+
         (cp.id==='custom' ? '<div class="field"><label for="cloudBaseInput">Adresse de l\'API</label><input type="text" id="cloudBaseInput" value="'+esc(cc.base||'')+'" placeholder="https://…/v1" autocapitalize="off" spellcheck="false"></div>' : '')+
         '<div class="field"><label for="cloudKeyInput">Clé API '+esc(cp.label)+'</label><input type="password" id="cloudKeyInput" value="'+esc(cc.keys[cp.id]||'')+'" placeholder="Collez votre clé" autocapitalize="off" spellcheck="false" autocomplete="off"></div>'+
-        '<div class="field"><label for="cloudModelInput">Modèle</label><input type="text" id="cloudModelInput" list="cloudModelList" value="'+esc(cloudAiModelName())+'" autocapitalize="off" spellcheck="false"><datalist id="cloudModelList"></datalist></div>'+
+        (function(){
+          var list = cloudModelsCache[cp.id], cur = cloudAiModelName();
+          if(!list || !list.length) return '<div class="field"><label for="cloudModelInput">Modèle</label><input type="text" id="cloudModelInput" value="'+esc(cur)+'" autocapitalize="off" spellcheck="false">'+
+            '<p style="font-size:11px;color:var(--ink-faint);margin:4px 0 0;">Touchez « Lister les modèles » pour choisir dans la liste du fournisseur.</p></div>';
+          var opts = list.slice(); if(cur && opts.indexOf(cur)<0) opts.unshift(cur);
+          return '<div class="field"><label for="cloudModelSelect">Modèle ('+list.length+' disponibles)</label><select id="cloudModelSelect">'+
+            opts.map(function(m){ return '<option value="'+esc(m)+'"'+(m===cur?' selected':'')+'>'+esc(m)+(list.indexOf(m)<0 ? ' (non listé)' : '')+'</option>'; }).join('')+
+            '</select><input type="hidden" id="cloudModelInput" value="'+esc(cur)+'"></div>';
+        })()+
         '<div class="btn-row"><button class="btn ghost sm" id="btnCloudModels" type="button">Lister les modèles</button><button class="btn ghost" id="btnTestCloud" type="button">Tester</button><button class="btn primary" id="btnSaveCloud" type="button">Enregistrer</button></div>'+
-        '<div class="banner info" id="cloudTestStatus" hidden style="margin-top:8px;"></div>'+
+        (cloudModelsMsg ? '<div class="banner '+cloudModelsMsg.cls+'" id="cloudTestStatus" style="margin-top:8px;">'+esc(cloudModelsMsg.txt)+'</div>' : '<div class="banner info" id="cloudTestStatus" hidden style="margin-top:8px;"></div>')+
         '<p style="font-size:11px;color:var(--ink-faint);margin-top:8px;">Les quotas gratuits sont fixés par chaque fournisseur et peuvent changer. Si l\'un est épuisé, passez simplement à un autre : chaque clé reste enregistrée. L\'import de fiches par photo continue d\'utiliser Gemini.</p>';
     }
     if(prov==='server'){
@@ -11679,26 +11706,36 @@
       return configSet({ cloudAi: state.config.cloudAi }).then(function(){ state.sampleReady = aiUsable(); });
     }
     var cps = $('cloudPresetSelect'); if(cps) cps.onchange = function(){
+      cloudModelsMsg = null;
       cloudSaveFields().then(function(){ state.config.cloudAi.preset = cps.value; return configSet({ cloudAi: state.config.cloudAi }); }).then(function(){ state.sampleReady = aiUsable(); render(); });
     };
     var bcs = $('btnSaveCloud'); if(bcs) bcs.onclick = function(){ cloudSaveFields().then(function(){ toast('Réglages de l\'API enregistrés.'); render(); }); };
-    var bcm = $('btnCloudModels'); if(bcm) bcm.onclick = function(){
-      cloudSaveFields().then(function(){
-        var out = $('cloudTestStatus'); out.hidden = false; out.className = 'banner info'; out.textContent = 'Recherche des modèles…';
+    function cloudDoList(){
+      cloudModelsMsg = null;
+      return cloudSaveFields().then(function(){
+        var out = $('cloudTestStatus'); if(out){ out.hidden = false; out.className = 'banner info'; out.textContent = 'Recherche des modèles…'; }
         var bm = $('btnCloudModels'); if(bm) bm.disabled = true;
-        return fetch(cloudAiBase()+'/models', { headers: { 'Authorization':'Bearer '+cloudAiKey() } }).then(function(r){ if(!r.ok) throw {code: r.status===401||r.status===403 ? 'cloud_key' : 'server_error', message:'HTTP '+r.status}; return r.json(); }).then(function(j){
-          var ids = ((j && (j.data || j.models)) || []).map(function(m){ return m.id || m.name; }).filter(Boolean);
-          if(cloudAiPreset().id==='openrouter') ids = ids.filter(function(x){ return /:free$/.test(x); });
-          ids.sort();
-          var dl = $('cloudModelList'); if(dl) dl.innerHTML = ids.map(function(x){ return '<option value="'+esc(x)+'">'; }).join('');
-          if(bm) bm.disabled = false;
-          out.textContent = ids.length ? ids.length+' modèle(s) disponible(s) : touchez le champ « Modèle » pour choisir'+(cloudAiPreset().id==='openrouter' ? ' (modèles gratuits seulement)' : '')+'.' : 'Aucun modèle renvoyé par le fournisseur.';
-        }).catch(function(e){ if(bm) bm.disabled = false; out.className = 'banner err'; out.textContent = e && e.code ? geminiErrorMessage(e) : geminiErrorMessage({code:'cloud_unreachable'}); });
+        return cloudListModels().then(function(ids){
+          cloudModelsMsg = ids.length ? { cls:'info', txt: ids.length+' modèle(s) disponible(s)'+(cloudAiPreset().id==='openrouter' ? ' (gratuits seulement)' : '')+' : choisissez-en un dans la liste « Modèle ».' }
+            : { cls:'err', txt:'Aucun modèle renvoyé par le fournisseur : le nom du modèle peut être saisi à la main.' };
+        }).catch(function(e){ cloudModelsMsg = { cls:'err', txt: geminiErrorMessage(e && e.code ? e : {code:'cloud_unreachable'}) }; })
+          .then(function(){ render(); });
       });
+    }
+    var bcm = $('btnCloudModels'); if(bcm) bcm.onclick = cloudDoList;
+    var cms = $('cloudModelSelect'); if(cms) cms.onchange = function(){
+      var mi = $('cloudModelInput'); if(mi) mi.value = cms.value;
+      cloudModelsMsg = null;
+      var v = cms.value;
+      // différé : redessiner l'écran pendant l'événement de la liste provoque une erreur dans Chrome
+      setTimeout(function(){ cloudSaveFields().then(function(){ toast('Modèle choisi : '+v); }); }, 0);
     };
+    // liste chargée automatiquement dès qu'une clé est collée
+    var cki = $('cloudKeyInput'); if(cki) cki.onchange = function(){ if(cki.value.trim().length > 10) setTimeout(cloudDoList, 0); };
     // l'enregistrement redessine l'écran : on reprend à chaque fois les éléments courants
     function cloudStatus(cls, txt){ var o = $('cloudTestStatus'); if(o){ o.hidden = false; o.className = 'banner '+cls; o.textContent = txt; } var b = $('btnTestCloud'); if(b) b.disabled = (txt==='Test en cours…'); }
     var bct = $('btnTestCloud'); if(bct) bct.onclick = function(){
+      cloudModelsMsg = null;
       cloudSaveFields().then(function(){
         cloudStatus('info', 'Test en cours…');
         return geminiGenerate('Réponds en une phrase, en français : à quoi sert une visite d\'inspection pédagogique ?');
