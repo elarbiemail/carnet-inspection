@@ -2,9 +2,10 @@
 <resources>
     <string name="app_name">Carnet d\'Inspection</string>
 
-    <!-- Adresse de l'application déployée sur GitHub Pages. Si vous changez
-         un jour de nom de dépôt ou d'adresse, modifiez uniquement ces trois
-         lignes (launch_url, host_name, path_prefix) puis reconstruisez. -->
+    <!-- Adresse de l'application déployée sur GitHub Pages (pour mémoire). Android
+         n'accepte PAS de référence @string pour l'adresse de lancement, le domaine
+         et le fournisseur de fichiers : ces valeurs sont écrites en clair dans
+         AndroidManifest.xml — à modifier là aussi si l'adresse change. -->
     <string name="launch_url">https://elarbiemail.github.io/carnet-inspection/</string>
     <string name="host_name">elarbiemail.github.io</string>
     <string name="path_prefix">/carnet-inspection</string>

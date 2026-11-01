@@ -12,6 +12,19 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Android 11+ : permet de trouver Chrome (ou un autre navigateur compatible) pour ouvrir
+         l'application ; sans cette déclaration, aucun navigateur n'était détecté. -->
+    <queries>
+        <intent>
+            <action android:name="android.support.customtabs.action.CustomTabsService" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+        </intent>
+    </queries>
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
@@ -28,7 +41,7 @@
             android:exported="true">
 
             <meta-data android:name="android.support.customtabs.trusted.DEFAULT_URL"
-                android:value="@string/launch_url" />
+                android:value="https://elarbiemail.github.io/carnet-inspection/" />
 
             <meta-data
                 android:name="android.support.customtabs.trusted.STATUS_BAR_COLOR"
@@ -62,7 +75,11 @@
                 android:value="300"/>
 
             <meta-data android:name="android.support.customtabs.trusted.FILE_PROVIDER_AUTHORITY"
-                android:value="@string/provider_authority"/>
+                android:value="net.fm6education.carnetinspection.fileprovider"/>
+
+            <!-- Sans navigateur compatible TWA : ouverture en onglet personnalisé (Custom Tab). -->
+            <meta-data android:name="android.support.customtabs.trusted.FALLBACK_STRATEGY"
+                android:value="customtabs" />
 
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -79,17 +96,21 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE"/>
                 <data android:scheme="https"
-                    android:host="@string/host_name"
-                    android:pathPrefix="@string/path_prefix"/>
+                    android:host="elarbiemail.github.io"
+                    android:pathPrefix="/carnet-inspection"/>
             </intent-filter>
 
         </activity>
 
         <activity android:name="com.google.androidbrowserhelper.trusted.FocusActivity" />
 
+        <activity android:name="com.google.androidbrowserhelper.trusted.WebViewFallbackActivity"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:configChanges="orientation|screenSize" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
-            android:authorities="@string/provider_authority"
+            android:authorities="net.fm6education.carnetinspection.fileprovider"
             android:grantUriPermissions="true"
             android:exported="false">
             <meta-data
