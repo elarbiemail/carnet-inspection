@@ -30,6 +30,7 @@
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
+        android:manageSpaceActivity="com.google.androidbrowserhelper.trusted.ManageDataLauncherActivity"
         android:theme="@android:style/Theme.Translucent.NoTitleBar">
 
         <meta-data
@@ -103,6 +104,19 @@
         </activity>
 
         <activity android:name="com.google.androidbrowserhelper.trusted.FocusActivity" />
+
+        <!-- Exigées par LauncherActivity (androidbrowserhelper 2.x) : écran « Gérer les données »
+             du site et demande d'autorisation des notifications. Leur absence faisait planter
+             l'application dès l'ouverture (« ManageDataLauncherActivity does not exist »). -->
+        <activity android:name="com.google.androidbrowserhelper.trusted.ManageDataLauncherActivity"
+            android:exported="false">
+            <meta-data android:name="android.support.customtabs.trusted.MANAGE_SPACE_URL"
+                android:value="https://elarbiemail.github.io/carnet-inspection/" />
+        </activity>
+
+        <activity android:name="com.google.androidbrowserhelper.trusted.NotificationPermissionRequestActivity"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:exported="false" />
 
         <activity android:name="com.google.androidbrowserhelper.trusted.WebViewFallbackActivity"
             android:theme="@android:style/Theme.Translucent.NoTitleBar"
