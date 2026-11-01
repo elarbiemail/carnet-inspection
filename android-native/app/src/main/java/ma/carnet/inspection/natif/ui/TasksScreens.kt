@@ -84,6 +84,7 @@ fun HomeScreen() {
         }
         Column(Modifier.padding(horizontal = 14.dp)) {
             Row(Modifier.padding(top = 10.dp)) { ZoneFilterBar() }
+            SyncStatusLine(SyncHolder.fn)
             if (Store.isEmpty()) {
                 CardBox {
                     Text("Bienvenue !", fontWeight = FontWeight.Bold, fontSize = 16.sp)

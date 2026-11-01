@@ -42,6 +42,10 @@ private val TABS = listOf(
 @Composable
 fun App() {
     val cur = Nav.stack.lastOrNull() ?: Scr.Tab(0)
+    val sync = rememberDriveSyncer()
+    SyncHolder.fn = sync
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(Unit) { if (ma.carnet.inspection.natif.data.DriveSync.enabled(ctx)) sync(false) }
     BackHandler(enabled = Nav.stack.size > 1 || (cur is Scr.Tab && cur.i != 0)) { Nav.pop() }
     when (cur) {
         is Scr.Tab -> Scaffold(

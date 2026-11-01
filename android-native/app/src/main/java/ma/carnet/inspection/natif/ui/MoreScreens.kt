@@ -172,7 +172,8 @@ fun DataScreen() {
                 if (lastImport.isNotEmpty()) Text("Dernier import : " + fmtDate(lastImport) + " " + lastImport.substring(11, 16), color = InkFaint, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
                 if (lastExport.isNotEmpty()) Text("Dernier export : " + fmtDate(lastExport) + " " + lastExport.substring(11, 16), color = InkFaint, fontSize = 12.sp)
             }
-            SectionTitle("Recevoir les données du carnet web")
+            DriveCard(SyncHolder.fn)
+            SectionTitle("Ou par fichier : recevoir les données du carnet web")
             CardBox {
                 Text("Choisissez le fichier « sauvegarde-donnees.json » dans votre Google Drive (dossier de l'application → Sauvegardes). Les fiches les plus récentes remplacent les anciennes ; rien n'est perdu.", fontSize = 13.5.sp)
                 Button(onClick = { openDoc.launch(arrayOf("application/json", "text/plain", "*/*")) }, modifier = Modifier.padding(top = 8.dp)) {

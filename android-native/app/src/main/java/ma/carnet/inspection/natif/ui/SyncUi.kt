@@ -1,0 +1,161 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
+
+package ma.carnet.inspection.natif.ui
+
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.google.android.gms.common.api.ApiException
+import kotlinx.coroutines.launch
+import ma.carnet.inspection.natif.data.DriveSync
+import ma.carnet.inspection.natif.data.fmtDate
+
+object SyncHolder { var fn: (Boolean) -> Unit = {} }
+
+object SyncState {
+    val busy = mutableStateOf(false)
+    val msg = mutableStateOf("")
+    val ok = mutableStateOf(true)
+}
+
+fun Context.findActivity(): Activity? {
+    var c: Context? = this
+    while (c is ContextWrapper) { if (c is Activity) return c; c = c.baseContext }
+    return null
+}
+
+fun syncErrorText(e: Throwable): String = when {
+    e is ApiException && e.statusCode == 10 ->
+        "Google refuse la connexion : l'identifiant OAuth « Android » n'est pas encore créé (ou pas dans le bon projet). Voir Données → Google Drive."
+    e is ApiException && e.statusCode == 16 -> "Connexion annulée."
+    e is ApiException && e.statusCode == 7 -> "Pas de connexion Internet."
+    else -> e.message ?: e.toString()
+}
+
+/** Renvoie une fonction qui lance la synchronisation Drive (avec demande d'autorisation si besoin). */
+@Composable
+fun rememberDriveSyncer(): (Boolean) -> Unit {
+    val ctx = LocalContext.current
+    val act = ctx.findActivity()
+    val scope = rememberCoroutineScope()
+    suspend fun run(token: String) {
+        try {
+            SyncState.busy.value = true; SyncState.msg.value = "Synchronisation avec Google Drive…"
+            val r = DriveSync.sync(ctx, token)
+            DriveSync.setEnabled(ctx, true)
+            SyncState.ok.value = true
+            SyncState.msg.value = (if (r.created) "Sauvegarde créée sur Google Drive." else "Synchronisé avec Google Drive.") +
+                (r.imported?.let { if (it.added + it.updated + it.removed > 0) " Reçu : ${it.added} ajout(s), ${it.updated} mise(s) à jour, ${it.removed} suppression(s)." else "" } ?: "")
+        } catch (e: Throwable) { SyncState.ok.value = false; SyncState.msg.value = syncErrorText(e) }
+        finally { SyncState.busy.value = false }
+    }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { res ->
+        if (res.resultCode == Activity.RESULT_OK && act != null) {
+            scope.launch {
+                try { run(DriveSync.tokenFromIntent(act, res.data)) }
+                catch (e: Throwable) { SyncState.ok.value = false; SyncState.msg.value = syncErrorText(e); SyncState.busy.value = false }
+            }
+        } else { SyncState.busy.value = false; SyncState.ok.value = false; SyncState.msg.value = "Autorisation Google Drive annulée." }
+    }
+    return { interactive ->
+        if (act != null && !SyncState.busy.value) scope.launch {
+            try {
+                SyncState.busy.value = true; SyncState.msg.value = "Connexion à Google…"
+                when (val a = DriveSync.authorize(act)) {
+                    is DriveSync.Auth.Ok -> run(a.token)
+                    is DriveSync.Auth.NeedsConsent -> {
+                        val pi = a.result.pendingIntent
+                        if (interactive && pi != null) launcher.launch(IntentSenderRequest.Builder(pi.intentSender).build())
+                        else { SyncState.busy.value = false; SyncState.ok.value = false; SyncState.msg.value = "Touchez « Synchroniser » pour autoriser Google Drive." }
+                    }
+                }
+            } catch (e: Throwable) { SyncState.busy.value = false; SyncState.ok.value = false; SyncState.msg.value = syncErrorText(e) }
+        }
+    }
+}
+
+/** Bandeau d'état de synchronisation (accueil). */
+@Composable
+fun SyncStatusLine(sync: (Boolean) -> Unit) {
+    val ctx = LocalContext.current
+    val busy by SyncState.busy
+    val msg by SyncState.msg
+    if (!DriveSync.enabled(ctx) && msg.isEmpty()) return
+    CardBox {
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Icon(Icons.Default.Refresh, null, tint = if (SyncState.ok.value) Brand else Danger)
+            Text(msg.ifEmpty { "Google Drive : dernière synchronisation " + DriveSync.lastSync(ctx).let { if (it.isEmpty()) "jamais" else fmtDate(it) + " " + it.substring(11, 16) } },
+                fontSize = 12.5.sp, modifier = Modifier.weight(1f).padding(horizontal = 10.dp), color = if (SyncState.ok.value) InkFaint else Danger)
+            TextButton(onClick = { sync(true) }, enabled = !busy) { Text("Synchroniser") }
+        }
+    }
+}
+
+/** Carte « Google Drive » de l'écran Données : identifiant client, guide de configuration, connexion. */
+@Composable
+fun DriveCard(sync: (Boolean) -> Unit) {
+    val ctx = LocalContext.current
+    val clip = LocalClipboardManager.current
+    var cid by remember { mutableStateOf(DriveSync.clientId(ctx)) }
+    var enabled by remember { mutableStateOf(DriveSync.enabled(ctx)) }
+    val busy by SyncState.busy
+    val msg by SyncState.msg
+    val proj = DriveSync.projectNumber(cid)
+    SectionTitle("Google Drive (synchronisation directe)")
+    CardBox {
+        Text("Synchronise l'application avec la même sauvegarde Google Drive que le carnet web (« ${DriveSync.APP_FOLDER} / ${DriveSync.BACKUP_FOLDER} / ${DriveSync.BACKUP_NAME} »).", fontSize = 13.5.sp)
+        OutlinedTextField(value = cid, onValueChange = { cid = it; DriveSync.setClientId(ctx, it) }, singleLine = true,
+            label = { Text("Identifiant client Google (celui du carnet web)") }, placeholder = { Text("123456789-xxxx.apps.googleusercontent.com") },
+            modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+        Text("Il se trouve dans le carnet web : Paramètres → Synchronisation, ou dans Google Cloud → API et services → Identifiants.", color = InkFaint, fontSize = 11.5.sp, modifier = Modifier.padding(top = 4.dp))
+
+        SectionTitle("Configuration unique dans Google Cloud")
+        Text("1. Ouvrez Google Cloud → API et services → Identifiants" + (if (proj.isNotEmpty()) ", dans le projet n° $proj (celui de votre identifiant client)." else ", dans le projet de votre identifiant client web."), fontSize = 13.sp)
+        Text("2. « Créer des identifiants » → « ID client OAuth » → type « Android ».", fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
+        Text("3. Renseignez exactement :", fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
+        CopyRow("Nom du package", DriveSync.PACKAGE) { clip.setText(AnnotatedString(it)); toast(ctx, "Copié.") }
+        CopyRow("Empreinte SHA-1", DriveSync.SHA1) { clip.setText(AnnotatedString(it)); toast(ctx, "Copié.") }
+        Text("4. Enregistrez, attendez quelques minutes, puis touchez « Connecter et synchroniser ». L'API Google Drive est déjà activée pour le carnet web.", fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
+            OutlinedButton(onClick = { openUri(ctx, "https://console.cloud.google.com/apis/credentials" + (if (proj.isNotEmpty()) "?project=$proj" else "")) }) { Text("Ouvrir Google Cloud") }
+        }
+        HorizontalDivider(Modifier.padding(vertical = 10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { sync(true); enabled = true }, enabled = !busy) {
+                if (busy) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = androidx.compose.ui.graphics.Color.White) else Icon(Icons.Default.Refresh, null)
+                Spacer(Modifier.width(6.dp)); Text(if (enabled) "Synchroniser" else "Connecter et synchroniser")
+            }
+            if (enabled) OutlinedButton(onClick = { DriveSync.forget(ctx); enabled = false; SyncState.msg.value = "Synchronisation automatique désactivée." }) { Text("Déconnecter") }
+        }
+        if (enabled) Text("Synchronisation automatique à l'ouverture de l'application. Dernière : " + DriveSync.lastSync(ctx).let { if (it.isEmpty()) "jamais" else fmtDate(it) + " " + it.substring(11, 16) },
+            color = InkFaint, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
+        if (msg.isNotEmpty()) Text(msg, color = if (SyncState.ok.value) Brand else Danger, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
+    }
+}
+
+@Composable
+private fun CopyRow(label: String, value: String, onCopy: (String) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(label, color = InkFaint, fontSize = 11.5.sp)
+            Text(value, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+        }
+        IconButton(onClick = { onCopy(value) }) { Icon(Icons.Default.Share, "Copier") }
+    }
+}
