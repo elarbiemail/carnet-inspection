@@ -4,12 +4,12 @@ plugins {
 
 android {
     namespace 'net.fm6education.carnetinspection'
-    compileSdk 34
+    compileSdk 36
 
     defaultConfig {
         applicationId "net.fm6education.carnetinspection"
         minSdkVersion 23
-        targetSdkVersion 34
+        targetSdkVersion 35
         // Numéro de version fourni par la compilation automatique (GitHub Actions : numéro
         // d'exécution), pour que chaque nouvel APK s'installe par-dessus le précédent.
         versionCode (project.hasProperty('versionCode') ? project.property('versionCode').toInteger() : 1)
@@ -49,6 +49,5 @@ dependencies {
     // ici car la connexion Google Drive (Google Identity Services) refuse de
     // fonctionner dans une WebView classique (elle exige un vrai navigateur).
     implementation 'com.google.androidbrowserhelper:androidbrowserhelper:2.7.3'
-    implementation 'androidx.browser:browser:1.8.0'
     implementation 'androidx.core:core:1.13.1'
 }

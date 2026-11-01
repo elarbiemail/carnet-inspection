@@ -41,14 +41,14 @@ jobs:
             unzip -q /tmp/clt.zip -d /tmp/clt && rm -rf "$SDK/cmdline-tools/latest" && mv /tmp/clt/cmdline-tools "$SDK/cmdline-tools/latest"
           fi
           yes | "$SM" --sdk_root="$SDK" --licenses > /dev/null || true
-          "$SM" --sdk_root="$SDK" "platforms;android-34" "build-tools;34.0.0" "platform-tools" > /dev/null
+          "$SM" --sdk_root="$SDK" "platforms;android-36" "build-tools;35.0.0" "platform-tools" > /dev/null
           echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$SDK" >> "$GITHUB_ENV"
           echo "sdk.dir=$SDK" > android/local.properties
 
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.9'
+          gradle-version: '8.11.1'
 
       - name: Compiler l'APK
         working-directory: android
