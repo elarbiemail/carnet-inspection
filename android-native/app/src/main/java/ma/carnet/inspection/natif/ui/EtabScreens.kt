@@ -68,11 +68,11 @@ fun EtabsScreen() {
                 Spacer(Modifier.height(6.dp))
                 ChipRow(Ref.ETAB_TYPES, ty, { ty = it }, "Tous")
             }
-            val groups = zones.map { z -> z.s("nom") to list.filter { it.s("zoneId") == z.s("id") } } +
-                listOf("Sans zone" to list.filter { e -> zones.none { it.s("id") == e.s("zoneId") } })
-            groups.forEach { (zn, l) ->
+            val groups = zones.map { z -> Triple(z.s("id"), z.s("nom"), list.filter { it.s("zoneId") == z.s("id") }) } +
+                listOf(Triple("__none", "Sans zone", list.filter { e -> zones.none { it.s("id") == e.s("zoneId") } }))
+            groups.forEach { (zid, zn, l) ->
                 if (l.isNotEmpty()) {
-                    item(key = "z_$zn") { SectionTitle("$zn (${l.size})") }
+                    item(key = "zone_$zid") { SectionTitle("$zn (${l.size})") }
                     items(l.sortedBy { norm(it.s("nom")) }, key = { it.s("id") }) { e -> EtabRow(e, ens.count { it.s("etablissementId") == e.s("id") }) }
                 }
             }

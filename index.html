@@ -10384,6 +10384,8 @@
       '<p style="font-size:12.5px;line-height:1.55;margin:0 0 10px;">Installez le carnet comme une application sur votre téléphone ou tablette Android : icône sur l\'écran d\'accueil, ouverture en plein écran, et les mêmes données (synchronisées avec votre Google Drive).</p>'+
       '<div class="setup-card"><div style="font-size:12.5px;margin-bottom:8px;">'+(apkInfo===null ? 'Recherche de la dernière version…' : apkInfo ? 'Version <b>'+esc(apkInfo.versionName||'')+'</b> — compilée le '+esc(fmtDate(String(apkInfo.date||'').slice(0,10))) : 'Le fichier d\'installation est en cours de préparation : réessayez dans quelques minutes.')+'</div>'+
         '<div class="btn-row"><a class="btn primary" style="text-decoration:none;" href="'+APK_URL+'" download="carnet-inspection.apk">'+ICONS.dl+' Télécharger l\'APK</a></div></div>'+
+      '<div class="setup-card"><div style="font-size:12.5px;margin-bottom:8px;"><b>Application native</b> (nouvelle, en construction) : écrans Android natifs, utilisable hors connexion — tâches, enseignant(e)s, établissements, directeurs, notes d\'inspection, horaires, bilan. Les données s\'échangent avec ce carnet par fichier de sauvegarde ; les documents se génèrent ici.</div>'+
+        '<div class="btn-row"><a class="btn ghost" style="text-decoration:none;" href="apk/carnet-inspection-natif.apk" download="carnet-inspection-natif.apk">'+ICONS.dl+' Télécharger l\'application native</a></div></div>'+
       '<ol style="font-size:12.5px;line-height:1.6;margin:10px 0 0 18px;padding:0;">'+
         '<li>Téléchargez le fichier sur le téléphone (ou envoyez-vous ce lien), puis ouvrez-le.</li>'+
         '<li>Si Android le demande, autorisez « Installer des applications inconnues » pour Chrome ou le gestionnaire de fichiers.</li>'+
