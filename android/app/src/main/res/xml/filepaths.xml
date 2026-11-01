@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Dossiers partagés avec Chrome via le FileProvider : twa_splash = image de l'écran de
+     démarrage transmise au navigateur (son absence faisait planter l'application). -->
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <files-path name="twa_splash" path="twa_splash/" />
     <external-cache-path name="twa_external_cache" path="." />
     <cache-path name="twa_cache" path="." />
 </paths>
