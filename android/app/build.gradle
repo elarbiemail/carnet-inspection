@@ -10,13 +10,30 @@ android {
         applicationId "net.fm6education.carnetinspection"
         minSdkVersion 23
         targetSdkVersion 34
-        versionCode 1
-        versionName "1.0"
+        // Numéro de version fourni par la compilation automatique (GitHub Actions : numéro
+        // d'exécution), pour que chaque nouvel APK s'installe par-dessus le précédent.
+        versionCode (project.hasProperty('versionCode') ? project.property('versionCode').toInteger() : 1)
+        versionName (project.hasProperty('versionCode') ? "1." + project.property('versionCode') : "1.0")
+    }
+
+    // Clé de signature fixe (dossier keystore/) : tous les APK produits portent la même
+    // signature, condition pour pouvoir installer une mise à jour sans désinstaller.
+    signingConfigs {
+        release {
+            storeFile file('../keystore/carnet-inspection.jks')
+            storePassword 'carnet2026'
+            keyAlias 'carnet'
+            keyPassword 'carnet2026'
+        }
     }
 
     buildTypes {
         release {
             minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+        debug {
+            signingConfig signingConfigs.release
         }
     }
 

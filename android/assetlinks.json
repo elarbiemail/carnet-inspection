@@ -1,0 +1,8 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "net.fm6education.carnetinspection",
+    "sha256_cert_fingerprints": ["A9:3E:1C:E0:9B:CE:EF:60:DD:17:28:8E:A6:7D:D0:6D:46:49:7B:DF:E4:80:DA:59:AC:23:60:25:7B:D2:16:76"]
+  }
+}]

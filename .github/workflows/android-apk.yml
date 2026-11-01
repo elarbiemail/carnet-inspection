@@ -1,0 +1,56 @@
+# Compile automatiquement l'application Android (Trusted Web Activity, dossier android/)
+# et publie le fichier .apk dans le dossier apk/ du dépôt, servi par GitHub Pages :
+#   https://elarbiemail.github.io/carnet-inspection/apk/carnet-inspection.apk
+# Se relance à chaque modification du dossier android/ (ou à la main : onglet Actions).
+name: APK Android
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'android/**'
+      - '.github/workflows/android-apk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-apk
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Compiler l'APK
+        working-directory: android
+        run: gradle --no-daemon assembleRelease -PversionCode=${{ github.run_number }}
+
+      - name: Publier l'APK dans apk/
+        run: |
+          mkdir -p apk
+          cp android/app/build/outputs/apk/release/app-release.apk apk/carnet-inspection.apk
+          printf '{"versionCode": %s, "versionName": "1.%s", "date": "%s", "commit": "%s"}\n' \
+            "${{ github.run_number }}" "${{ github.run_number }}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${GITHUB_SHA::7}" > apk/version.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apk/carnet-inspection.apk apk/version.json
+          git commit -m "APK Android 1.${{ github.run_number }} [skip ci]" || exit 0
+          for i in 1 2 3; do
+            git pull --rebase origin main && git push origin HEAD:main && break
+            sleep 5
+          done
