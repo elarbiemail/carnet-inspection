@@ -1,4 +1,24 @@
-# Créer le fichier .apk avec Android Studio
+# Application Android (APK)
+
+**Le fichier .apk est désormais compilé automatiquement** par GitHub Actions
+(`.github/workflows/android-apk.yml`) à chaque modification de ce dossier, puis
+publié avec le site :
+
+https://elarbiemail.github.io/carnet-inspection/apk/carnet-inspection.apk
+
+Il est aussi proposé dans l'application : menu latéral → **Application Android**.
+Tous les APK sont signés avec la même clé (`keystore/carnet-inspection.jks`),
+ce qui permet d'installer une nouvelle version par-dessus l'ancienne.
+
+Empreinte SHA-256 de cette clé (pour `assetlinks.json`, voir l'étape 3
+ci-dessous — le fichier prêt à l'emploi est `android/assetlinks.json`) :
+`A9:3E:1C:E0:9B:CE:EF:60:DD:17:28:8E:A6:7D:D0:6D:46:49:7B:DF:E4:80:DA:59:AC:23:60:25:7B:D2:16:76`
+
+La compilation manuelle avec Android Studio, décrite ci-dessous, reste possible.
+
+---
+
+## Compilation manuelle avec Android Studio
 
 Ce dossier contient un **projet Android Studio prêt à ouvrir**, pas un fichier
 .apk directement : la compilation d'une application Android nécessite le kit
