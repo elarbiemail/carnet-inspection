@@ -112,9 +112,11 @@ fun ImagePickField(key: String, label: String, square: Boolean) {
         }
     }
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        if (uri != null) accept(try { ctx.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) } } catch (_: Throwable) { null })
+        if (uri != null) accept(try {
+            val f = java.io.File(ctx.cacheDir, "import_img.jpg"); ctx.contentResolver.openInputStream(uri)?.use { i -> f.outputStream().use { i.copyTo(it) } }; decode(f)
+        } catch (_: Throwable) { null })
     }
-    val cam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { b -> accept(b) }
+    val cam = rememberCamera { b -> accept(b) }
     Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         val shape = if (square) CircleShape else RoundedCornerShape(8.dp)
         Box(Modifier.size(64.dp).clip(shape).background(Track), contentAlignment = Alignment.Center) {
@@ -125,7 +127,7 @@ fun ImagePickField(key: String, label: String, square: Boolean) {
             Text(label, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Row(Modifier.horizontalScroll(rememberScrollState())) {
                 TextButton(onClick = { pick.launch("image/*") }) { Text("Importer") }
-                TextButton(onClick = { cam.launch(null) }) { Text("Appareil photo") }
+                TextButton(onClick = { cam() }) { Text("Appareil photo") }
                 if (img != null) TextButton(onClick = { ProfileImages.remove(ctx, key); tick++ }) { Text("Retirer", color = Danger) }
             }
         }

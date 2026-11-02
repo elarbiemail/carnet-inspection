@@ -279,9 +279,9 @@ fun AttachmentsSection(coll: String, recId: String) {
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isNotEmpty()) scope.launch { val n = withContext(Dispatchers.IO) { Attach.add(ctx, coll, recId, uris) }; toast(ctx, "$n fichier(s) joint(s)." + if (DriveSync.enabled(ctx)) " Envoi sur Drive à la prochaine synchronisation." else "") }
     }
-    val cam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { b ->
+    val cam = rememberCamera { b ->
         if (b != null) scope.launch {
-            val f = withContext(Dispatchers.IO) { File(ctx.cacheDir, "photo.jpg").also { o -> o.outputStream().use { b.compress(Bitmap.CompressFormat.JPEG, 90, it) } } }
+            val f = withContext(Dispatchers.IO) { File(ctx.cacheDir, "photo.jpg").also { o -> o.outputStream().use { b.compress(Bitmap.CompressFormat.JPEG, 88, it) } } }
             Attach.addFile(ctx, coll, recId, f, "Photo " + java.time.LocalDateTime.now().toString().take(16).replace('T', ' ') + ".jpg", "image/jpeg")
         }
     }
@@ -310,7 +310,7 @@ fun AttachmentsSection(coll: String, recId: String) {
         }
         Row(Modifier.horizontalScrollRow(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = { pick.launch(arrayOf("*/*")) }) { Icon(Icons.Default.Add, null); Spacer(Modifier.width(4.dp)); Text("Importer des fichiers") }
-            OutlinedButton(onClick = { cam.launch(null) }) { Icon(Icons.Default.Face, null); Spacer(Modifier.width(4.dp)); Text("Photo") }
+            OutlinedButton(onClick = { cam() }) { Icon(Icons.Default.Face, null); Spacer(Modifier.width(4.dp)); Text("Photo") }
         }
     }
     del?.let { a -> ConfirmDialog("Retirer « ${a.s("titre")} » ?", "Le fichier est retiré de cette fiche (la copie sur Drive est conservée).", onDismiss = { del = null }) { Attach.remove(ctx, coll, recId, a.s("id")); del = null } }

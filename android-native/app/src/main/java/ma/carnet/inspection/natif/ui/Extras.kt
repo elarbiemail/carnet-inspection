@@ -238,9 +238,9 @@ fun FicheImportButton() {
             analyse(bytes, if (mime.startsWith("image/")) "image/jpeg" else mime)
         }
     }
-    val cam = rememberLauncherForActivityResult(ActivityResultContracts.TakePicturePreview()) { b -> if (b != null) scope.launch { analyse(ProfileImages.toJpeg(b, false, 1800), "image/jpeg") } }
+    val cam = rememberCamera { b -> if (b != null) scope.launch { analyse(ProfileImages.toJpeg(b, false, 1800), "image/jpeg") } }
     Row(Modifier.horizontalScrollRow(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-        AssistChip(onClick = { if (Ai.provider(ctx) == "device") toast(ctx, "Choisissez Gemini ou une API en ligne pour lire les photos.") else cam.launch(null) }, enabled = !busy, label = { Text(if (busy) "Lecture par l'IA…" else "Photo d'une fiche (IA)") }, leadingIcon = { Icon(Icons.Default.Face, null, Modifier.size(16.dp)) })
+        AssistChip(onClick = { if (Ai.provider(ctx) == "device") toast(ctx, "Choisissez Gemini ou une API en ligne pour lire les photos.") else cam() }, enabled = !busy, label = { Text(if (busy) "Lecture par l'IA…" else "Photo d'une fiche (IA)") }, leadingIcon = { Icon(Icons.Default.Face, null, Modifier.size(16.dp)) })
         AssistChip(onClick = { pick.launch("*/*") }, enabled = !busy, label = { Text("Image / PDF d'une fiche") }, leadingIcon = { Icon(Icons.Default.Add, null, Modifier.size(16.dp)) })
         val ff = Store.root.optJSONObject("ficheForm")
         if (ff != null && ff.s("formUrl").isNotEmpty()) AssistChip(onClick = {
