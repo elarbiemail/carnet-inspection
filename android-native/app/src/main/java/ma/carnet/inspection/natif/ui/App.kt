@@ -63,6 +63,13 @@ fun App() {
     var welcome by remember { mutableStateOf(!ma.carnet.inspection.natif.data.GoogleAccount.welcomeDone(ctx)) }
     if (welcome) { WelcomeScreen { welcome = false }; return }
     AutoScreenshot(cur)
+    val notifReq = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { ma.carnet.inspection.natif.data.Reminders.schedule(ctx) }
+    LaunchedEffect(Unit) {
+        val pr = ctx.getSharedPreferences("carnet", android.content.Context.MODE_PRIVATE)
+        if (android.os.Build.VERSION.SDK_INT >= 33 && ma.carnet.inspection.natif.data.Reminders.enabled(ctx) && !ma.carnet.inspection.natif.data.Reminders.permitted(ctx) && !pr.getBoolean("notifAsked", false)) {
+            pr.edit().putBoolean("notifAsked", true).apply(); notifReq.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
     BackHandler(enabled = Nav.stack.size > 1 || (cur is Scr.Tab && cur.i != 0)) { Nav.pop() }
     when (cur) {
         is Scr.Tab -> Scaffold(

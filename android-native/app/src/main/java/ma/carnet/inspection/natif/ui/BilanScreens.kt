@@ -218,7 +218,7 @@ fun BilanScreen() {
                     else {
                         val svg = Svg.chart(cf.s("type"), data, 640)
                         AndroidView(factory = { c -> android.webkit.WebView(c).apply { setBackgroundColor(android.graphics.Color.WHITE); isVerticalScrollBarEnabled = false } },
-                            update = { it.loadDataWithBaseURL(null, "<html><body style=\"margin:0;background:#fff\">$svg</body></html>", "text/html", "utf-8", null) },
+                            update = { if (it.tag != svg) { it.tag = svg; it.loadDataWithBaseURL(null, "<html><body style=\"margin:0;background:#fff\">$svg</body></html>", "text/html", "utf-8", null) } },
                             modifier = Modifier.fillMaxWidth().height(if (cf.s("type") in listOf("hbars")) (data.size * 24 + 30).coerceAtMost(420).dp else if (cf.s("type") == "stack100") (60 + 17 * data.size).dp else 240.dp))
                     }
                 }

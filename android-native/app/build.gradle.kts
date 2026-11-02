@@ -16,6 +16,7 @@ android {
         targetSdk = 35
         versionCode = vc
         versionName = "2.$vc"
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
     }
 
     signingConfigs {

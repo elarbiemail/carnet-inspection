@@ -127,7 +127,7 @@ fun DocEditScreen(docId: String?, taskId: String, type: String, tplId: String?) 
         if (!Ai.ready(ctx)) { toast(ctx, Ai.NOT_READY); return }
         aiBusy = key
         scope.launch {
-            try { apply(Ai.generate(ctx, prompt)) } catch (e: Exception) { toast(ctx, e.message ?: "Erreur IA") }
+            try { apply(Ai.generate(ctx, prompt)) } catch (e: Throwable) { toast(ctx, e.message ?: "Erreur IA") }
             aiBusy = ""
         }
     }
@@ -254,7 +254,7 @@ fun PreviewWithExport(title: String, html: String, name: String, landscape: Bool
     var busy by remember { mutableStateOf("") }
     var last by remember { mutableStateOf<java.io.File?>(null) }
     val hasTables = remember(html) { html.contains("<table") }
-    val saveAs = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("*/*")) { uri -> val f = last; if (uri != null && f != null) { FileOps.copyTo(ctx, f, uri); toast(ctx, "Fichier enregistré.") } }
+    val saveAs = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri -> val f = last; if (uri != null && f != null) { FileOps.copyTo(ctx, f, uri); toast(ctx, "Fichier enregistré.") } }
     suspend fun make(kind: String): java.io.File {
         val dir = Export.outDir(ctx)
         return when (kind) {
@@ -306,7 +306,7 @@ fun PreviewWithExport(title: String, html: String, name: String, landscape: Bool
                     webViewClient = WebViewClient()
                     web = this
                 }
-            }, update = { it.loadDataWithBaseURL("file:///android_asset/", html, "text/html", "utf-8", null) }, modifier = Modifier.fillMaxSize())
+            }, update = { if (it.tag != html) { it.tag = html; it.loadDataWithBaseURL("file:///android_asset/", html, "text/html", "utf-8", null) } }, modifier = Modifier.fillMaxSize())
         }
     }
 }

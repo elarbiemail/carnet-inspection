@@ -210,10 +210,11 @@ object OnDevice {
             close()
             val opts = com.google.mediapipe.tasks.genai.llminference.LlmInference.LlmInferenceOptions.builder()
                 .setModelPath(f.absolutePath).setMaxTokens(2048).build()
-            engine = com.google.mediapipe.tasks.genai.llminference.LlmInference.createFromOptions(ctx, opts)
+            engine = try { com.google.mediapipe.tasks.genai.llminference.LlmInference.createFromOptions(ctx, opts) }
+                catch (t: Throwable) { throw Exception("Le modèle n'a pas pu être chargé sur ce téléphone (" + (t.message ?: t.javaClass.simpleName) + "). Essayez un modèle plus petit ou un autre moteur.") }
             loadedPath = f.absolutePath + f.lastModified()
         }
-        return engine!!.generateResponse(prompt.take(6000))
+        return try { engine!!.generateResponse(prompt.take(6000)) } catch (t: Throwable) { throw Exception("Erreur de l'IA du téléphone : " + (t.message ?: t.javaClass.simpleName)) }
     }
 
     @Synchronized

@@ -46,7 +46,8 @@ object Export {
         w.settings.loadWithOverviewMode = false; w.settings.useWideViewPort = false
         w.setInitialScale((density * 100).toInt())
         val done = booleanArrayOf(false)
-        fun fail(e: Throwable) { if (!done[0]) { done[0] = true; try { w.destroy() } catch (_: Throwable) {}; cont.resumeWith(Result.failure(e)) } }
+        var hostRef: android.view.ViewGroup? = null
+        fun fail(e: Throwable) { if (!done[0]) { done[0] = true; try { hostRef?.removeView(w) } catch (_: Throwable) {}; try { w.destroy() } catch (_: Throwable) {}; cont.resumeWith(Result.failure(e)) } }
         w.webViewClient = object : WebViewClient() {
             override fun onPageFinished(view: WebView, url: String?) {
                 Handler(Looper.getMainLooper()).postDelayed({
@@ -80,12 +81,18 @@ object Export {
                             }
                             out.parentFile?.mkdirs()
                             out.outputStream().use { doc.writeTo(it) }; doc.close()
-                            done[0] = true; w.destroy(); cont.resume(out)
+                            done[0] = true; try { host?.removeView(w) } catch (_: Throwable) {}; w.destroy(); cont.resume(out)
                         } catch (e: Throwable) { fail(e) }
                     }
                 }, 350)
             }
         }
+        // rattachée (invisible) à la fenêtre pour que le moteur web dessine bien la page
+        var host: android.view.ViewGroup? = null
+        run { var c: Context? = ctx; while (c is android.content.ContextWrapper) { if (c is android.app.Activity) { host = c.window?.decorView as? android.view.ViewGroup; break }; c = c.baseContext } }
+        hostRef = host
+        try { host?.addView(w, android.view.ViewGroup.LayoutParams(widthPx, pageH * 3)); w.translationX = -widthPx * 2f; w.alpha = 0.01f } catch (_: Throwable) { host = null }
+        cont.invokeOnCancellation { try { host?.removeView(w) } catch (_: Throwable) {} }
         w.measure(View.MeasureSpec.makeMeasureSpec(widthPx, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(pageH * 3, View.MeasureSpec.EXACTLY))
         w.layout(0, 0, widthPx, pageH * 3)
         w.loadDataWithBaseURL("file:///android_asset/", html.replace("width=device-width", "width=$cssW"), "text/html", "utf-8", null)

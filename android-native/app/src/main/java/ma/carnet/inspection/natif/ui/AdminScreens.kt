@@ -170,7 +170,7 @@ fun ProgrammeScreen() {
     fun ai(k: String, prompt: String, apply: (String) -> Unit) {
         if (!Ai.ready(ctx)) { toast(ctx, Ai.NOT_READY); return }
         busy = k
-        scope.launch { try { apply(Ai.generate(ctx, prompt)); ch() } catch (e: Exception) { toast(ctx, e.message ?: "Erreur IA") }; busy = "" }
+        scope.launch { try { apply(Ai.generate(ctx, prompt)); ch() } catch (e: Throwable) { toast(ctx, e.message ?: "Erreur IA") }; busy = "" }
     }
     val p = Store.profil()
     val intro = "Tu es inspecteur(trice) pédagogique" + (if (p.s("matiere").isNotEmpty()) " de ${p.s("matiere")}" else "") + " au Maroc" +
