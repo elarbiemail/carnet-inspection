@@ -153,6 +153,31 @@ object Ai {
         return (0 until arr.length()).joinToString("") { i -> arr.optJSONObject(i)?.takeIf { it.optString("type") == "text" }?.optString("text") ?: "" }
     }
 
+    /** Cherche un serveur IA local qui répond (Ollama 11434, llama-server 8080, LM Studio 1234…). Renvoie (adresse, modèles) ou un diagnostic. */
+    suspend fun detectServer(ctx: Context): Pair<String?, String> = withContext(Dispatchers.IO) {
+        val cur = serverUrl(ctx)
+        val cands = (listOf(cur) + listOf(11434, 8080, 1234, 8000, 5000).flatMap { listOf("http://127.0.0.1:$it", "http://localhost:$it") }).distinct()
+        val report = StringBuilder()
+        for (u in cands) {
+            try {
+                val c = URL("$u/v1/models").openConnection() as HttpURLConnection
+                c.connectTimeout = 1500; c.readTimeout = 4000
+                val code = c.responseCode
+                val txt = (if (code in 200..299) c.inputStream else c.errorStream)?.use { it.readBytes().toString(Charsets.UTF_8) } ?: ""
+                if (code in 200..299) {
+                    val a = try { JSONObject(txt).optJSONArray("data") } catch (_: Exception) { null }
+                    val ms = if (a == null) emptyList() else (0 until a.length()).mapNotNull { a.optJSONObject(it)?.optString("id") }
+                    setServerUrl(ctx, u); if (serverModel(ctx).isEmpty() && ms.isNotEmpty()) setServerModel(ctx, ms.first())
+                    return@withContext u to ("Serveur trouvé à $u" + if (ms.isEmpty()) " (aucun modèle listé : avec Ollama, téléchargez-en un : ollama pull qwen2.5:1.5b)." else ". Modèle(s) : " + ms.joinToString(", "))
+                }
+                report.append("$u répond mais renvoie l'erreur $code.\n")
+            } catch (e: java.net.ConnectException) { if (u == cur) report.append("$u : rien n'écoute à cette adresse.\n") }
+            catch (e: java.net.SocketTimeoutException) { report.append("$u : le serveur ne répond pas (délai dépassé).\n") }
+            catch (e: Exception) { if (u == cur) report.append("$u : ${e.javaClass.simpleName} ${e.message ?: ""}\n") }
+        }
+        null to (report.toString() + "Aucun serveur IA trouvé sur ce téléphone (ports 11434, 8080, 1234, 8000, 5000). Vérifiez dans Termux que le serveur est lancé et qu'il est resté ouvert (« termux-wake-lock », batterie « sans restriction » pour Termux).")
+    }
+
     /** Liste des modèles proposés par le fournisseur ou le serveur local. */
     suspend fun listModels(ctx: Context, server: Boolean): List<String> = withContext(Dispatchers.IO) {
         val (base, key, anth) = if (server) Triple(serverUrl(ctx) + "/v1", "", false) else cloudPreset(ctx).let { Triple(if (it.id == "custom") cloudBase(ctx) else it.base, cloudKey(ctx, it.id), it.anthropic) }

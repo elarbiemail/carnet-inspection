@@ -357,11 +357,13 @@ fun ServerAiCard(test: () -> Unit) {
         }
         TextFieldRow("Modèle (vide = celui chargé)", model, { model = it; Ai.setServerModel(ctx, it) })
         ModelPicker(models, model) { model = it; Ai.setServerModel(ctx, it) }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { err = ""; scope.launch { try { models = Ai.listModels(ctx, true) } catch (e: Throwable) { err = e.message ?: "Serveur injoignable" } } }) { Text("Lister les modèles") }
-            Button(onClick = test) { Text("Tester") }
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { err = "Recherche du serveur…"; scope.launch { val (u, m) = Ai.detectServer(ctx); if (u != null) { url = u; model = Ai.serverModel(ctx); try { models = Ai.listModels(ctx, true) } catch (_: Throwable) {} }; err = m } }) { Text("Détecter le serveur") }
+            OutlinedButton(onClick = { err = ""; scope.launch { try { models = Ai.listModels(ctx, true) } catch (e: Throwable) { err = e.message ?: "Serveur injoignable" } } }) { Text("Modèles") }
+            OutlinedButton(onClick = test) { Text("Tester") }
         }
-        if (err.isNotEmpty()) Text(err, color = Danger, fontSize = 12.sp)
+        if (err.isNotEmpty()) Text(err, color = if (err.startsWith("Serveur trouvé")) Brand else Danger, fontSize = 12.sp)
+        Text("Dans Termux (sur ce téléphone) : pkg install ollama, puis « ollama serve & » et « ollama pull qwen2.5:1.5b » ; ou avec llama.cpp : pkg install llama-cpp, puis « llama-server -m modele.gguf --port 8080 ». Gardez Termux ouvert (termux-wake-lock).", color = InkFaint, fontSize = 11.5.sp)
         Text("Ollama sur ordinateur : lancez-le avec OLLAMA_HOST=0.0.0.0 et OLLAMA_ORIGINS=* puis indiquez l'adresse IP de l'ordinateur. Un modèle « Qwen 3 » permet le mode raisonnement.", color = InkFaint, fontSize = 11.5.sp)
     }
 }
