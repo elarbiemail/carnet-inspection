@@ -235,14 +235,7 @@ fun TaskDetailScreen(id: String) {
                 SectionTitle("Invité(e)s (${inv.size})")
                 CardBox { inv.forEach { i -> Text("• " + i.s("nom") + i.s("ppr").let { if (it.isEmpty()) "" else "  (PPR $it)" }, fontSize = 13.5.sp, modifier = Modifier.padding(vertical = 2.dp)) } }
             }
-            val docs = Store.list("documents").filter { it.s("taskId") == id }
-            SectionTitle("Documents (${docs.size})")
-            CardBox {
-                if (docs.isEmpty()) Text("Aucun document.", color = InkFaint, fontSize = 13.sp)
-                docs.forEach { d -> Text("• " + d.s("titre").ifEmpty { d.s("type") } + d.s("date").let { if (it.isEmpty()) "" else "  — " + fmtDate(it) }, fontSize = 13.5.sp, modifier = Modifier.padding(vertical = 2.dp)) }
-                Text("La génération des documents (Word, PDF) se fait dans le carnet web.", color = InkFaint, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
-                TextButton(onClick = { openUri(ctx, WEB_URL) }) { Text("Ouvrir le carnet web") }
-            }
+            TaskDocsSection(t)
             Spacer(Modifier.height(40.dp))
         }
     }
@@ -277,6 +270,7 @@ fun TaskEditScreen(id: String?, etabId: String?, ensId: String?) {
     fun g(k: String): String { tick; return t.value.s(k) }
     var pickEtab by remember { mutableStateOf(false) }
     var pickEns by remember { mutableStateOf(false) }
+    var pickInv by remember { mutableStateOf(false) }
 
     ScreenScaffold(if (orig == null) "Nouvelle tâche" else "Modifier la tâche", { Nav.pop() }, actions = {
         TextButton(onClick = {
@@ -303,6 +297,29 @@ fun TaskEditScreen(id: String?, etabId: String?, ensId: String?) {
             if (g("taskType") == "inspection") SelectField("Appréciation globale", Ref.NOTE_SCALE.associateWith { it }, g("noteGlobale"), { set("noteGlobale", it) }, allowEmpty = true)
             if (g("taskType") == "reunion_distance") TextFieldRow("Lien de connexion", g("lienConnexion"), { set("lienConnexion", it) })
             TextFieldRow("Notes", g("description"), { set("description", it) }, multiline = true)
+            if (g("taskType") == "formation") {
+                SectionTitle("Session de formation")
+                val fo = t.value.optJSONObject("formation") ?: JSONObject().also { t.value.put("formation", it) }
+                listOf("sujet" to "الموضوع — Thème", "organisateur" to "الجهة المنظمة — Organisateur", "formateurs" to "المكون(ون) — Formateur(s)",
+                    "cible" to "الفئة المستفيدة — Public", "nombre" to "العدد — Nombre").forEach { (k, l) -> TextFieldRow(l, fo.s(k).also { tick }, { fo.put(k, it); tick++ }) }
+                listOf("objectifs" to "الأهداف — Objectifs (notes)", "axes" to "المحاور — Axes / programme", "deroulement" to "Déroulement / activités réalisées")
+                    .forEach { (k, l) -> TextFieldRow(l, fo.s(k).also { tick }, { fo.put(k, it); tick++ }, multiline = true) }
+            }
+            SectionTitle("Invité(e)s (${t.value.arr("invites").size.also { tick }})")
+            CardBox {
+                t.value.arr("invites").forEachIndexed { i, iv ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text(iv.s("nom"), fontSize = 13.5.sp, fontWeight = FontWeight.Medium)
+                            Text(listOf(iv.s("ppr"), iv.s("etablissementNom")).filter { it.isNotEmpty() }.joinToString(" · "), color = InkFaint, fontSize = 12.sp)
+                        }
+                        IconButton(onClick = {
+                            val a = t.value.optJSONArray("invites") ?: JSONArray(); val n = JSONArray(); for (j in 0 until a.length()) if (j != i) n.put(a.opt(j)); t.value.put("invites", n); tick++
+                        }) { Icon(Icons.Default.Delete, "Retirer", tint = Danger) }
+                    }
+                }
+                OutlinedButton(onClick = { pickInv = true }) { Icon(Icons.Default.Person, null); Spacer(Modifier.width(6.dp)); Text("Choisir les invité(e)s") }
+            }
             Spacer(Modifier.height(40.dp))
         }
     }
@@ -311,6 +328,15 @@ fun TaskEditScreen(id: String?, etabId: String?, ensId: String?) {
         val ens = Store.byId("enseignants", g("enseignantId"))
         if (e != null && ens != null && ens.s("etablissementId") != e.s("id")) { set("enseignantId", null); set("enseignantNom", "") }
         pickEtab = false
+    }
+    if (pickInv) {
+        val cur = t.value.arr("invites").map { it.s("enseignantId") }.filter { it.isNotEmpty() }.toSet()
+        MultiTeacherPicker(initial = cur, etabId = g("etablissementId"), onDismiss = { pickInv = false }) { picked ->
+            val keep = t.value.arr("invites").filter { it.s("enseignantId").isEmpty() }
+            val n = JSONArray(); keep.forEach { n.put(it) }
+            picked.forEach { e -> n.put(JSONObject().put("enseignantId", e.s("id")).put("nom", e.s("nom")).put("ppr", e.s("ppr")).put("etablissementNom", etabName(e.s("etablissementId")))) }
+            t.value.put("invites", n); tick++; pickInv = false
+        }
     }
     if (pickEns) {
         val et = g("etablissementId")

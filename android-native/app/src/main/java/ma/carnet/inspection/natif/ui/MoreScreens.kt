@@ -43,6 +43,11 @@ fun MoreScreen() {
                     }
                 }
             }
+            MenuItem(Icons.Default.Create, "Documents", "Tous les documents produits : aperçu, PDF, impression") { Nav.push(Scr.DocsAll) }
+            MenuItem(Icons.Default.DateRange, "Programme annuel", "Préambule, catégories, activités, descriptions par l'IA") { Nav.push(Scr.Programme) }
+            MenuItem(Icons.Default.Check, "Notes d'inspection", "Liste globale, par zone ou par établissement") { Nav.push(Scr.Notes) }
+            MenuItem(Icons.Default.LocationOn, "Zones", "Gérer les zones d'établissements") { Nav.push(Scr.Zones) }
+            MenuItem(Icons.Default.Settings, "Paramètres", "Profil, clé IA Gemini, logo / signature / cachet") { Nav.push(Scr.Settings) }
             MenuItem(Icons.Default.Star, "Bilan", "Statistiques de la période, par type et par statut") { Nav.push(Scr.Bilan) }
             MenuItem(Icons.Default.Refresh, "Données et synchronisation", "Importer la sauvegarde du carnet web, exporter vos modifications") { Nav.push(Scr.Data) }
             MenuItem(Icons.Default.Share, "Ouvrir le carnet web", "Documents Word/PDF, modèles, IA, programme annuel") { openUri(ctx, WEB_URL) }

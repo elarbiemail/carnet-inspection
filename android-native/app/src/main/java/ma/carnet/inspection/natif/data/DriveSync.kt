@@ -148,7 +148,32 @@ object DriveSync {
             http("POST", "$UPLOAD?uploadType=multipart&fields=id", tk, mp, "multipart/related; boundary=$boundary")
             created = true
         }
+        try { fetchImages(ctx, tk) } catch (_: Exception) {}
         prefs(ctx).edit().putString("lastDriveSync", Store.now()).apply()
         Report(rep, created)
+    }
+
+    private fun httpBytes(url: String, tk: String): ByteArray {
+        val c = URL(url).openConnection() as HttpURLConnection
+        c.setRequestProperty("Authorization", "Bearer $tk"); c.connectTimeout = 20000; c.readTimeout = 60000
+        if (c.responseCode !in 200..299) throw HttpError(c.responseCode, "Google Drive (${c.responseCode})")
+        return c.inputStream.use { it.readBytes() }
+    }
+
+    /** Logo, signature et cachet du profil (déposés sur Drive par le carnet web, voir assetsIndex). */
+    fun fetchImages(ctx: Context, tk: String): Int {
+        val p = Store.profil(); val idx = Store.root.optJSONObject("assetsIndex") ?: return 0
+        var n = 0
+        listOf("logo" to "logoAssetId", "signature" to "signatureAssetId", "cachet" to "cachetAssetId").forEach { (key, field) ->
+            val f = Docs.imgFile(ctx, key)
+            val aid = p.s(field)
+            if (aid.isEmpty()) { if (f.exists()) f.delete(); return@forEach }
+            val fid = idx.optJSONObject(aid)?.s("driveFileId") ?: ""
+            if (fid.isEmpty()) return@forEach
+            val mark = java.io.File(ctx.filesDir, "img_$key.id")
+            if (f.exists() && mark.exists() && mark.readText() == fid) return@forEach
+            try { f.writeBytes(httpBytes("$API/$fid?alt=media", tk)); mark.writeText(fid); n++ } catch (_: Exception) {}
+        }
+        return n
     }
 }

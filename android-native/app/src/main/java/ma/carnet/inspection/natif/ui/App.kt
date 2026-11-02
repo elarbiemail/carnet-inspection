@@ -21,6 +21,14 @@ sealed class Scr {
     data object Bilan : Scr()
     data object Data : Scr()
     data object About : Scr()
+    data class DocEdit(val id: String?, val taskId: String, val type: String, val tplId: String?) : Scr()
+    data class DocPreview(val id: String) : Scr()
+    data object DocsAll : Scr()
+    data object Zones : Scr()
+    data object Settings : Scr()
+    data object Programme : Scr()
+    data object Notes : Scr()
+    data object HtmlPreview : Scr()
 }
 
 object Nav {
@@ -78,5 +86,13 @@ fun App() {
         Scr.Bilan -> BilanScreen()
         Scr.Data -> DataScreen()
         Scr.About -> AboutScreen()
+        is Scr.DocEdit -> DocEditScreen(cur.id, cur.taskId, cur.type, cur.tplId)
+        is Scr.DocPreview -> DocPreviewScreen(cur.id)
+        Scr.DocsAll -> DocsAllScreen()
+        Scr.Zones -> ZonesScreen()
+        Scr.Settings -> SettingsScreen()
+        Scr.Programme -> ProgrammeScreen()
+        Scr.Notes -> NotesScreen()
+        Scr.HtmlPreview -> HtmlPreviewScreen()
     }
 }
