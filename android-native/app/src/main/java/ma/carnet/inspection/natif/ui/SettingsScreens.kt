@@ -386,7 +386,7 @@ fun DeviceAiCard(test: () -> Unit) {
                     val buf = ByteArray(1 shl 16); var n: Int; var done = 0L
                     while (inp.read(buf).also { n = it } > 0) { out.write(buf, 0, n); done += n; if (done % (8 shl 20) < (1 shl 16)) withContext(Dispatchers.Main) { progress = "Installation… " + (done shr 20) + " Mo" + if (total > 0) " / ${total shr 20} Mo" else "" } }
                 } } ?: throw Exception("Fichier illisible.")
-                OnDevice.close(); f.delete(); tmp.renameTo(f)
+                OnDeviceClient.release(ctx); f.delete(); tmp.renameTo(f)
             }
             Ai.setDeviceModelName(ctx, label); name = label; progress = "Modèle installé (${f.length() shr 20} Mo)."
         } catch (e: Throwable) { progress = "Échec : " + (e.message ?: e.javaClass.simpleName) }
@@ -416,7 +416,7 @@ fun DeviceAiCard(test: () -> Unit) {
         if (progress.isNotEmpty()) Text(progress, fontSize = 12.5.sp, color = if (progress.startsWith("Échec")) Danger else Brand)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = test, enabled = f.exists() && !busy) { Text("Tester") }
-            if (f.exists()) TextButton(onClick = { OnDevice.close(); f.delete(); name = ""; Ai.setDeviceModelName(ctx, ""); progress = "Modèle supprimé." }) { Text("Supprimer le modèle", color = Danger) }
+            if (f.exists()) TextButton(onClick = { OnDeviceClient.release(ctx); f.delete(); name = ""; Ai.setDeviceModelName(ctx, ""); progress = "Modèle supprimé." }) { Text("Supprimer le modèle", color = Danger) }
         }
         Text("L'IA du téléphone ne lit pas les photos : l'import de fiches par photo utilise Gemini.", color = InkFaint, fontSize = 11.5.sp)
     }

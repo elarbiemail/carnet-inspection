@@ -76,7 +76,7 @@ object Ai {
         val out = when (provider(ctx)) {
             "cloud" -> { val pr = cloudPreset(ctx); if (pr.anthropic) anthropic(ctx, pr, prompt, image, mime) else openAi((if (pr.id == "custom") cloudBase(ctx) else pr.base), cloudKey(ctx, pr.id), cloudModel(ctx, pr.id), prompt, image, mime, false, reasoning(ctx)) }
             "server" -> openAi(serverUrl(ctx) + "/v1", "", serverModel(ctx).ifEmpty { "local" }, prompt, image, mime, true, reasoning(ctx))
-            "device" -> { if (image != null) throw Exception("L'IA sur le téléphone ne lit pas les images : utilisez Gemini pour cet import."); OnDevice.generate(ctx, prompt) }
+            "device" -> { if (image != null) throw Exception("L'IA sur le téléphone ne lit pas les images : utilisez Gemini pour cet import."); OnDeviceClient.generate(ctx, prompt) }
             else -> gemini(ctx, prompt, image, mime)
         }
         cleanup(out).ifEmpty { throw Exception("Réponse vide de l'IA.") }
@@ -224,6 +224,7 @@ object Ai {
 
 /** IA hors ligne sur le téléphone : MediaPipe LLM Inference (modèle .task importé par l'utilisateur). */
 object OnDevice {
+    const val MAX = 2048
     private var engine: com.google.mediapipe.tasks.genai.llminference.LlmInference? = null
     private var loadedPath = ""
 
@@ -234,12 +235,18 @@ object OnDevice {
         if (engine == null || loadedPath != f.absolutePath + f.lastModified()) {
             close()
             val opts = com.google.mediapipe.tasks.genai.llminference.LlmInference.LlmInferenceOptions.builder()
-                .setModelPath(f.absolutePath).setMaxTokens(2048).build()
+                .setModelPath(f.absolutePath).setMaxTokens(MAX).build()
             engine = try { com.google.mediapipe.tasks.genai.llminference.LlmInference.createFromOptions(ctx, opts) }
                 catch (t: Throwable) { throw Exception("Le modèle n'a pas pu être chargé sur ce téléphone (" + (t.message ?: t.javaClass.simpleName) + "). Essayez un modèle plus petit ou un autre moteur.") }
             loadedPath = f.absolutePath + f.lastModified()
         }
-        return try { engine!!.generateResponse(prompt.take(6000)) } catch (t: Throwable) { throw Exception("Erreur de l'IA du téléphone : " + (t.message ?: t.javaClass.simpleName)) }
+        // la consigne doit laisser de la place à la réponse dans la mémoire du modèle (MAX jetons au total)
+        var p = prompt
+        try {
+            var n = engine!!.sizeInTokens(p)
+            while (n > MAX - 700 && p.length > 400) { p = p.take((p.length * (MAX - 750) / n.coerceAtLeast(1)).coerceAtMost(p.length - 200)); n = engine!!.sizeInTokens(p) }
+        } catch (_: Throwable) { p = p.take(2400) }
+        return try { engine!!.generateResponse(p) } catch (t: Throwable) { throw Exception("Erreur de l'IA du téléphone : " + (t.message ?: t.javaClass.simpleName)) }
     }
 
     @Synchronized
