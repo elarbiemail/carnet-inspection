@@ -25,10 +25,14 @@ sealed class Scr {
     data class DocPreview(val id: String) : Scr()
     data object DocsAll : Scr()
     data object Zones : Scr()
-    data object Settings : Scr()
+    data class Settings(val tab: String = "profil") : Scr()
     data object Programme : Scr()
     data object Notes : Scr()
     data object HtmlPreview : Scr()
+    data class CustomTplEdit(val id: String?, val starter: String = "vierge") : Scr()
+    data object Viewer : Scr()
+    data class Help(val topic: String) : Scr()
+    data object Search : Scr()
 }
 
 object Nav {
@@ -54,6 +58,11 @@ fun App() {
     SyncHolder.fn = sync
     val ctx = androidx.compose.ui.platform.LocalContext.current
     LaunchedEffect(Unit) { if (ma.carnet.inspection.natif.data.DriveSync.enabled(ctx)) sync(false) }
+    val ver by ma.carnet.inspection.natif.data.Store.version
+    LaunchedEffect(ver) { kotlinx.coroutines.delay(800); try { ma.carnet.inspection.natif.data.Reminders.schedule(ctx) } catch (_: Throwable) {} }
+    var welcome by remember { mutableStateOf(!ma.carnet.inspection.natif.data.GoogleAccount.welcomeDone(ctx)) }
+    if (welcome) { WelcomeScreen { welcome = false }; return }
+    AutoScreenshot(cur)
     BackHandler(enabled = Nav.stack.size > 1 || (cur is Scr.Tab && cur.i != 0)) { Nav.pop() }
     when (cur) {
         is Scr.Tab -> Scaffold(
@@ -90,9 +99,13 @@ fun App() {
         is Scr.DocPreview -> DocPreviewScreen(cur.id)
         Scr.DocsAll -> DocsAllScreen()
         Scr.Zones -> ZonesScreen()
-        Scr.Settings -> SettingsScreen()
+        is Scr.Settings -> SettingsScreen(cur.tab)
         Scr.Programme -> ProgrammeScreen()
         Scr.Notes -> NotesScreen()
         Scr.HtmlPreview -> HtmlPreviewScreen()
+        is Scr.CustomTplEdit -> CustomTplEditScreen(cur.id, cur.starter)
+        Scr.Viewer -> ViewerScreen()
+        is Scr.Help -> HelpScreen(cur.topic)
+        Scr.Search -> SearchScreen()
     }
 }

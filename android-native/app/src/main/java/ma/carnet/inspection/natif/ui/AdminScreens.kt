@@ -34,33 +34,14 @@ import org.json.JSONObject
 import java.util.UUID
 
 // ---------------- Aperçu HTML générique (listes, programme) ----------------
-object HtmlHolder { var title = ""; var html = "" }
+object HtmlHolder { var title = ""; var html = ""; var landscape = false }
 
 @Composable
 fun HtmlPreviewScreen() {
-    val ctx = LocalContext.current
-    var web by remember { mutableStateOf<WebView?>(null) }
-    val name = HtmlHolder.title.replace(Regex("[\\\\/:*?\"<>|]+"), "_").take(80)
-    ScreenScaffold(HtmlHolder.title, { Nav.pop() }, actions = {
-        IconButton(onClick = { web?.let { printWeb(ctx, it, name) } }) { Icon(Icons.Default.Share, "Imprimer / PDF") }
-    }) { pad ->
-        Column(Modifier.padding(pad).fillMaxSize()) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Imprimez ou enregistrez en PDF.", fontSize = 12.sp, color = InkFaint, modifier = Modifier.weight(1f))
-                Button(onClick = { web?.let { printWeb(ctx, it, name) } }) { Text("PDF / Imprimer") }
-            }
-            AndroidView(factory = { c ->
-                WebView(c).apply {
-                    settings.loadWithOverviewMode = true; settings.useWideViewPort = true; settings.builtInZoomControls = true; settings.displayZoomControls = false
-                    webViewClient = WebViewClient(); web = this
-                    loadDataWithBaseURL("file:///android_asset/", HtmlHolder.html, "text/html", "utf-8", null)
-                }
-            }, modifier = Modifier.fillMaxSize())
-        }
-    }
+    PreviewWithExport(HtmlHolder.title, HtmlHolder.html, ma.carnet.inspection.natif.data.Export.safeName(HtmlHolder.title + " " + java.time.LocalDate.now()), HtmlHolder.landscape, null)
 }
 
-fun showHtml(title: String, html: String) { HtmlHolder.title = title; HtmlHolder.html = html; Nav.push(Scr.HtmlPreview) }
+fun showHtml(title: String, html: String, landscape: Boolean = false) { HtmlHolder.title = title; HtmlHolder.html = html; HtmlHolder.landscape = landscape; Nav.push(Scr.HtmlPreview) }
 
 // ---------------- Zones ----------------
 @Composable
@@ -70,7 +51,7 @@ fun ZonesScreen() {
     var edit by remember { mutableStateOf<JSONObject?>(null) }
     var del by remember { mutableStateOf<JSONObject?>(null) }
     ScreenScaffold("Zones", { Nav.pop() }, fab = {
-        FloatingActionButton(onClick = { edit = JSONObject() }, containerColor = Brand) { Icon(Icons.Default.Add, "Ajouter", tint = androidx.compose.ui.graphics.Color.White) }
+        FloatingActionButton(onClick = { edit = JSONObject() }, containerColor = Brand) { Icon(Icons.Default.Add, "Ajouter", tint = OnBrand) }
     }) { pad ->
         LazyColumn(Modifier.padding(pad).padding(horizontal = 14.dp)) {
             item { Text("Les zones regroupent les établissements et permettent de filtrer tout le carnet.", color = InkFaint, fontSize = 12.5.sp, modifier = Modifier.padding(vertical = 8.dp)) }
@@ -93,99 +74,11 @@ fun ZonesScreen() {
             item { Spacer(Modifier.height(80.dp)) }
         }
     }
-    edit?.let { z ->
-        var nom by remember(z) { mutableStateOf(z.s("nom")) }
-        var desc by remember(z) { mutableStateOf(z.s("description")) }
-        AlertDialog(onDismissRequest = { edit = null }, title = { Text(if (z.s("id").isEmpty()) "Nouvelle zone" else "Modifier la zone") },
-            text = { Column { TextFieldRow("Nom de la zone", nom, { nom = it }); TextFieldRow("Description", desc, { desc = it }, multiline = true) } },
-            confirmButton = { TextButton(enabled = nom.isNotBlank(), onClick = { z.put("nom", nom.trim()).put("description", desc.trim()); Store.upsert("zones", z); edit = null }) { Text("Enregistrer") } },
-            dismissButton = { TextButton(onClick = { edit = null }) { Text("Annuler") } })
-    }
+    edit?.let { z -> ZoneEditDialog(z) { edit = null } }
     del?.let { z ->
         ConfirmDialog("Supprimer « ${z.s("nom")} » ?", "Les établissements de cette zone seront conservés, sans zone.", onDismiss = { del = null }) {
             Store.list("etablissements").filter { it.s("zoneId") == z.s("id") }.forEach { e -> val c = JSONObject(e.toString()); c.put("zoneId", ""); Store.upsert("etablissements", c) }
             Store.delete("zones", z.s("id")); del = null
-        }
-    }
-}
-
-// ---------------- Paramètres : profil, IA, images ----------------
-private val PROFIL_FIELDS = listOf(
-    "nom" to "Nom et prénom", "nomSignature" to "Nom pour la signature", "nomAr" to "Nom (arabe)",
-    "grade" to "Grade", "matiere" to "Matière", "matiereAr" to "Matière (arabe)",
-    "academieRegionale" to "Académie régionale", "academieAr" to "Académie (arabe)",
-    "province" to "Direction provinciale", "provinceAr" to "Direction provinciale (arabe)",
-    "telephone" to "Téléphone", "email" to "Email"
-)
-
-@Composable
-fun SettingsScreen() {
-    val ctx = LocalContext.current
-    val v by Store.version
-    val p = remember(v) { JSONObject(Store.profil().toString()) }
-    val vals = remember(v) { mutableStateMapOf<String, String>().apply { PROFIL_FIELDS.forEach { (k, _) -> put(k, p.s(k)) } } }
-    var key by remember { mutableStateOf(Ai.key(ctx)) }
-    var showKey by remember { mutableStateOf(false) }
-    var testBusy by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-    ScreenScaffold("Paramètres", { Nav.pop() }) { pad ->
-        Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(14.dp)) {
-            SectionTitle("Profil de l'inspecteur(trice)")
-            CardBox {
-                PROFIL_FIELDS.forEach { (k, l) -> TextFieldRow(l, vals[k] ?: "", { vals[k] = it }) }
-                Button(onClick = {
-                    val tpl = Store.root.optJSONObject("templates") ?: JSONObject().also { Store.root.put("templates", it) }
-                    val np = tpl.optJSONObject("profil") ?: JSONObject()
-                    vals.forEach { (k, x) -> np.put(k, x.trim()) }
-                    tpl.put("profil", np); tpl.put("updatedAt", Store.now()); Store.save()
-                    toast(ctx, "Profil enregistré.")
-                }, modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) { Text("Enregistrer le profil") }
-            }
-
-            SectionTitle("Rédaction par l'IA (Google Gemini)")
-            CardBox {
-                Text("Collez votre clé d'API Gemini (gratuite sur aistudio.google.com → Get API key). Elle reste sur ce téléphone.", fontSize = 12.5.sp, color = InkFaint)
-                OutlinedTextField(value = key, onValueChange = { key = it }, label = { Text("Clé Gemini") }, singleLine = true,
-                    visualTransformation = if (showKey) androidx.compose.ui.text.input.VisualTransformation.None else PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                    trailingIcon = { IconButton(onClick = { showKey = !showKey }) { Icon(if (showKey) Icons.Default.Lock else Icons.Default.Search, null) } },
-                    modifier = Modifier.fillMaxWidth())
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
-                    Button(onClick = { Ai.setKey(ctx, key); toast(ctx, "Clé enregistrée.") }) { Text("Enregistrer") }
-                    OutlinedButton(enabled = !testBusy && key.isNotBlank(), onClick = {
-                        Ai.setKey(ctx, key); testBusy = true
-                        scope.launch {
-                            try { Ai.generate(ctx, "Réponds seulement : OK"); toast(ctx, "La clé fonctionne.") } catch (e: Exception) { toast(ctx, e.message ?: "Erreur") }
-                            testBusy = false
-                        }
-                    }) { Text(if (testBusy) "Test…" else "Tester") }
-                    TextButton(onClick = { openUri(ctx, "https://aistudio.google.com/app/apikey") }) { Text("Obtenir une clé") }
-                }
-            }
-
-            SectionTitle("Logo, signature et cachet")
-            CardBox {
-                Text("Ces images sont reprises du carnet web : ajoutez-les dans Paramètres → Profil du carnet web (connecté à Drive), puis synchronisez ici.", fontSize = 12.5.sp, color = InkFaint)
-                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    listOf("logo" to "Logo", "signature" to "Signature", "cachet" to "Cachet").forEach { (k, l) ->
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            val f = Docs.imgFile(ctx, k)
-                            val bmp = remember(v, k) { if (!f.exists()) null else (try { BitmapFactory.decodeFile(f.absolutePath)?.asImageBitmap() } catch (_: Exception) { null }) }
-                            Box(Modifier.size(72.dp), contentAlignment = Alignment.Center) {
-                                if (bmp != null) Image(bmp, l, Modifier.fillMaxSize()) else Icon(Icons.Default.Close, null, tint = InkFaint)
-                            }
-                            Text(l, fontSize = 12.sp)
-                        }
-                    }
-                }
-                Button(onClick = { if (!DriveSync.enabled(ctx) && DriveSync.clientId(ctx).isBlank()) Nav.push(Scr.Data) else SyncHolder.fn(true) }, modifier = Modifier.fillMaxWidth()) {
-                    Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(6.dp)); Text("Synchroniser avec Drive")
-                }
-            }
-
-            SectionTitle("Organisation")
-            MenuItem(Icons.Default.LocationOn, "Zones", "Créer, renommer ou supprimer les zones") { Nav.push(Scr.Zones) }
-            Spacer(Modifier.height(40.dp))
         }
     }
 }
@@ -275,7 +168,7 @@ fun ProgrammeScreen() {
     fun ch() { tick++; dirty = true }
     fun save() { pa.put("updatedAt", Store.now()); Store.root.put("programmeAnnuel", JSONObject(pa.toString())); Store.save(); dirty = false; toast(ctx, "Programme enregistré.") }
     fun ai(k: String, prompt: String, apply: (String) -> Unit) {
-        if (!Ai.ready(ctx)) { toast(ctx, "Ajoutez votre clé Gemini dans Plus → Paramètres."); return }
+        if (!Ai.ready(ctx)) { toast(ctx, Ai.NOT_READY); return }
         busy = k
         scope.launch { try { apply(Ai.generate(ctx, prompt)); ch() } catch (e: Exception) { toast(ctx, e.message ?: "Erreur IA") }; busy = "" }
     }
@@ -284,8 +177,8 @@ fun ProgrammeScreen() {
         (if (p.s("province").isNotEmpty()) " (direction provinciale de ${p.s("province")})" else "") + ". "
     val cats = pa.getJSONArray("categories")
     ScreenScaffold("Programme annuel", { Nav.pop() }, actions = {
-        IconButton(onClick = { showHtml("Programme annuel", programmeHtml(ctx, pa)) }) { Icon(Icons.Default.Share, "Imprimer") }
-        TextButton(onClick = { save() }, enabled = dirty) { Text("Enregistrer", color = androidx.compose.ui.graphics.Color.White, fontWeight = FontWeight.Bold) }
+        IconButton(onClick = { showHtml("Programme annuel", programmeHtml(ctx, pa), true) }) { Icon(Icons.Default.Share, "Imprimer") }
+        TextButton(onClick = { save() }, enabled = dirty) { Text("Enregistrer", color = OnBrand, fontWeight = FontWeight.Bold) }
     }) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
             tick

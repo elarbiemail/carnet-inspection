@@ -49,7 +49,8 @@ object DriveSync {
     /** Numéro du projet Google Cloud, lu dans l'identifiant client (1234567890-xxxx.apps.googleusercontent.com). */
     fun projectNumber(clientId: String): String = Regex("^(\\d+)-").find(clientId.trim())?.groupValues?.get(1) ?: ""
 
-    fun request(): AuthorizationRequest = AuthorizationRequest.builder().setRequestedScopes(listOf(Scope(SCOPE))).build()
+    fun request(email: String = ""): AuthorizationRequest = AuthorizationRequest.builder().setRequestedScopes(listOf(Scope(SCOPE)))
+        .apply { if (email.isNotEmpty()) setAccount(android.accounts.Account(email, "com.google")) }.build()
 
     /** Résultat : jeton obtenu, ou une fenêtre d'autorisation à afficher (consentement). */
     sealed class Auth {
@@ -60,7 +61,7 @@ object DriveSync {
     suspend fun authorize(activity: Activity): Auth {
         val tk = token
         if (tk != null && System.currentTimeMillis() - tokenAt < 45 * 60 * 1000) return Auth.Ok(tk)
-        val res = Identity.getAuthorizationClient(activity).authorize(request()).await()
+        val res = Identity.getAuthorizationClient(activity).authorize(request(GoogleAccount.email(activity))).await()
         return if (res.hasResolution()) Auth.NeedsConsent(res)
         else { val t = res.accessToken ?: throw Exception("Aucun jeton reçu de Google."); token = t; tokenAt = System.currentTimeMillis(); Auth.Ok(t) }
     }
@@ -135,6 +136,8 @@ object DriveSync {
             val remote = JSONObject(txt.trimStart('﻿'))
             rep = withContext(Dispatchers.Main) { Store.importBackup(remote) }
         }
+        try { pushImages(ctx, tk) } catch (_: Exception) {}
+        try { Attach.pushPending(ctx, tk) } catch (_: Exception) {}
         val body = withContext(Dispatchers.Main) { Store.exportJson() }.toByteArray(Charsets.UTF_8)
         var created = false
         if (file != null) {
@@ -160,20 +163,109 @@ object DriveSync {
         return c.inputStream.use { it.readBytes() }
     }
 
-    /** Logo, signature et cachet du profil (déposés sur Drive par le carnet web, voir assetsIndex). */
+    /** Logo, signature, cachet et photo de profil déposés sur Drive par le carnet web (voir assetsIndex). */
     fun fetchImages(ctx: Context, tk: String): Int {
-        val p = Store.profil(); val idx = Store.root.optJSONObject("assetsIndex") ?: return 0
+        val p = Store.profil(); val idx = Store.root.optJSONObject("assetsIndex") ?: JSONObject()
         var n = 0
-        listOf("logo" to "logoAssetId", "signature" to "signatureAssetId", "cachet" to "cachetAssetId").forEach { (key, field) ->
+        ProfileImages.KEYS.forEach { (key, field) ->
             val f = Docs.imgFile(ctx, key)
+            if (ProfileImages.pending(ctx, key)) return@forEach
+            val mark = java.io.File(ctx.filesDir, "img_$key.id")
             val aid = p.s(field)
-            if (aid.isEmpty()) { if (f.exists()) f.delete(); return@forEach }
+            if (aid.isEmpty()) { if (mark.exists()) { f.delete(); mark.delete() }; return@forEach }
             val fid = idx.optJSONObject(aid)?.s("driveFileId") ?: ""
             if (fid.isEmpty()) return@forEach
-            val mark = java.io.File(ctx.filesDir, "img_$key.id")
             if (f.exists() && mark.exists() && mark.readText() == fid) return@forEach
             try { f.writeBytes(httpBytes("$API/$fid?alt=media", tk)); mark.writeText(fid); n++ } catch (_: Exception) {}
         }
         return n
+    }
+
+    /** Envoie sur Drive (dossier « Photos ») les images choisies sur le téléphone, pour le carnet web. */
+    fun pushImages(ctx: Context, tk: String) {
+        ProfileImages.KEYS.forEach { (key, field) ->
+            if (!ProfileImages.pending(ctx, key)) return@forEach
+            val f = Docs.imgFile(ctx, key); if (!f.exists()) { ProfileImages.clearPending(ctx, key); return@forEach }
+            val folder = subFolder(tk, "Photos")
+            val name = "$key-" + System.currentTimeMillis() + ".jpg"
+            val fid = uploadBytes(tk, folder, name, "image/jpeg", f.readBytes())
+            val aid = "ast_" + java.util.UUID.randomUUID().toString().replace("-", "").take(16)
+            val tpl = Store.root.optJSONObject("templates") ?: JSONObject().also { Store.root.put("templates", it) }
+            val prof = tpl.optJSONObject("profil") ?: JSONObject().also { tpl.put("profil", it) }
+            prof.put(field, aid); tpl.put("updatedAt", Store.now())
+            val idx = Store.root.optJSONObject("assetsIndex") ?: JSONObject().also { Store.root.put("assetsIndex", it) }
+            idx.put(aid, JSONObject().put("driveFileId", fid).put("type", "image/jpeg").put("name", name))
+            java.io.File(ctx.filesDir, "img_$key.id").writeText(fid)
+            ProfileImages.clearPending(ctx, key)
+        }
+        Store.save()
+    }
+
+    /** Dossier « Carnet d'Inspection — Données / <nom> » (créé au besoin). */
+    fun subFolder(tk: String, name: String): String {
+        val app = findOne(tk, "name = '${esc(APP_FOLDER)}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false")?.getString("id")
+            ?: createFolder(tk, APP_FOLDER, null)
+        return findOne(tk, "name = '${esc(name)}' and mimeType = 'application/vnd.google-apps.folder' and '$app' in parents and trashed = false")?.getString("id")
+            ?: createFolder(tk, name, app)
+    }
+
+    /** Téléverse un fichier (multipart) et renvoie son identifiant Drive. */
+    fun uploadBytes(tk: String, parent: String, name: String, mime: String, bytes: ByteArray): String {
+        val boundary = "carnet" + System.currentTimeMillis()
+        val meta = JSONObject().put("name", name).put("mimeType", mime).put("parents", org.json.JSONArray().put(parent))
+        val mp = ("--$boundary\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n$meta\r\n--$boundary\r\nContent-Type: $mime\r\n\r\n").toByteArray() +
+            bytes + "\r\n--$boundary--".toByteArray()
+        return JSONObject(http("POST", "$UPLOAD?uploadType=multipart&fields=id", tk, mp, "multipart/related; boundary=$boundary")).getString("id")
+    }
+
+    /** Crée un Google Doc à partir d'un texte brut et renvoie son identifiant. */
+    fun createGoogleDoc(tk: String, parent: String, title: String, text: String): String {
+        val boundary = "carnet" + System.currentTimeMillis()
+        val meta = JSONObject().put("name", title).put("mimeType", "application/vnd.google-apps.document").put("parents", org.json.JSONArray().put(parent))
+        val mp = ("--$boundary\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n$meta\r\n--$boundary\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n").toByteArray() +
+            text.toByteArray(Charsets.UTF_8) + "\r\n--$boundary--".toByteArray()
+        return JSONObject(http("POST", "$UPLOAD?uploadType=multipart&fields=id", tk, mp, "multipart/related; boundary=$boundary")).getString("id")
+    }
+
+    /** Exporte un Google Doc (text/plain, application/pdf…). */
+    fun export(tk: String, fileId: String, mime: String): ByteArray = httpBytes("$API/$fileId/export?mimeType=" + q(mime), tk)
+
+    /** Liste les fichiers d'un dossier Drive (id, nom, type, taille). */
+    fun listFolder(tk: String, folderId: String): List<JSONObject> {
+        val r = JSONObject(http("GET", "$API?q=" + q("'$folderId' in parents and trashed = false") + "&orderBy=modifiedTime%20desc&pageSize=100&fields=files(id,name,mimeType,size,modifiedTime)", tk))
+        val a = r.optJSONArray("files") ?: return emptyList()
+        return (0 until a.length()).mapNotNull { a.optJSONObject(it) }
+    }
+
+    /** Télécharge un fichier Drive (pièce jointe, document). */
+    fun download(tk: String, fileId: String): ByteArray = httpBytes("$API/$fileId?alt=media", tk)
+
+    /** Nom, adresse et photo du compte Google connecté. */
+    fun about(tk: String): JSONObject = JSONObject(http("GET", "https://www.googleapis.com/drive/v3/about?fields=user(displayName,emailAddress,photoLink)", tk)).optJSONObject("user") ?: JSONObject()
+}
+
+/** Images du profil choisies sur le téléphone (photo, logo, cachet, signature). */
+object ProfileImages {
+    val KEYS = listOf("avatar" to "avatarAssetId", "logo" to "logoAssetId", "signature" to "signatureAssetId", "cachet" to "cachetAssetId")
+    private fun pf(ctx: Context, key: String) = java.io.File(ctx.filesDir, "img_$key.pending")
+    fun pending(ctx: Context, key: String) = pf(ctx, key).exists()
+    fun clearPending(ctx: Context, key: String) { pf(ctx, key).delete() }
+    fun set(ctx: Context, key: String, jpeg: ByteArray) {
+        Docs.imgFile(ctx, key).writeBytes(jpeg); java.io.File(ctx.filesDir, "img_$key.id").delete(); pf(ctx, key).writeText("1"); Store.save()
+    }
+    fun remove(ctx: Context, key: String) {
+        Docs.imgFile(ctx, key).delete(); java.io.File(ctx.filesDir, "img_$key.id").delete(); clearPending(ctx, key)
+        val tpl = Store.root.optJSONObject("templates") ?: return
+        val prof = tpl.optJSONObject("profil") ?: return
+        val field = KEYS.first { it.first == key }.second
+        prof.put(field, ""); tpl.put("updatedAt", Store.now()); Store.save()
+    }
+    /** Image JPEG (côté max), recadrée en carré pour la photo de profil. */
+    fun toJpeg(bmp: android.graphics.Bitmap, square: Boolean, max: Int = 900): ByteArray {
+        var b = bmp
+        if (square) { val s = minOf(b.width, b.height); b = android.graphics.Bitmap.createBitmap(b, (b.width - s) / 2, (b.height - s) / 2, s, s) }
+        val sc = minOf(1f, max.toFloat() / maxOf(b.width, b.height))
+        if (sc < 1f) b = android.graphics.Bitmap.createScaledBitmap(b, (b.width * sc).toInt(), (b.height * sc).toInt(), true)
+        val o = java.io.ByteArrayOutputStream(); b.compress(android.graphics.Bitmap.CompressFormat.JPEG, 88, o); return o.toByteArray()
     }
 }

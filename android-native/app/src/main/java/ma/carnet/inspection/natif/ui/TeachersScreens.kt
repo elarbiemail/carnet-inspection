@@ -36,7 +36,7 @@ fun TeacherRow(e: JSONObject, sub: String = "") {
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
                 Text(e.s("nom"), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Row(Modifier.padding(top = 2.dp)) {
-                    Tag(Ref.ENS_CYCLES[ensCycle(e)] ?: "", Color(0xFF6A5D3F))
+                    Tag(Ref.ENS_CYCLES[ensCycle(e)] ?: "", Earth)
                     if (e.s("statut") == "stagiaire") Tag("Stagiaire", Warn)
                     if (li != null && li.note.isNotEmpty()) Tag("Insp. " + li.note + (if (li.date.isNotEmpty()) " (" + li.date.take(4) + ")" else ""), Brand)
                 }
@@ -65,12 +65,13 @@ fun TeachersScreen() {
     var mode by remember { mutableStateOf("liste") }
     val all = remember(v) { Store.enseignants() }
     ScreenScaffold("Enseignant(e)s", null, fab = {
-        FloatingActionButton(onClick = { Nav.push(Scr.EnsEdit(null)) }, containerColor = Brand, contentColor = Color.White) { Icon(Icons.Default.Add, "Nouvel(le) enseignant(e)") }
+        FloatingActionButton(onClick = { Nav.push(Scr.EnsEdit(null)) }, containerColor = Brand, contentColor = OnBrand) { Icon(Icons.Default.Add, "Nouvel(le) enseignant(e)") }
     }) { pad ->
         LazyColumn(Modifier.padding(pad).padding(horizontal = 14.dp)) {
             item {
                 Spacer(Modifier.height(8.dp)); ZoneFilterBar()
                 ChipRow(mapOf("liste" to "Liste", "horaire" to "Par horaire"), mode, { mode = it.ifEmpty { "liste" } }, null)
+                FicheImportButton()
             }
             if (mode == "horaire") {
                 item { HoraireSearch(all) }
@@ -106,7 +107,11 @@ fun HoraireSearch(all: List<JSONObject>) {
         TimeField("Heure", heure, { heure = it }, Modifier.fillMaxWidth())
         val m = all.filter { e -> e.arr("horaire").any { slotMatches(it, jour, heure) } }
             .sortedBy { norm(etabName(it.s("etablissementId")) + it.s("nom")) }
-        Text("${m.size} enseignant(e)(s) en séance", color = InkFaint, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+        val ctx = LocalContext.current
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("${m.size} enseignant(e)(s) en séance", color = InkFaint, fontSize = 12.sp, modifier = Modifier.weight(1f).padding(top = 4.dp))
+            if (m.isNotEmpty()) TextButton(onClick = { showHtml("En séance le $jour à $heure", horaireSearchHtml(ctx, jour, heure, m)) }) { Text("Exporter la liste") }
+        }
         if (m.isEmpty()) EmptyState("Personne en séance à ce créneau.")
         m.forEach { e ->
             val sl = e.arr("horaire").first { slotMatches(it, jour, heure) }
@@ -131,8 +136,8 @@ fun TeacherDetailScreen(id: String) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Avatar(e.s("nom"), genreColor(e.s("genre")), 56)
                     Column(Modifier.padding(start = 12.dp)) {
-                        Text(e.s("nom"), fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                        if (e.s("nomAr").isNotEmpty()) Text(e.s("nomAr"), color = InkFaint)
+                        Text(e.s("nom"), fontWeight = FontWeight.Bold, fontSize = 17.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        if (e.s("nomAr").isNotEmpty()) Text(e.s("nomAr"), color = InkFaint, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Row { Tag(Ref.ENS_CYCLES[ensCycle(e)] ?: ""); Tag(Ref.STATUTS[e.s("statut")] ?: "", if (e.s("statut") == "stagiaire") Warn else Brand); Tag(Ref.GENRES[e.s("genre")] ?: "", genreColor(e.s("genre"))) }
                     }
                 }
@@ -176,6 +181,12 @@ fun TeacherDetailScreen(id: String) {
             tasks.forEach { TaskCard(it) }
             OutlinedButton(onClick = { Nav.push(Scr.TaskEdit(null, ensId = id)) }, modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) { Icon(Icons.Default.Add, null); Text("Nouvelle tâche pour cet(te) enseignant(e)") }
             if (e.s("notes").isNotEmpty()) { SectionTitle("Notes"); CardBox { Text(e.s("notes"), fontSize = 13.5.sp) } }
+            val ts = Store.list("tasks").filter { Ref.type(it) == "validation_ts" }.flatMap { t -> t.arr("feuilles").filter { it.s("enseignantId") == id }.map { t to it } }.sortedByDescending { it.first.s("echeance") }
+            if (ts.isNotEmpty()) {
+                SectionTitle("Tableaux de service (${ts.size})")
+                CardBox { ts.forEach { (t, f) -> Text(fmtDate(t.s("echeance")) + " — " + (TS_STATUTS[f.s("statut")] ?: "En attente") + if (f.s("observation").isNotEmpty()) " : " + f.s("observation") else "", fontSize = 13.sp, maxLines = 3, overflow = TextOverflow.Ellipsis) } }
+            }
+            AttachmentsSection("enseignants", id)
             Spacer(Modifier.height(40.dp))
         }
     }
@@ -230,7 +241,7 @@ fun TeacherEditScreen(id: String?, etabId: String?) {
             if (e.value.s("nom").isBlank()) { toast(ctx, "Indiquez le nom."); return@TextButton }
             Store.upsert("enseignants", e.value); toast(ctx, "Fiche enregistrée.")
             Nav.replace(Scr.EnsDetail(e.value.s("id")))
-        }) { Text("Enregistrer", color = Color.White, fontWeight = FontWeight.Bold) }
+        }) { Text("Enregistrer", color = OnBrand, fontWeight = FontWeight.Bold) }
     }) { pad ->
         Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(14.dp)) {
             TextFieldRow("Nom et prénom", g("nom"), { set("nom", it) })
@@ -244,7 +255,10 @@ fun TeacherEditScreen(id: String?, etabId: String?) {
             SelectField("Statut", Ref.STATUTS, g("statut").ifEmpty { "titulaire" }, { set("statut", it) })
             TextFieldRow("Téléphone", g("telephone"), { set("telephone", it) })
             TextFieldRow("Email", g("email"), { set("email", it) })
+            SelectField("Cycle d'enseignement", linkedMapOf("" to "Automatique") + Ref.ENS_CYCLES, g("cycleEns"), { set("cycleEns", it) })
+            SelectField("Session de titularisation visée", linkedMapOf("" to "—", "s1" to "Session 1 (avril–mai)", "s2" to "Session 2 (octobre–novembre)"), g("sessionTitularisation"), { set("sessionTitularisation", it) })
             TextFieldRow("Notes", g("notes"), { set("notes", it) }, multiline = true)
+            HoraireEditor(e.value) { tick++ }
             Spacer(Modifier.height(40.dp))
         }
     }
