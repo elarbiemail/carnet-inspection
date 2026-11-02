@@ -81,7 +81,7 @@ object Export {
                             }
                             out.parentFile?.mkdirs()
                             out.outputStream().use { doc.writeTo(it) }; doc.close()
-                            done[0] = true; try { host?.removeView(w) } catch (_: Throwable) {}; w.destroy(); cont.resume(out)
+                            done[0] = true; try { hostRef?.removeView(w) } catch (_: Throwable) {}; w.destroy(); cont.resume(out)
                         } catch (e: Throwable) { fail(e) }
                     }
                 }, 350)
