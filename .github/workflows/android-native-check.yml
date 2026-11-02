@@ -1,0 +1,46 @@
+# Vérification de compilation de la version native pendant le développement (branche natif-dev) :
+# compile le code Kotlin SANS produire ni publier d'APK.
+name: Vérification natif (sans APK)
+
+on:
+  push:
+    branches: [natif-dev]
+  workflow_dispatch:
+
+concurrency:
+  group: android-native-check
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: SDK Android
+        run: |
+          set -e
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/android-sdk}}"
+          SM="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SM" ]; then
+            mkdir -p "$SDK/cmdline-tools"
+            curl -sSL -o /tmp/clt.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+            unzip -q /tmp/clt.zip -d /tmp/clt && rm -rf "$SDK/cmdline-tools/latest" && mv /tmp/clt/cmdline-tools "$SDK/cmdline-tools/latest"
+          fi
+          yes | "$SM" --sdk_root="$SDK" --licenses > /dev/null || true
+          "$SM" --sdk_root="$SDK" "platforms;android-35" "build-tools;35.0.0" "platform-tools" > /dev/null
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "sdk.dir=$SDK" > android-native/local.properties
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Compiler le code (sans APK)
+        working-directory: android-native
+        run: gradle --no-daemon compileReleaseKotlin checkReleaseDuplicateClasses mergeReleaseJavaResource dexBuilderRelease

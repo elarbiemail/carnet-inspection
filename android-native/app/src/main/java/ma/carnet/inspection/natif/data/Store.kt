@@ -195,7 +195,11 @@ object Store {
             val l = root.optJSONObject(k)
             if (l == null || l.length() == 0 || r.s("updatedAt") > l.s("updatedAt")) root.put(k, r)
         }
-        listOf("regionsMaroc", "assetsIndex", "regionsMarocUpdatedAt").forEach { k ->
+        remote.optJSONObject("assetsIndex")?.let { ra ->
+            val la = root.optJSONObject("assetsIndex") ?: JSONObject().also { root.put("assetsIndex", it) }
+            ra.keys().forEach { k -> if (!la.has(k)) la.put(k, ra.get(k)) }
+        }
+        listOf("regionsMaroc", "regionsMarocUpdatedAt").forEach { k ->
             if (remote.has(k) && (!root.has(k) || root.isNull(k))) root.put(k, remote.get(k))
         }
         save()

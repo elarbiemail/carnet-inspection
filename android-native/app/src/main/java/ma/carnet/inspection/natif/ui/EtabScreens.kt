@@ -35,7 +35,7 @@ fun EtabRow(e: JSONObject, nEns: Int) {
                 Text(e.s("nom"), fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Row(Modifier.padding(top = 2.dp)) {
                     Tag(if (e.s("type") == "prive") "Privé" else "Public", if (e.s("type") == "prive") PriveColor else Brand)
-                    Tag(Ref.ETAB_CYCLES[e.s("cycle")] ?: "", Color(0xFF6A5D3F))
+                    Tag(Ref.ETAB_CYCLES[e.s("cycle")] ?: "", Earth)
                 }
                 Text(listOf("$nEns enseignant(s)", e.s("directeur").let { if (it.isEmpty()) "" else "Dir. $it" }).filter { it.isNotEmpty() }.joinToString(" · "),
                     color = InkFaint, fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -59,7 +59,7 @@ fun EtabsScreen() {
     val list = etabs.filter { (ty.isEmpty() || (if (ty == "prive") it.s("type") == "prive" else it.s("type") != "prive")) &&
         (nq.isEmpty() || norm(listOf(it.s("nom"), it.s("nomAr"), it.s("nomFr"), it.s("directeur")).joinToString(" ")).contains(nq)) }
     ScreenScaffold("Établissements", null, fab = {
-        FloatingActionButton(onClick = { Nav.push(Scr.EtabEdit(null)) }, containerColor = Brand, contentColor = Color.White) { Icon(Icons.Default.Add, "Nouvel établissement") }
+        FloatingActionButton(onClick = { Nav.push(Scr.EtabEdit(null)) }, containerColor = Brand, contentColor = OnBrand) { Icon(Icons.Default.Add, "Nouvel établissement") }
     }) { pad ->
         LazyColumn(Modifier.padding(pad).padding(horizontal = 14.dp)) {
             item {
@@ -95,11 +95,11 @@ fun EtabDetailScreen(id: String) {
     }) { pad ->
         Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(14.dp)) {
             CardBox {
-                Text(e.s("nom"), fontWeight = FontWeight.Bold, fontSize = 17.sp)
-                if (e.s("nomAr").isNotEmpty() && e.s("nomAr") != e.s("nom")) Text(e.s("nomAr"), color = InkFaint)
+                Text(e.s("nom"), fontWeight = FontWeight.Bold, fontSize = 17.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                if (e.s("nomAr").isNotEmpty() && e.s("nomAr") != e.s("nom")) Text(e.s("nomAr"), color = InkFaint, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Row(Modifier.padding(top = 4.dp)) {
                     Tag(if (e.s("type") == "prive") "Privé" else "Public", if (e.s("type") == "prive") PriveColor else Brand)
-                    Tag(Ref.ETAB_CYCLES[e.s("cycle")] ?: "", Color(0xFF6A5D3F))
+                    Tag(Ref.ETAB_CYCLES[e.s("cycle")] ?: "", Earth)
                     if (e.optBoolean("pionnier")) Tag("Collège pionnier", Color(0xFF7A5BB5))
                 }
                 InfoRow("Zone", zoneName(e.s("zoneId"))); InfoRow("Code MASSAR", e.s("codeMassar")); InfoRow("Adresse", e.s("adresse")); InfoRow("Téléphone", e.s("telephone"))
@@ -112,7 +112,7 @@ fun EtabDetailScreen(id: String) {
             if (e.s("directeur").isNotEmpty() || e.s("directeurTel").isNotEmpty()) {
                 SectionTitle("Directeur(trice)")
                 CardBox {
-                    Text(e.s("directeur").ifEmpty { "—" }, fontWeight = FontWeight.SemiBold)
+                    Text(e.s("directeur").ifEmpty { "—" }, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (e.s("directeurTel").isNotEmpty()) Text(e.s("directeurTel"), color = InkFaint, fontSize = 13.sp)
                     ContactButtons(e.s("directeurTel"), e.s("directeur"))
                 }
@@ -126,6 +126,20 @@ fun EtabDetailScreen(id: String) {
             tasks.take(30).forEach { TaskCard(it) }
             OutlinedButton(onClick = { Nav.push(Scr.TaskEdit(null, etabId = id)) }, modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) { Icon(Icons.Default.Add, null); Text("Nouvelle tâche dans cet établissement") }
             if (e.s("notes").isNotEmpty()) { SectionTitle("Notes"); CardBox { Text(e.s("notes"), fontSize = 13.5.sp) } }
+            SectionTitle("Documents de l'établissement")
+            val ctx2 = LocalContext.current
+            Row(Modifier.horizontalScrollRow(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { showHtml("Emploi du temps - " + e.s("nom"), etabTimetableHtml(ctx2, id), true) }) { Text("Emploi du temps hebdomadaire") }
+                OutlinedButton(onClick = { showHtml("Notes d'inspection - " + e.s("nom"), notesHtml(ctx2, Store.list("enseignants").filter { it.s("etablissementId") == id }.sortedBy { norm(it.s("nom")) }, id)) }) { Text("Fiche synthèse des notes") }
+                OutlinedButton(onClick = { Nav.push(Scr.TaskEdit(null, etabId = id)) }) { Text("Validation des tableaux de service") }
+            }
+            val tsT = Store.list("tasks").filter { Ref.type(it) == "validation_ts" && it.s("etablissementId") == id }.maxByOrNull { it.s("echeance") }
+            if (tsT != null) CardBox(onClick = { Nav.push(Scr.TaskDetail(tsT.s("id"))) }) {
+                val fs = tsT.arr("feuilles")
+                Text("Dernière validation des tableaux de service · " + fmtDate(tsT.s("echeance")), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("${fs.count { it.s("statut") == "validee" }} validée(s) · ${fs.count { it.s("statut") == "non_validee" }} non validée(s) · ${fs.count { it.s("statut").ifEmpty { "en_attente" } == "en_attente" }} en attente", color = InkFaint, fontSize = 12.5.sp)
+            }
+            AttachmentsSection("etablissements", id)
             Spacer(Modifier.height(40.dp))
         }
     }
@@ -146,7 +160,7 @@ fun EtabEditScreen(id: String?) {
             if (e.value.s("nom").isBlank()) { toast(ctx, "Indiquez le nom."); return@TextButton }
             Store.upsert("etablissements", e.value); toast(ctx, "Établissement enregistré.")
             Nav.replace(Scr.EtabDetail(e.value.s("id")))
-        }) { Text("Enregistrer", color = Color.White, fontWeight = FontWeight.Bold) }
+        }) { Text("Enregistrer", color = OnBrand, fontWeight = FontWeight.Bold) }
     }) { pad ->
         Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(14.dp)) {
             TextFieldRow("Nom", g("nom"), { set("nom", it) })
@@ -164,7 +178,9 @@ fun EtabEditScreen(id: String?) {
                 TextFieldRow("Latitude", g("latitude"), { set("latitude", it) }, modifier = Modifier.weight(1f))
                 TextFieldRow("Longitude", g("longitude"), { set("longitude", it) }, modifier = Modifier.weight(1f))
             }
+            Row(verticalAlignment = Alignment.CenterVertically) { Switch(g("pionnier") == "true", { e.value.put("pionnier", it); tick++ }); Text("Collège pionnier", Modifier.padding(start = 8.dp)) }
             TextFieldRow("Notes", g("notes"), { set("notes", it) }, multiline = true)
+            if (orig != null) EtabMergeCard(id!!)
             Spacer(Modifier.height(40.dp))
         }
     }

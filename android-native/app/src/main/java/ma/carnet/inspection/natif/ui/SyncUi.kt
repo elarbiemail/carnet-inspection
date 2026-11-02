@@ -24,9 +24,14 @@ import androidx.compose.ui.unit.sp
 import com.google.android.gms.common.api.ApiException
 import kotlinx.coroutines.launch
 import ma.carnet.inspection.natif.data.DriveSync
+import ma.carnet.inspection.natif.data.GoogleAccount
 import ma.carnet.inspection.natif.data.fmtDate
 
-object SyncHolder { var fn: (Boolean) -> Unit = {} }
+object SyncHolder {
+    var fn: (Boolean) -> Unit = {}
+    /** Exécute une action Drive avec un jeton (autorisation demandée au besoin). */
+    var withToken: (String, suspend (String) -> Unit) -> Unit = { _, _ -> }
+}
 
 object SyncState {
     val busy = mutableStateOf(false)
@@ -54,40 +59,49 @@ fun rememberDriveSyncer(): (Boolean) -> Unit {
     val ctx = LocalContext.current
     val act = ctx.findActivity()
     val scope = rememberCoroutineScope()
-    suspend fun run(token: String) {
-        try {
-            SyncState.busy.value = true; SyncState.msg.value = "Synchronisation avec Google Drive…"
-            val r = DriveSync.sync(ctx, token)
-            DriveSync.setEnabled(ctx, true)
-            SyncState.ok.value = true
-            SyncState.msg.value = (if (r.created) "Sauvegarde créée sur Google Drive." else "Synchronisé avec Google Drive.") +
-                (r.imported?.let { if (it.added + it.updated + it.removed > 0) " Reçu : ${it.added} ajout(s), ${it.updated} mise(s) à jour, ${it.removed} suppression(s)." else "" } ?: "")
-        } catch (e: Throwable) { SyncState.ok.value = false; SyncState.msg.value = syncErrorText(e) }
+    val pending = remember { arrayOfNulls<suspend (String) -> Unit>(1) }
+    suspend fun syncWith(token: String) {
+        SyncState.msg.value = "Synchronisation avec Google Drive…"
+        try { GoogleAccount.refresh(ctx, token) } catch (_: Throwable) {}
+        val r = DriveSync.sync(ctx, token)
+        DriveSync.setEnabled(ctx, true)
+        if (ma.carnet.inspection.natif.data.Exchange.auto(ctx)) try { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { ma.carnet.inspection.natif.data.Exchange.driveSync(ctx, token, true) } } catch (_: Throwable) {}
+        SyncState.ok.value = true
+        SyncState.msg.value = (if (r.created) "Sauvegarde créée sur Google Drive." else "Synchronisé avec Google Drive.") +
+            (r.imported?.let { if (it.added + it.updated + it.removed > 0) " Reçu : ${it.added} ajout(s), ${it.updated} mise(s) à jour, ${it.removed} suppression(s)." else "" } ?: "")
+    }
+    suspend fun exec(token: String, action: suspend (String) -> Unit) {
+        try { SyncState.busy.value = true; action(token) }
+        catch (e: Throwable) { SyncState.ok.value = false; SyncState.msg.value = syncErrorText(e) }
         finally { SyncState.busy.value = false }
     }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { res ->
-        if (res.resultCode == Activity.RESULT_OK && act != null) {
+        val action = pending[0]; pending[0] = null
+        if (res.resultCode == Activity.RESULT_OK && act != null && action != null) {
             scope.launch {
-                try { run(DriveSync.tokenFromIntent(act, res.data)) }
+                try { val tk = DriveSync.tokenFromIntent(act, res.data); exec(tk, action) }
                 catch (e: Throwable) { SyncState.ok.value = false; SyncState.msg.value = syncErrorText(e); SyncState.busy.value = false }
             }
         } else { SyncState.busy.value = false; SyncState.ok.value = false; SyncState.msg.value = "Autorisation Google Drive annulée." }
     }
-    return { interactive ->
-        if (act != null && !SyncState.busy.value) scope.launch {
+    fun start(label: String, interactive: Boolean, action: suspend (String) -> Unit) {
+        if (act == null || SyncState.busy.value) return
+        scope.launch {
             try {
-                SyncState.busy.value = true; SyncState.msg.value = "Connexion à Google…"
+                SyncState.busy.value = true; SyncState.msg.value = label
                 when (val a = DriveSync.authorize(act)) {
-                    is DriveSync.Auth.Ok -> run(a.token)
+                    is DriveSync.Auth.Ok -> exec(a.token, action)
                     is DriveSync.Auth.NeedsConsent -> {
                         val pi = a.result.pendingIntent
-                        if (interactive && pi != null) launcher.launch(IntentSenderRequest.Builder(pi.intentSender).build())
+                        if (interactive && pi != null) { pending[0] = action; launcher.launch(IntentSenderRequest.Builder(pi.intentSender).build()) }
                         else { SyncState.busy.value = false; SyncState.ok.value = false; SyncState.msg.value = "Touchez « Synchroniser » pour autoriser Google Drive." }
                     }
                 }
             } catch (e: Throwable) { SyncState.busy.value = false; SyncState.ok.value = false; SyncState.msg.value = syncErrorText(e) }
         }
     }
+    SyncHolder.withToken = { label, action -> start(label, true, action) }
+    return { interactive -> start("Connexion à Google…", interactive) { syncWith(it) } }
 }
 
 /** Bandeau d'état de synchronisation (accueil). */
@@ -138,7 +152,7 @@ fun DriveCard(sync: (Boolean) -> Unit) {
         HorizontalDivider(Modifier.padding(vertical = 10.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { sync(true); enabled = true }, enabled = !busy) {
-                if (busy) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = androidx.compose.ui.graphics.Color.White) else Icon(Icons.Default.Refresh, null)
+                if (busy) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = OnBrand) else Icon(Icons.Default.Refresh, null)
                 Spacer(Modifier.width(6.dp)); Text(if (enabled) "Synchroniser" else "Connecter et synchroniser")
             }
             if (enabled) OutlinedButton(onClick = { DriveSync.forget(ctx); enabled = false; SyncState.msg.value = "Synchronisation automatique désactivée." }) { Text("Déconnecter") }

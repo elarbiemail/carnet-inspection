@@ -82,6 +82,37 @@ object Docs {
         else -> listOf(Field("date", "Date", Kind.DATE))
     }
 
+    /** Longueur maximale des rubriques qui doivent tenir dans une case du formulaire officiel (0 = libre). */
+    private val MAXLEN = mapOf(
+        "rapport_inspection" to mapOf("enseignantNom" to 45, "cadre" to 45, "lieu" to 60, "localite" to 30, "classe" to 20, "matiere" to 30, "manuel" to 45, "ppr" to 12,
+            "nationalite" to 20, "par" to 30, "note" to 6, "precNote" to 6, "precInspection" to 10, "constats" to 1200, "recommandations" to 900, "texte" to 2600),
+        "rapport_formation" to mapOf("objet" to 140, "lieu" to 80, "organisateur" to 80, "formateurs" to 120, "cible" to 80, "nombre" to 6,
+            "objectifs" to 700, "axes" to 700, "conclusions" to 900, "recommandations" to 700, "evalFormation" to 10, "evalMethodologie" to 10, "evalGenerale" to 10),
+        "attestation" to mapOf("beneficiaireNom" to 60, "fonction" to 50, "objet" to 160, "lieu" to 80, "texteLibre" to 700),
+        "lettre_information" to mapOf("destinataire" to 80, "objet" to 140, "corps" to 1600),
+        "demande_voiture" to mapOf("destinataire" to 80, "objet" to 120, "destination" to 120, "corpsLibre" to 600),
+        "observation" to mapOf("enseignantNom" to 50, "classe" to 20, "matiere" to 30, "duree" to 15, "pointsForts" to 700, "axesAmelioration" to 700, "synthese" to 900),
+        "bordereau" to mapOf("destinataire" to 80, "reference" to 40, "objet" to 160, "observations" to 300),
+        "presence" to mapOf("objet" to 140, "lieu" to 80)
+    )
+    private val COLLEN = mapOf("nom" to 40, "ppr" to 12, "etablissement" to 45, "designation" to 80, "nombre" to 6, "observation" to 60, "action" to 140, "responsable" to 40, "echeance" to 20)
+    fun maxLen(type: String, key: String): Int = MAXLEN[type]?.get(key) ?: 0
+
+    /** Tronque proprement (sur un mot, avec « … ») un texte trop long pour sa case. */
+    fun fit(text: String, max: Int): String {
+        if (max <= 0 || text.length <= max) return text
+        val cut = text.take(max - 1); val sp = cut.lastIndexOf(' ')
+        return (if (sp > max * 0.7) cut.take(sp) else cut).trimEnd(' ', ',', ';', ':') + "…"
+    }
+
+    /** Copie du document dont toutes les rubriques respectent la taille des cases. */
+    fun fitted(d: JSONObject): JSONObject {
+        val c = JSONObject(d.toString()); val type = d.s("type")
+        MAXLEN[type]?.forEach { (k, m) -> if (c.has(k) && !c.isNull(k)) c.put(k, fit(c.s(k), m)) }
+        lists(type).forEach { L -> c.optJSONArray(L.key)?.let { a -> for (i in 0 until a.length()) a.optJSONObject(i)?.let { r -> L.cols.forEach { col -> COLLEN[col.key]?.let { m -> r.put(col.key, fit(r.s(col.key), m)) } } } } }
+        return c
+    }
+
     fun lists(type: String): List<ListDef> = when (type) {
         "presence" -> listOf(ListDef("participants", "Participants", listOf(Col("nom", "Nom et prénom", 2f), Col("ppr", "PPR"), Col("etablissement", "Établissement", 2f)), true))
         "compte_rendu" -> listOf(ListDef("actions", "Plan d'action", listOf(Col("action", "Action", 2f), Col("responsable", "Responsable"), Col("echeance", "Échéance"))))
@@ -152,6 +183,12 @@ object Docs {
             "plan_action" -> d.put("lieu", lieu).put("objet", task.s("titre")).put("contexte", "").put("objectifs", "").put("actions", JSONArray())
             "custom" -> if (tpl != null) d.put("templateId", tpl.s("id")).put("titre", tpl.s("nom")).put("corps", tpl.s("corps")).put("rtl", tpl.optBoolean("rtl"))
         }
+        // modèle de document personnalisé (Paramètres → Modèles) : textes de départ et zones IA
+        if (type != "custom") Store.root.optJSONObject("templates")?.optJSONObject("docTemplates")?.optJSONObject(type)?.let { dt ->
+            val vals = CustomTpl.values(d, task)
+            dt.optJSONObject("fields")?.let { f -> f.keys().forEach { k -> val txt = f.s(k); if (txt.isNotBlank() && d.s(k).isBlank()) d.put(k, CustomTpl.apply(txt, vals)) } }
+            dt.optJSONArray("aiZones")?.let { z -> if (z.length() > 0) { d.put("aiZones", JSONArray(z.toString())); d.put("aiValues", JSONObject()) } }
+        }
         return d
     }
 
@@ -206,7 +243,9 @@ object Docs {
         p { margin: 0 0 2mm; text-align: justify; line-height: 1.45; }
         .b { font-weight: bold; }
         .meta { margin: 2mm 0 4mm; } .meta div { margin: 1mm 0; }
-        table.t { width: 100%; border-collapse: collapse; margin: 2mm 0 4mm; }
+        table.t { width: 100%; border-collapse: collapse; margin: 2mm 0 4mm; table-layout: fixed; }
+        td, th, p, div { overflow-wrap: anywhere; word-break: break-word; }
+        img { max-width: 100%; }
         table.t th, table.t td { border: 1px solid #000; padding: 1.6mm 2mm; vertical-align: top; font-size: 11pt; }
         table.t th { background: #eee; }
         .sig { margin-top: 12mm; } .box { border: 1.5px solid #000; padding: 3mm; text-align: center; font-size: 15pt; font-weight: bold; margin: 3mm 0; }
@@ -215,11 +254,12 @@ object Docs {
 
     /** Enveloppe une page HTML A4 (utilisé aussi par les listes et le programme annuel). */
     fun page(body: String, rtl: Boolean, landscape: Boolean = false): String =
-        "<!DOCTYPE html><html dir=\"${if (rtl) "rtl" else "ltr"}\" lang=\"${if (rtl) "ar" else "fr"}\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\"><style>$CSS" +
+        "<!DOCTYPE html><html dir=\"${if (rtl) "rtl" else "ltr"}\" lang=\"${if (rtl) "ar" else "fr"}\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\"><style>$CSS\n" + Fonts.css(rtl) +
             (if (landscape) "\n@page { size: A4 landscape; margin: 12mm; }" else "") + "</style></head><body>$body</body></html>"
 
     /** Document HTML complet (A4). */
-    fun html(ctx: Context, d: JSONObject): String {
+    fun html(ctx: Context, d0: JSONObject): String {
+        val d = fitted(d0)
         val type = d.s("type"); val rtl = isRtl(d)
         val task = Store.byId("tasks", d.s("taskId")) ?: JSONObject()
         val p = Store.profil()
@@ -297,6 +337,12 @@ object Docs {
                 sb.append("<h1>ورقة إرسال</h1>")
                 sb.append(table(listOf("الموضوع", "العدد", "ملاحظات"), d.arr("pieces").map { listOf(it.s("designation"), it.s("nombre"), it.s("observation")) }, listOf(45, 15, 40)))
                 if (d.s("observations").isNotBlank()) sb.append(para(d.s("observations")))
+                val fs = task.arr("feuilles")
+                if (Ref.type(task) == "validation_ts" && fs.isNotEmpty()) {
+                    val st = mapOf("validee" to "مصادق عليه", "non_validee" to "غير مصادق عليه", "en_attente" to "في الانتظار")
+                    sb.append("<h2>جدول الحصص — ${h(taskEtabName(task))}</h2>")
+                    sb.append(table(listOf("ر.ت", "الاسم الكامل", "رقم التأجير", "الحالة", "ملاحظات"), fs.sortedBy { norm(it.s("nom")) }.mapIndexed { i, f -> listOf("${i + 1}", f.s("nom"), f.s("ppr"), st[f.s("statut").ifEmpty { "en_attente" }] ?: "", f.s("observation")) }, listOf(6, 28, 14, 16, 36)))
+                }
                 sb.append(signature(ctx, true, "التوقيع"))
             }
             "rapport_formation" -> {
@@ -320,6 +366,11 @@ object Docs {
             "custom" -> sb.append(CustomTpl.render(ctx, d, task))
             else -> sb.append("<h1>${h(label(d))}</h1>")
         }
-        return "<!DOCTYPE html><html dir=\"${if (rtl) "rtl" else "ltr"}\" lang=\"${if (rtl) "ar" else "fr"}\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\"><style>$CSS</style></head><body>$sb</body></html>"
+        if (type != "custom") {
+            val vals = d.optJSONObject("aiValues") ?: JSONObject()
+            val extra = d.arr("aiZones").filter { vals.s(it.s("id")).isNotBlank() }.joinToString("") { z -> "<h2>" + h(z.s("label")) + "</h2>" + para(vals.s(z.s("id"))) }
+            if (extra.isNotEmpty()) { val i = sb.lastIndexOf("<div class=\"sig\""); if (i >= 0) sb.insert(i, extra) else sb.append(extra) }
+        }
+        return page(sb.toString(), rtl)
     }
 }

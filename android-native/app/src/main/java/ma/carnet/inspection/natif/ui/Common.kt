@@ -36,28 +36,6 @@ import ma.carnet.inspection.natif.data.*
 import org.json.JSONObject
 import java.time.LocalDate
 
-// ---------------- thème ----------------
-val Brand = Color(0xFF2F6F62)
-val BrandSoft = Color(0xFFDDEBE7)
-val Paper = Color(0xFFF6F4EE)
-val Ink = Color(0xFF1F2523)
-val InkFaint = Color(0xFF6B7470)
-val Danger = Color(0xFFB3261E)
-val Warn = Color(0xFFB26A00)
-val FemColor = Color(0xFFB0427A)
-val HomColor = Color(0xFF2A6FB0)
-
-private val LightColors = lightColorScheme(
-    primary = Brand, onPrimary = Color.White, primaryContainer = BrandSoft, onPrimaryContainer = Color(0xFF0E2D27),
-    secondary = Color(0xFF6A5D3F), background = Paper, surface = Color.White, onSurface = Ink,
-    surfaceVariant = Color(0xFFEDEAE1), onSurfaceVariant = InkFaint, error = Danger
-)
-
-@Composable
-fun CarnetTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = LightColors, content = content)
-}
-
 // ---------------- actions système ----------------
 fun toast(ctx: Context, msg: String) = Toast.makeText(ctx, msg, Toast.LENGTH_SHORT).show()
 
@@ -114,8 +92,8 @@ fun CardBox(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, conten
 fun InfoRow(label: String, value: String) {
     if (value.isBlank()) return
     Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
-        Text(label, Modifier.width(120.dp), color = InkFaint, fontSize = 13.sp)
-        Text(value, Modifier.weight(1f), fontSize = 14.sp)
+        Text(label, Modifier.width(120.dp), color = InkFaint, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(value, Modifier.weight(1f), fontSize = 14.sp, maxLines = 6, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -123,7 +101,7 @@ fun InfoRow(label: String, value: String) {
 fun Tag(text: String, color: Color = Brand) {
     if (text.isBlank()) return
     Text(text, Modifier.padding(end = 6.dp, bottom = 2.dp).clip(RoundedCornerShape(6.dp)).background(color.copy(alpha = 0.12f))
-        .padding(horizontal = 7.dp, vertical = 2.dp), color = color, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+        .padding(horizontal = 7.dp, vertical = 2.dp), color = color, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
 }
 
 @Composable
@@ -178,7 +156,7 @@ fun SelectField(label: String, options: Map<String, String>, value: String, onCh
         Box(Modifier.matchParentSize().clickable { open = true })
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             if (allowEmpty) DropdownMenuItem(text = { Text("—") }, onClick = { onChange(""); open = false })
-            options.forEach { (k, v) -> DropdownMenuItem(text = { Text(v) }, onClick = { onChange(k); open = false }) }
+            options.forEach { (k, v) -> DropdownMenuItem(text = { Text(v, maxLines = 2, overflow = TextOverflow.Ellipsis) }, onClick = { onChange(k); open = false }) }
         }
     }
 }
@@ -218,7 +196,7 @@ fun PickerDialog(title: String, items: List<JSONObject>, label: (JSONObject) -> 
             Column(Modifier.padding(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Fermer") }
-                    Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                    Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
                     TextButton(onClick = { onPick(null) }) { Text("Aucun") }
                 }
                 SearchField(q, { q = it }, "Rechercher…")
@@ -255,8 +233,8 @@ fun ScreenScaffold(title: String, onBack: (() -> Unit)?, actions: @Composable Ro
             TopAppBar(title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = { if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Retour") } },
                 actions = actions,
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Brand, titleContentColor = Color.White,
-                    navigationIconContentColor = Color.White, actionIconContentColor = Color.White))
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Brand, titleContentColor = OnBrand,
+                    navigationIconContentColor = OnBrand, actionIconContentColor = OnBrand))
         },
         floatingActionButton = fab,
         containerColor = MaterialTheme.colorScheme.background,
@@ -290,7 +268,7 @@ fun ZoneFilterBar() {
             DropdownMenuItem(text = { Text("Toutes les zones") }, onClick = { Store.setZoneFilter(emptySet()); open = false })
             (zones.map { it.s("id") to it.s("nom") } + listOf("__none" to "Sans zone")).forEach { (id, nom) ->
                 DropdownMenuItem(text = {
-                    Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(checked = id in f, onCheckedChange = null); Spacer(Modifier.width(8.dp)); Text(nom) }
+                    Row(verticalAlignment = Alignment.CenterVertically) { Checkbox(checked = id in f, onCheckedChange = null); Spacer(Modifier.width(8.dp)); Text(nom, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                 }, onClick = { Store.setZoneFilter(if (id in f) f - id else f + id) })
             }
         }

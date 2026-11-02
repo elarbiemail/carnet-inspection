@@ -76,11 +76,19 @@ fun HomeScreen() {
         .sortedBy { it.s("echeance") + taskTime(it) }
     val late = tasks.filter { isLate(it) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        Column(Modifier.fillMaxWidth().background(Brand).statusBarsPadding().padding(horizontal = 18.dp, vertical = 20.dp)) {
-            Text("Carnet d'Inspection", color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
-            Text("Bonjour" + p.s("nomSignature").ifEmpty { p.s("nom") }.let { if (it.isEmpty()) "" else ", $it" },
-                color = Color.White, fontSize = 21.sp, fontWeight = FontWeight.Bold)
-            Text(fmtLong(today.toString()), color = Color.White.copy(alpha = 0.85f), fontSize = 13.sp)
+        Row(Modifier.fillMaxWidth().background(Brand).statusBarsPadding().padding(horizontal = 18.dp, vertical = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Carnet d'Inspection", color = OnBrand.copy(alpha = 0.8f), fontSize = 13.sp)
+                Text("Bonjour" + p.s("nomSignature").ifEmpty { p.s("nom") }.ifEmpty { GoogleAccount.name(LocalContext.current) }.let { if (it.isEmpty()) "" else ", $it" },
+                    color = OnBrand, fontSize = 21.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(fmtLong(today.toString()), color = OnBrand.copy(alpha = 0.85f), fontSize = 13.sp)
+                Row {
+                    IconButton(onClick = { Nav.push(Scr.Search) }) { Icon(Icons.Default.Search, "Rechercher", tint = OnBrand) }
+                    IconButton(onClick = { Nav.push(Scr.Help("accueil")) }) { Icon(Icons.Default.Info, "Aide", tint = OnBrand) }
+                    IconButton(onClick = { SyncHolder.fn(true) }) { Icon(Icons.Default.Refresh, "Synchroniser", tint = OnBrand) }
+                }
+            }
+            ProfileAvatar(84) { Nav.push(Scr.Settings("profil")) }
         }
         Column(Modifier.padding(horizontal = 14.dp)) {
             Row(Modifier.padding(top = 10.dp)) { ZoneFilterBar() }
@@ -128,17 +136,17 @@ fun HomeScreen() {
 
 @Composable
 fun Kpi(label: String, value: String, modifier: Modifier, color: Color = Brand, onClick: () -> Unit) {
-    Card(onClick = onClick, modifier = modifier, colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(1.dp)) {
+    Card(onClick = onClick, modifier = modifier, colors = CardDefaults.cardColors(containerColor = Surface), elevation = CardDefaults.cardElevation(1.dp)) {
         Column(Modifier.padding(14.dp)) {
-            Text(value, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = color)
-            Text(label, color = InkFaint, fontSize = 12.5.sp)
+            Text(value, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(label, color = InkFaint, fontSize = 12.5.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }
 }
 
 @Composable
 fun MiniCard(title: String, sub: String, color: Color = Brand, onClick: () -> Unit) {
-    Card(onClick = onClick, modifier = Modifier.width(150.dp), colors = CardDefaults.cardColors(containerColor = Color.White), elevation = CardDefaults.cardElevation(1.dp)) {
+    Card(onClick = onClick, modifier = Modifier.width(150.dp), colors = CardDefaults.cardColors(containerColor = Surface), elevation = CardDefaults.cardElevation(1.dp)) {
         Column(Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Avatar(title, color, 46)
             Text(title, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
@@ -162,7 +170,7 @@ fun TasksScreen() {
         (nq.isEmpty() || norm(listOf(t.s("titre"), taskEnsName(t), taskEtabName(t), t.s("lieu")).joinToString(" ")).contains(nq))
     }.sortedWith(compareByDescending<JSONObject> { it.s("echeance") })
     ScreenScaffold("Tâches", null, fab = {
-        FloatingActionButton(onClick = { Nav.push(Scr.TaskEdit(null)) }, containerColor = Brand, contentColor = Color.White) { Icon(Icons.Default.Add, "Nouvelle tâche") }
+        FloatingActionButton(onClick = { Nav.push(Scr.TaskEdit(null)) }, containerColor = Brand, contentColor = OnBrand) { Icon(Icons.Default.Add, "Nouvelle tâche") }
     }) { pad ->
         LazyColumn(Modifier.padding(pad).padding(horizontal = 14.dp)) {
             item {
@@ -192,6 +200,7 @@ fun TaskDetailScreen(id: String) {
     ScreenScaffold(t.s("titre").ifEmpty { autoTaskTitle(t) }, { Nav.pop() }, actions = {
         IconButton(onClick = { Nav.push(Scr.TaskEdit(id)) }) { Icon(Icons.Default.Edit, "Modifier") }
         IconButton(onClick = { askDelete = true }) { Icon(Icons.Default.Delete, "Supprimer") }
+        HelpButton("tache")
     }) { pad ->
         Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(14.dp)) {
             Row { Tag(Ref.TASK_TYPES[Ref.type(t)] ?: "", Brand); Tag(Ref.WORKFLOW[st] ?: "", statutColor(st)); if (isLate(t)) Tag("En retard", Danger) }
@@ -208,7 +217,7 @@ fun TaskDetailScreen(id: String) {
             val ens = Store.byId("enseignants", t.s("enseignantId"))
             if (ens != null) {
                 CardBox(onClick = { Nav.push(Scr.EnsDetail(ens.s("id"))) }) {
-                    Text(ens.s("nom"), fontWeight = FontWeight.SemiBold)
+                    Text(ens.s("nom"), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(listOf(ens.s("cadre"), ens.s("ppr").let { if (it.isEmpty()) "" else "PPR $it" }).filter { it.isNotEmpty() }.joinToString(" · "), color = InkFaint, fontSize = 12.5.sp)
                     ContactButtons(ens.s("telephone"), ens.s("nom"), ens.s("email"))
                 }
@@ -216,7 +225,7 @@ fun TaskDetailScreen(id: String) {
             val et = Store.byId("etablissements", t.s("etablissementId"))
             if (et != null && (et.s("directeurTel").isNotEmpty() || et.s("telephone").isNotEmpty())) {
                 CardBox(onClick = { Nav.push(Scr.EtabDetail(et.s("id"))) }) {
-                    Text(et.s("nom"), fontWeight = FontWeight.SemiBold)
+                    Text(et.s("nom"), fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     if (et.s("directeur").isNotEmpty()) Text("Directeur(trice) : " + et.s("directeur"), color = InkFaint, fontSize = 12.5.sp)
                     ContactButtons(et.s("directeurTel").ifEmpty { et.s("telephone") }, et.s("directeur"))
                 }
@@ -235,7 +244,9 @@ fun TaskDetailScreen(id: String) {
                 SectionTitle("Invité(e)s (${inv.size})")
                 CardBox { inv.forEach { i -> Text("• " + i.s("nom") + i.s("ppr").let { if (it.isEmpty()) "" else "  (PPR $it)" }, fontSize = 13.5.sp, modifier = Modifier.padding(vertical = 2.dp)) } }
             }
+            if (Ref.type(t) == "validation_ts") TsSection(t)
             TaskDocsSection(t)
+            AttachmentsSection("tasks", id)
             Spacer(Modifier.height(40.dp))
         }
     }
@@ -279,12 +290,13 @@ fun TaskEditScreen(id: String?, etabId: String?, ensId: String?) {
             Store.upsert("tasks", o)
             toast(ctx, "Tâche enregistrée.")
             Nav.replace(Scr.TaskDetail(o.s("id")))
-        }) { Text("Enregistrer", color = Color.White, fontWeight = FontWeight.Bold) }
+        }) { Text("Enregistrer", color = OnBrand, fontWeight = FontWeight.Bold) }
     }) { pad ->
         Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(14.dp)) {
             SelectField("Type de tâche", Ref.TASK_TYPES, g("taskType").ifEmpty { "inspection" }, { set("taskType", it) })
             TextFieldRow("Titre (vide = automatique : ${autoTaskTitle(t.value)})", g("titre"), { set("titre", it) })
             DateField("Date", g("echeance"), { set("echeance", it) })
+            Reminders.vacanceFor(g("echeance"))?.let { vac -> Text("Attention : cette date tombe pendant « ${vac.s("nom")} ».", color = Warn, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TimeField("Début", g("heureDebut").ifEmpty { g("heure") }, { set("heureDebut", it); set("heure", it) }, Modifier.weight(1f))
                 TimeField("Fin", g("heureFin"), { set("heureFin", it) }, Modifier.weight(1f))
@@ -310,8 +322,8 @@ fun TaskEditScreen(id: String?, etabId: String?, ensId: String?) {
                 t.value.arr("invites").forEachIndexed { i, iv ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            Text(iv.s("nom"), fontSize = 13.5.sp, fontWeight = FontWeight.Medium)
-                            Text(listOf(iv.s("ppr"), iv.s("etablissementNom")).filter { it.isNotEmpty() }.joinToString(" · "), color = InkFaint, fontSize = 12.sp)
+                            Text(iv.s("nom"), fontSize = 13.5.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(listOf(iv.s("ppr"), iv.s("etablissementNom")).filter { it.isNotEmpty() }.joinToString(" · "), color = InkFaint, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         IconButton(onClick = {
                             val a = t.value.optJSONArray("invites") ?: JSONArray(); val n = JSONArray(); for (j in 0 until a.length()) if (j != i) n.put(a.opt(j)); t.value.put("invites", n); tick++

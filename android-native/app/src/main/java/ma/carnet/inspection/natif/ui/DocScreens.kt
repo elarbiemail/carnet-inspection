@@ -26,6 +26,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import ma.carnet.inspection.natif.data.*
 import org.json.JSONArray
 import org.json.JSONObject
@@ -82,6 +86,14 @@ fun FlowRowCompat(content: @Composable () -> Unit) {
     }
 }
 
+/** Compteur de caractères pour les cases de taille limitée (le surplus est tronqué dans le document). */
+@Composable
+fun LengthHint(text: String, max: Int) {
+    if (max <= 0 || text.length < max * 0.8) return
+    Text(if (text.length > max) "${text.length} / $max caractères : la fin sera tronquée (…) pour tenir dans la case." else "${text.length} / $max caractères",
+        color = if (text.length > max) Danger else InkFaint, fontSize = 11.5.sp, modifier = Modifier.padding(start = 4.dp, bottom = 4.dp))
+}
+
 @Composable
 fun AiButton(label: String = "Rédiger avec l'IA", busy: Boolean, onClick: () -> Unit) {
     TextButton(onClick = onClick, enabled = !busy) {
@@ -112,17 +124,17 @@ fun DocEditScreen(docId: String?, taskId: String, type: String, tplId: String?) 
     val rtl = Docs.isRtl(d.value)
     fun save(): String { Store.upsert("documents", d.value); return d.value.s("id") }
     fun runAi(key: String, prompt: String, apply: (String) -> Unit) {
-        if (!Ai.ready(ctx)) { toast(ctx, "Ajoutez votre clé Gemini dans Plus → Paramètres."); return }
+        if (!Ai.ready(ctx)) { toast(ctx, Ai.NOT_READY); return }
         aiBusy = key
         scope.launch {
-            try { apply(Ai.generate(ctx, prompt)) } catch (e: Exception) { toast(ctx, e.message ?: "Erreur IA") }
+            try { apply(Ai.generate(ctx, prompt)) } catch (e: Throwable) { toast(ctx, e.message ?: "Erreur IA") }
             aiBusy = ""
         }
     }
     ScreenScaffold(Docs.label(d.value), { Nav.pop() }, actions = {
         IconButton(onClick = { val id = save(); Nav.replace(Scr.DocPreview(id)) }) { Icon(Icons.Default.Search, "Aperçu") }
         if (orig != null) IconButton(onClick = { askDelete = true }) { Icon(Icons.Default.Delete, "Supprimer") }
-        TextButton(onClick = { save(); toast(ctx, "Document enregistré."); Nav.pop() }) { Text("Enregistrer", color = Color.White, fontWeight = FontWeight.Bold) }
+        TextButton(onClick = { save(); toast(ctx, "Document enregistré."); Nav.pop() }) { Text("Enregistrer", color = OnBrand, fontWeight = FontWeight.Bold) }
     }) { pad ->
         Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(14.dp)) {
             if (rtl) Text("Document rédigé en arabe.", color = InkFaint, fontSize = 12.sp)
@@ -133,11 +145,12 @@ fun DocEditScreen(docId: String?, taskId: String, type: String, tplId: String?) 
                     Docs.Kind.SELECT -> SelectField(f.label, f.options.associateWith { it }, g(f.key), { set(f.key, it) }, allowEmpty = true)
                     Docs.Kind.AREA -> {
                         TextFieldRow(f.label, g(f.key), { set(f.key, it) }, multiline = true)
+                        LengthHint(g(f.key), Docs.maxLen(type, f.key))
                         if (f.ai) AiButton(if (g(f.key).isBlank()) "Rédiger avec l'IA" else "Enrichir avec l'IA", aiBusy == f.key) {
                             runAi(f.key, Ai.fieldPrompt(d.value, f.label, f.key, task, rtl)) { set(f.key, it) }
                         }
                     }
-                    else -> TextFieldRow(f.label, g(f.key), { set(f.key, it) })
+                    else -> { TextFieldRow(f.label, g(f.key), { set(f.key, it) }); LengthHint(g(f.key), Docs.maxLen(type, f.key)) }
                 }
             }
             // grille d'observation : critères
@@ -218,19 +231,73 @@ fun DocPreviewScreen(docId: String) {
     val ctx = LocalContext.current
     val v by Store.version
     val d = remember(v, docId) { Store.byId("documents", docId) }
-    var web by remember { mutableStateOf<WebView?>(null) }
     if (d == null) { ScreenScaffold("Document", { Nav.pop() }) { EmptyState("Document introuvable.") }; return }
     val html = remember(v, docId) { Docs.html(ctx, d) }
     val task = Store.byId("tasks", d.s("taskId"))
-    val name = (Docs.label(d) + "_" + (task?.s("titre") ?: d.s("titre"))).replace(Regex("[\\\\/:*?\"<>|]+"), "_").take(80)
-    ScreenScaffold(Docs.label(d), { Nav.pop() }, actions = {
+    val name = Export.safeName(Docs.label(d) + " - " + (task?.s("titre") ?: d.s("titre")))
+    PreviewWithExport(Docs.label(d), html, name, false, d.s("taskId").ifEmpty { null }, extra = {
         IconButton(onClick = { Nav.push(Scr.DocEdit(docId, d.s("taskId"), d.s("type"), null)) }) { Icon(Icons.Default.Edit, "Modifier") }
-        IconButton(onClick = { web?.let { printWeb(ctx, it, name) } }) { Icon(Icons.Default.Share, "Imprimer / PDF") }
+    })
+}
+
+fun printWeb(ctx: Context, web: WebView, name: String) {
+    val pm = ctx.getSystemService(Context.PRINT_SERVICE) as PrintManager
+    pm.print(name, web.createPrintDocumentAdapter(name), PrintAttributes.Builder().setMediaSize(PrintAttributes.MediaSize.ISO_A4).build())
+}
+
+/** Aperçu A4 + exports : PDF, Word, Excel, impression, Google Drive, pièce jointe de la tâche. */
+@Composable
+fun PreviewWithExport(title: String, html: String, name: String, landscape: Boolean, taskId: String?, extra: @Composable RowScope.() -> Unit = {}) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var web by remember { mutableStateOf<WebView?>(null) }
+    var busy by remember { mutableStateOf("") }
+    var last by remember { mutableStateOf<java.io.File?>(null) }
+    val hasTables = remember(html) { html.contains("<table") }
+    val saveAs = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri -> val f = last; if (uri != null && f != null) { FileOps.copyTo(ctx, f, uri); toast(ctx, "Fichier enregistré.") } }
+    suspend fun make(kind: String): java.io.File {
+        val dir = Export.outDir(ctx)
+        return when (kind) {
+            "pdf" -> Export.pdf(ctx, html, java.io.File(dir, "$name.pdf"), landscape)
+            "docx" -> withContext(Dispatchers.IO) { Export.docx(ctx, html, java.io.File(dir, "$name.docx"), landscape) }
+            else -> withContext(Dispatchers.IO) { Export.xlsx(Export.tablesOf(html), java.io.File(dir, "$name.xlsx")) }
+        }
+    }
+    fun run(kind: String, then: (java.io.File) -> Unit) {
+        busy = kind
+        scope.launch { try { val f = make(kind); last = f; then(f) } catch (e: Throwable) { toast(ctx, "Échec : " + (e.message ?: e.javaClass.simpleName)) }; busy = "" }
+    }
+    var menu by remember { mutableStateOf<String?>(null) }
+    ScreenScaffold(title, { Nav.pop() }, actions = {
+        extra()
+        IconButton(onClick = { web?.let { printWeb(ctx, it, name) } }) { Icon(Icons.Default.Share, "Imprimer") }
+        HelpButton("document")
     }) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Imprimez ou enregistrez en PDF (choisissez « Enregistrer au format PDF »).", fontSize = 12.sp, color = InkFaint, modifier = Modifier.weight(1f))
-                Button(onClick = { web?.let { printWeb(ctx, it, name) } }) { Text("PDF / Imprimer") }
+            Row(Modifier.fillMaxWidth().horizontalScrollRow().padding(horizontal = 8.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                listOf("pdf" to "PDF", "docx" to "Word", "xlsx" to "Excel").filter { it.first != "xlsx" || hasTables }.forEach { (k, l) ->
+                    Box {
+                        Button(onClick = { menu = k }, enabled = busy.isEmpty(), contentPadding = PaddingValues(horizontal = 14.dp)) {
+                            if (busy == k) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp, color = OnBrand) else Icon(Icons.Default.Create, null, Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp)); Text(l)
+                        }
+                        DropdownMenu(expanded = menu == k, onDismissRequest = { menu = null }) {
+                            DropdownMenuItem(text = { Text("Ouvrir dans la liseuse") }, onClick = { menu = null; run(k) { openInViewer(it, it.name) } })
+                            DropdownMenuItem(text = { Text("Partager (WhatsApp, e-mail…)") }, onClick = { menu = null; run(k) { FileOps.share(ctx, it, title) } })
+                            DropdownMenuItem(text = { Text("Enregistrer sur le téléphone") }, onClick = { menu = null; run(k) { f -> saveAs.launch(f.name) } })
+                            DropdownMenuItem(text = { Text("Ouvrir avec une autre application") }, onClick = { menu = null; run(k) { FileOps.openWith(ctx, it) } })
+                            DropdownMenuItem(text = { Text("Enregistrer sur Google Drive") }, onClick = {
+                                menu = null
+                                run(k) { f -> SyncHolder.withToken("Envoi sur Google Drive…") { tk ->
+                                    withContext(Dispatchers.IO) { DriveSync.uploadBytes(tk, DriveSync.subFolder(tk, "Documents générés"), f.name, FileOps.mime(f.name), f.readBytes()) }
+                                    SyncState.ok.value = true; SyncState.msg.value = "« ${f.name} » enregistré dans Google Drive (Documents générés)."; toast(ctx, "Enregistré sur Google Drive.")
+                                } }
+                            })
+                            if (taskId != null) DropdownMenuItem(text = { Text("Joindre à la tâche") }, onClick = { menu = null; run(k) { f -> Attach.addFile(ctx, "tasks", taskId, f, f.name, FileOps.mime(f.name)); toast(ctx, "Joint à la tâche.") } })
+                        }
+                    }
+                }
+                OutlinedButton(onClick = { web?.let { printWeb(ctx, it, name) } }) { Text("Imprimer") }
             }
             AndroidView(factory = { c ->
                 WebView(c).apply {
@@ -239,14 +306,9 @@ fun DocPreviewScreen(docId: String) {
                     webViewClient = WebViewClient()
                     web = this
                 }
-            }, update = { it.loadDataWithBaseURL("file:///android_asset/", html, "text/html", "utf-8", null) }, modifier = Modifier.fillMaxSize())
+            }, update = { if (it.tag != html) { it.tag = html; it.loadDataWithBaseURL("file:///android_asset/", html, "text/html", "utf-8", null) } }, modifier = Modifier.fillMaxSize())
         }
     }
-}
-
-fun printWeb(ctx: Context, web: WebView, name: String) {
-    val pm = ctx.getSystemService(Context.PRINT_SERVICE) as PrintManager
-    pm.print(name, web.createPrintDocumentAdapter(name), PrintAttributes.Builder().setMediaSize(PrintAttributes.MediaSize.ISO_A4).build())
 }
 
 // ---------------- Tous les documents ----------------

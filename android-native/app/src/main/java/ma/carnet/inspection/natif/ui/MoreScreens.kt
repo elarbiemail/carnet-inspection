@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ma.carnet.inspection.natif.data.*
@@ -29,31 +30,38 @@ import java.time.LocalDate
 @Composable
 fun MoreScreen() {
     val v by Store.version
+    val gv by GoogleAccount.version
     val p = remember(v) { Store.profil() }
     val ctx = LocalContext.current
-    ScreenScaffold("Plus", null) { pad ->
+    var logout by remember { mutableStateOf(false) }
+    ScreenScaffold("Plus", null, actions = { IconButton(onClick = { Nav.push(Scr.Search) }) { Icon(Icons.Default.Search, "Rechercher") }; HelpButton("demarrer") }) { pad ->
         Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(14.dp)) {
-            CardBox {
+            CardBox(onClick = { Nav.push(Scr.Settings("profil")) }) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Avatar(p.s("nomSignature").ifEmpty { p.s("nom") }.ifEmpty { "Profil" }, Brand, 54)
-                    Column(Modifier.padding(start = 12.dp)) {
-                        Text(p.s("nomSignature").ifEmpty { p.s("nom") }.ifEmpty { "Profil non renseigné" }, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                        Text(listOf(p.s("grade"), p.s("matiere")).filter { it.isNotEmpty() }.joinToString(" · "), color = InkFaint, fontSize = 12.5.sp)
-                        Text(listOf(p.s("province"), p.s("academieRegionale")).filter { it.isNotEmpty() }.joinToString(" · "), color = InkFaint, fontSize = 12.sp)
+                    ProfileAvatar(64)
+                    Column(Modifier.padding(start = 12.dp).weight(1f)) {
+                        Text(p.s("nomSignature").ifEmpty { p.s("nom") }.ifEmpty { GoogleAccount.name(ctx) }.ifEmpty { "Profil non renseigné" }, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(listOf(p.s("grade"), p.s("matiere")).filter { it.isNotEmpty() }.joinToString(" · "), color = InkFaint, fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(listOf(p.s("province"), p.s("academieRegionale")).filter { it.isNotEmpty() }.joinToString(" · "), color = InkFaint, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        gv
+                        Text(if (GoogleAccount.signedIn(ctx)) "Google : " + GoogleAccount.email(ctx) else "Non connecté à Google", color = if (GoogleAccount.signedIn(ctx)) Brand else InkFaint, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
-            MenuItem(Icons.Default.Create, "Documents", "Tous les documents produits : aperçu, PDF, impression") { Nav.push(Scr.DocsAll) }
+            MenuItem(Icons.Default.Create, "Documents", "Tous les documents produits : aperçu, PDF, Word, Excel") { Nav.push(Scr.DocsAll) }
+            MenuItem(Icons.Default.Search, "Liseuse de documents", "Ouvrir un PDF, un Word, un Excel, une image…") { ViewerHolder.file = null; ViewerHolder.title = ""; Nav.push(Scr.Viewer) }
             MenuItem(Icons.Default.DateRange, "Programme annuel", "Préambule, catégories, activités, descriptions par l'IA") { Nav.push(Scr.Programme) }
             MenuItem(Icons.Default.Check, "Notes d'inspection", "Liste globale, par zone ou par établissement") { Nav.push(Scr.Notes) }
+            MenuItem(Icons.Default.Star, "Bilan", "Graphiques au choix, bilan PDF / Word / Excel") { Nav.push(Scr.Bilan) }
             MenuItem(Icons.Default.LocationOn, "Zones", "Gérer les zones d'établissements") { Nav.push(Scr.Zones) }
-            MenuItem(Icons.Default.Settings, "Paramètres", "Profil, clé IA Gemini, logo / signature / cachet") { Nav.push(Scr.Settings) }
-            MenuItem(Icons.Default.Star, "Bilan", "Statistiques de la période, par type et par statut") { Nav.push(Scr.Bilan) }
-            MenuItem(Icons.Default.Refresh, "Données et synchronisation", "Importer la sauvegarde du carnet web, exporter vos modifications") { Nav.push(Scr.Data) }
-            MenuItem(Icons.Default.Share, "Ouvrir le carnet web", "Documents Word/PDF, modèles, IA, programme annuel") { openUri(ctx, WEB_URL) }
-            MenuItem(Icons.Default.Info, "Aide et contact", "Fonctionnement, contact") { Nav.push(Scr.About) }
+            MenuItem(Icons.Default.Settings, "Paramètres", "Profil, compte Google, IA, thèmes, modèles, vacances…") { Nav.push(Scr.Settings()) }
+            MenuItem(Icons.Default.Refresh, "Données et synchronisation", "Google Drive, import / export, CSV") { Nav.push(Scr.Data) }
+            MenuItem(Icons.Default.Info, "Aide et contact", "Aide illustrée par les captures de vos écrans") { Nav.push(Scr.Help("")) }
+            MenuItem(Icons.Default.Share, "Ouvrir le carnet web", "La version web du carnet, dans le navigateur") { openUri(ctx, WEB_URL) }
+            MenuItem(Icons.Default.ExitToApp, "Déconnexion et fermeture", "Synchroniser, se déconnecter de Google et fermer") { logout = true }
         }
     }
+    if (logout) LogoutDialog { logout = false }
 }
 
 @Composable
@@ -62,59 +70,10 @@ fun MenuItem(icon: ImageVector, title: String, sub: String, onClick: () -> Unit)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(BrandSoft), contentAlignment = Alignment.Center) { Icon(icon, null, tint = Brand) }
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                Text(title, fontWeight = FontWeight.SemiBold)
-                Text(sub, color = InkFaint, fontSize = 12.5.sp)
+                Text(title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(sub, color = InkFaint, fontSize = 12.5.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
             Icon(Icons.Default.KeyboardArrowRight, null, tint = InkFaint)
-        }
-    }
-}
-
-// ---------------- Bilan ----------------
-@Composable
-fun BilanScreen() {
-    val v by Store.version
-    var period by remember { mutableStateOf("annee") }
-    val today = LocalDate.now()
-    val from = when (period) {
-        "mois" -> today.withDayOfMonth(1)
-        "trimestre" -> today.minusMonths(((today.monthValue - 1) % 3).toLong()).withDayOfMonth(1)
-        else -> if (today.monthValue >= 9) LocalDate.of(today.year, 9, 1) else LocalDate.of(today.year - 1, 9, 1)
-    }
-    val to = when (period) {
-        "mois" -> from.plusMonths(1).minusDays(1)
-        "trimestre" -> from.plusMonths(3).minusDays(1)
-        else -> LocalDate.of(from.year + 1, 8, 31)
-    }
-    val list = remember(v, period) { Store.tasks().filter { val d = parseDate(it.s("echeance")); d != null && !d.isBefore(from) && !d.isAfter(to) } }
-    val done = list.count { Ref.statut(it) in Ref.DONE }
-    val visites = list.filter { Ref.type(it) == "inspection" || Ref.type(it) == "visite_conseil" }
-    val ensVis = visites.map { it.s("enseignantId") }.filter { it.isNotEmpty() }.toSet()
-    val ensTotal = Store.enseignants().size
-    ScreenScaffold("Bilan", { Nav.pop() }) { pad ->
-        Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(14.dp)) {
-            ZoneFilterBar()
-            ChipRow(mapOf("mois" to "Ce mois", "trimestre" to "Trimestre", "annee" to "Année scolaire"), period, { if (it.isNotEmpty()) period = it }, null)
-            Text("Du ${fmtDate(from.toString())} au ${fmtDate(to.toString())}", color = InkFaint, fontSize = 12.5.sp, modifier = Modifier.padding(top = 4.dp))
-            Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Kpi("Tâches", list.size.toString(), Modifier.weight(1f)) {}
-                Kpi("Réalisées", if (list.isEmpty()) "0 %" else "${done * 100 / list.size} %", Modifier.weight(1f)) {}
-            }
-            Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Kpi("Inspections et visites", visites.size.toString(), Modifier.weight(1f)) {}
-                Kpi("Enseignants vus", "${ensVis.size} / $ensTotal", Modifier.weight(1f)) {}
-            }
-            Bars("Avancement", Ref.WORKFLOW.map { (k, l) -> l to list.count { Ref.statut(it) == k } }, statutColorsFor())
-            Bars("Par type d'activité", Ref.TASK_TYPES.map { (k, l) -> l to list.count { Ref.type(it) == k } }.filter { it.second > 0 }.sortedByDescending { it.second })
-            val byEtab = list.groupBy { taskEtabName(it).ifEmpty { "Non renseigné" } }.map { it.key to it.value.size }.sortedByDescending { it.second }.take(10)
-            Bars("Par établissement", byEtab)
-            val ens = Store.enseignants()
-            val tranches = listOf("Moins de 12", "12 – 14", "14 – 16", "16 – 18", "18 et plus", "Sans note")
-            val notes = ens.map { e -> ensInspections(e).firstOrNull()?.let { noteNum(it.note) } }
-            Bars("Dernières notes d'inspection", tranches.mapIndexed { i, l ->
-                l to notes.count { n -> when (i) { 0 -> n != null && n < 12; 1 -> n != null && n >= 12 && n < 14; 2 -> n != null && n >= 14 && n < 16; 3 -> n != null && n >= 16 && n < 18; 4 -> n != null && n >= 18; else -> n == null } }
-            })
-            Spacer(Modifier.height(40.dp))
         }
     }
 }
@@ -131,7 +90,7 @@ fun Bars(title: String, data: List<Pair<String, Int>>, colors: List<Color>? = nu
         data.forEachIndexed { i, (l, n) ->
             Column(Modifier.padding(vertical = 4.dp)) {
                 Row { Text(l, fontSize = 13.sp, modifier = Modifier.weight(1f)); Text("$n (${n * 100 / tot} %)", fontSize = 12.5.sp, color = InkFaint) }
-                Box(Modifier.fillMaxWidth().height(9.dp).clip(RoundedCornerShape(5.dp)).background(Color(0xFFEDEAE1))) {
+                Box(Modifier.fillMaxWidth().height(9.dp).clip(RoundedCornerShape(5.dp)).background(Track)) {
                     if (n > 0) Box(Modifier.fillMaxWidth(n.toFloat() / max).fillMaxHeight().clip(RoundedCornerShape(5.dp)).background(colors?.getOrNull(i) ?: Brand))
                 }
             }
@@ -177,7 +136,10 @@ fun DataScreen() {
                 if (lastImport.isNotEmpty()) Text("Dernier import : " + fmtDate(lastImport) + " " + lastImport.substring(11, 16), color = InkFaint, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
                 if (lastExport.isNotEmpty()) Text("Dernier export : " + fmtDate(lastExport) + " " + lastExport.substring(11, 16), color = InkFaint, fontSize = 12.sp)
             }
+            GoogleAccountCard()
             DriveCard(SyncHolder.fn)
+            CsvImportCard()
+            SheetsCard()
             SectionTitle("Ou par fichier : recevoir les données du carnet web")
             CardBox {
                 Text("Choisissez le fichier « sauvegarde-donnees.json » dans votre Google Drive (dossier de l'application → Sauvegardes). Les fiches les plus récentes remplacent les anciennes ; rien n'est perdu.", fontSize = 13.5.sp)
