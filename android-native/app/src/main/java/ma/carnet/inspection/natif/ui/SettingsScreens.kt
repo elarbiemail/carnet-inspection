@@ -45,7 +45,7 @@ import java.io.File
 
 val SETTINGS_TABS = linkedMapOf(
     "profil" to "Profil", "compte" to "Compte Google", "ia" to "Assistant IA", "apparence" to "Apparence",
-    "modeles" to "Modèles de documents", "referentiel" to "Régions / DP", "notifications" to "Notifications", "vacances" to "Vacances"
+    "modeles" to "Modèles de documents", "referentiel" to "Régions / DP", "inspectapp" to "InspectApp", "notifications" to "Notifications", "vacances" to "Vacances"
 )
 
 @Composable
@@ -63,6 +63,7 @@ fun SettingsScreen(initial: String) {
                     "apparence" -> ApparenceTab()
                     "modeles" -> ModelesTab()
                     "referentiel" -> ReferentielTab()
+                    "inspectapp" -> InspectAppTab()
                     "notifications" -> NotificationsTab()
                     "vacances" -> VacancesTab()
                     else -> ProfilTab()
@@ -457,4 +458,5 @@ fun ApparenceTab() {
     ChipRow(mapOf("droit" to "Droits", "" to "Du thème", "rond" to "Très arrondis"), ThemeState.corners.value, { ThemeState.corners.value = it; save() }, null)
     TextButton(onClick = { ThemeState.reset(ctx) }, modifier = Modifier.padding(top = 10.dp)) { Text("Rétablir l'apparence par défaut") }
     Text("Ces réglages ne concernent que ce téléphone et n'affectent pas les documents imprimés ou exportés.", color = InkFaint, fontSize = 12.sp)
+    FontsSection()
 }

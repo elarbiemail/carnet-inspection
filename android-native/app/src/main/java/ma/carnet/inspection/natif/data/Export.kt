@@ -107,7 +107,8 @@ object Export {
         val media = mutableListOf<Pair<String, ByteArray>>()
         var imgN = 0
 
-        fun rPr(bold: Boolean, size: Int?) = "<w:rPr>" + (if (bold) "<w:b/><w:bCs/>" else "") + (if (size != null) "<w:sz w:val=\"$size\"/><w:szCs w:val=\"$size\"/>" else "") + (if (rtl) "<w:rtl/>" else "") + "</w:rPr>"
+        val titleFont = Fonts.slot(rtl, true)
+        fun rPr(bold: Boolean, size: Int?) = "<w:rPr>" + (if (size != null && size >= 24 && titleFont.isNotEmpty()) "<w:rFonts w:ascii=\"$titleFont\" w:hAnsi=\"$titleFont\" w:cs=\"$titleFont\"/>" else "") + (if (bold) "<w:b/><w:bCs/>" else "") + (if (size != null) "<w:sz w:val=\"$size\"/><w:szCs w:val=\"$size\"/>" else "") + (if (rtl) "<w:rtl/>" else "") + "</w:rPr>"
         fun pPr(align: String?, spacingAfter: Int = 80, border: Boolean = false, keep: Boolean = false): String {
             val jc = when (align) { "center" -> "center"; "right" -> if (rtl) "left" else "right"; "left" -> if (rtl) "right" else "left"; "justify" -> "both"; else -> null }
             return "<w:pPr>" + (if (keep) "<w:keepNext/>" else "") + (if (border) "<w:pBdr><w:top w:val=\"single\" w:sz=\"8\" w:space=\"4\" w:color=\"000000\"/><w:left w:val=\"single\" w:sz=\"8\" w:space=\"4\" w:color=\"000000\"/><w:bottom w:val=\"single\" w:sz=\"8\" w:space=\"4\" w:color=\"000000\"/><w:right w:val=\"single\" w:sz=\"8\" w:space=\"4\" w:color=\"000000\"/></w:pBdr>" else "") +
@@ -228,9 +229,9 @@ object Export {
             "<Relationship Id=\"rIdStyles\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles\" Target=\"styles.xml\"/>")
         d.media.forEachIndexed { i, (name, _) -> rels.append("<Relationship Id=\"rIdImg${i + 1}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"media/$name\"/>") }
         rels.append("</Relationships>")
-        val font = if (rtl) "Arial" else "Calibri"
+        val font = Fonts.slot(rtl, false).ifEmpty { if (rtl) "Arial" else "Calibri" }
         val styles = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><w:styles xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\"><w:docDefaults><w:rPrDefault><w:rPr>" +
-            "<w:rFonts w:ascii=\"$font\" w:hAnsi=\"$font\" w:cs=\"Arial\" w:eastAsia=\"$font\"/><w:sz w:val=\"23\"/><w:szCs w:val=\"23\"/><w:lang w:val=\"fr-FR\" w:bidi=\"ar-MA\"/></w:rPr></w:rPrDefault>" +
+            "<w:rFonts w:ascii=\"$font\" w:hAnsi=\"$font\" w:cs=\"$font\" w:eastAsia=\"$font\"/><w:sz w:val=\"23\"/><w:szCs w:val=\"23\"/><w:lang w:val=\"fr-FR\" w:bidi=\"ar-MA\"/></w:rPr></w:rPrDefault>" +
             "<w:pPrDefault><w:pPr><w:spacing w:after=\"80\" w:line=\"276\" w:lineRule=\"auto\"/></w:pPr></w:pPrDefault></w:docDefaults>" +
             "<w:style w:type=\"paragraph\" w:default=\"1\" w:styleId=\"Normal\"><w:name w:val=\"Normal\"/></w:style></w:styles>"
         val ct = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">" +

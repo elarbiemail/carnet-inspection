@@ -139,6 +139,7 @@ fun DataScreen() {
             GoogleAccountCard()
             DriveCard(SyncHolder.fn)
             CsvImportCard()
+            SheetsCard()
             SectionTitle("Ou par fichier : recevoir les données du carnet web")
             CardBox {
                 Text("Choisissez le fichier « sauvegarde-donnees.json » dans votre Google Drive (dossier de l'application → Sauvegardes). Les fiches les plus récentes remplacent les anciennes ; rien n'est perdu.", fontSize = 13.5.sp)

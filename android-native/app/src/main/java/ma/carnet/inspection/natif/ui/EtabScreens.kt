@@ -180,6 +180,7 @@ fun EtabEditScreen(id: String?) {
             }
             Row(verticalAlignment = Alignment.CenterVertically) { Switch(g("pionnier") == "true", { e.value.put("pionnier", it); tick++ }); Text("Collège pionnier", Modifier.padding(start = 8.dp)) }
             TextFieldRow("Notes", g("notes"), { set("notes", it) }, multiline = true)
+            if (orig != null) EtabMergeCard(id!!)
             Spacer(Modifier.height(40.dp))
         }
     }

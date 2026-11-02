@@ -208,6 +208,10 @@ object DriveSync {
         return findOne(tk, "name = '${esc(name)}' and mimeType = 'application/vnd.google-apps.folder' and '$app' in parents and trashed = false")?.getString("id")
             ?: createFolder(tk, name, app)
     }
+    private fun findOneFields(tk: String, query: String): JSONObject? {
+        val r = JSONObject(http("GET", "$API?q=${q(query)}&orderBy=modifiedTime%20desc&pageSize=5&fields=files(id,name,modifiedTime)&spaces=drive", tk))
+        return r.optJSONArray("files")?.optJSONObject(0)
+    }
 
     /** Téléverse un fichier (multipart) et renvoie son identifiant Drive. */
     fun uploadBytes(tk: String, parent: String, name: String, mime: String, bytes: ByteArray): String {
@@ -235,6 +239,22 @@ object DriveSync {
         val r = JSONObject(http("GET", "$API?q=" + q("'$folderId' in parents and trashed = false") + "&orderBy=modifiedTime%20desc&pageSize=100&fields=files(id,name,mimeType,size,modifiedTime)", tk))
         val a = r.optJSONArray("files") ?: return emptyList()
         return (0 until a.length()).mapNotNull { a.optJSONObject(it) }
+    }
+
+    /** Fichier d'un nom donné dans un dossier (id, nom, date de modification), ou null. */
+    fun findInFolder(tk: String, folderId: String, name: String): JSONObject? = findOne(tk, "name = '${esc(name)}' and '$folderId' in parents and trashed = false")
+
+    /** Remplace le contenu d'un fichier Drive existant. */
+    fun updateMedia(tk: String, fileId: String, bytes: ByteArray, mime: String) { http("PATCH", "$UPLOAD/$fileId?uploadType=media&fields=id", tk, bytes, mime) }
+
+    /** Crée (ou remplace) une feuille Google Sheets à partir d'un CSV ; renvoie son identifiant. */
+    fun sheetFromCsv(tk: String, parent: String, title: String, csv: String, existingId: String?): String {
+        val bytes = csv.toByteArray(Charsets.UTF_8)
+        if (!existingId.isNullOrEmpty()) try { updateMedia(tk, existingId, bytes, "text/csv"); return existingId } catch (_: Exception) {}
+        val boundary = "carnet" + System.currentTimeMillis()
+        val meta = JSONObject().put("name", title).put("mimeType", "application/vnd.google-apps.spreadsheet").put("parents", org.json.JSONArray().put(parent))
+        val mp = ("--$boundary\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n$meta\r\n--$boundary\r\nContent-Type: text/csv; charset=UTF-8\r\n\r\n").toByteArray() + bytes + "\r\n--$boundary--".toByteArray()
+        return JSONObject(http("POST", "$UPLOAD?uploadType=multipart&fields=id", tk, mp, "multipart/related; boundary=$boundary")).getString("id")
     }
 
     /** Télécharge un fichier Drive (pièce jointe, document). */

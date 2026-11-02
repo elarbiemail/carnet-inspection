@@ -12,6 +12,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         try { android.webkit.WebView.enableSlowWholeDocumentDraw() } catch (_: Throwable) {}
         Store.init(applicationContext)
+        ma.carnet.inspection.natif.data.Fonts.init(applicationContext)
         ma.carnet.inspection.natif.ui.ThemeState.load(applicationContext)
         setContent { CarnetTheme { App() } }
     }

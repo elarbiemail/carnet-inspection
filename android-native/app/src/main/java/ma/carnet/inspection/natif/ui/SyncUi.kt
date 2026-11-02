@@ -65,6 +65,7 @@ fun rememberDriveSyncer(): (Boolean) -> Unit {
         try { GoogleAccount.refresh(ctx, token) } catch (_: Throwable) {}
         val r = DriveSync.sync(ctx, token)
         DriveSync.setEnabled(ctx, true)
+        if (ma.carnet.inspection.natif.data.Exchange.auto(ctx)) try { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { ma.carnet.inspection.natif.data.Exchange.driveSync(ctx, token, true) } } catch (_: Throwable) {}
         SyncState.ok.value = true
         SyncState.msg.value = (if (r.created) "Sauvegarde créée sur Google Drive." else "Synchronisé avec Google Drive.") +
             (r.imported?.let { if (it.added + it.updated + it.removed > 0) " Reçu : ${it.added} ajout(s), ${it.updated} mise(s) à jour, ${it.removed} suppression(s)." else "" } ?: "")

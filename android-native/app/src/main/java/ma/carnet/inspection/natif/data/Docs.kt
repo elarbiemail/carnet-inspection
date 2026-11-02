@@ -254,7 +254,7 @@ object Docs {
 
     /** Enveloppe une page HTML A4 (utilisé aussi par les listes et le programme annuel). */
     fun page(body: String, rtl: Boolean, landscape: Boolean = false): String =
-        "<!DOCTYPE html><html dir=\"${if (rtl) "rtl" else "ltr"}\" lang=\"${if (rtl) "ar" else "fr"}\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\"><style>$CSS" +
+        "<!DOCTYPE html><html dir=\"${if (rtl) "rtl" else "ltr"}\" lang=\"${if (rtl) "ar" else "fr"}\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\"><style>$CSS\n" + Fonts.css(rtl) +
             (if (landscape) "\n@page { size: A4 landscape; margin: 12mm; }" else "") + "</style></head><body>$body</body></html>"
 
     /** Document HTML complet (A4). */
@@ -371,6 +371,6 @@ object Docs {
             val extra = d.arr("aiZones").filter { vals.s(it.s("id")).isNotBlank() }.joinToString("") { z -> "<h2>" + h(z.s("label")) + "</h2>" + para(vals.s(z.s("id"))) }
             if (extra.isNotEmpty()) { val i = sb.lastIndexOf("<div class=\"sig\""); if (i >= 0) sb.insert(i, extra) else sb.append(extra) }
         }
-        return "<!DOCTYPE html><html dir=\"${if (rtl) "rtl" else "ltr"}\" lang=\"${if (rtl) "ar" else "fr"}\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\"><style>$CSS</style></head><body>$sb</body></html>"
+        return page(sb.toString(), rtl)
     }
 }
