@@ -427,7 +427,13 @@ fun WelcomeScreen(onDone: () -> Unit) {
                         try {
                             if (DriveSync.clientId(ctx).isNotBlank()) GoogleAccount.signIn(act)
                             GoogleAccount.setWelcomeDone(ctx); onDone(); SyncHolder.fn(true)
-                        } catch (e: Throwable) { err = signInError(e) }
+                        } catch (e: Throwable) {
+                            if (e.javaClass.simpleName.contains("Cancellation")) err = signInError(e)
+                            else { // repli : autorisation Google Drive (choix du compte) — le nom et la photo sont lus ensuite sur Drive
+                                toast(ctx, "Connexion directe indisponible : passage par l'autorisation Google Drive.")
+                                GoogleAccount.setWelcomeDone(ctx); onDone(); SyncHolder.fn(true)
+                            }
+                        }
                         busy = false
                     }
                 }

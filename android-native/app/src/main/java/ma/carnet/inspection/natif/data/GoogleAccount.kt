@@ -8,6 +8,7 @@ import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -37,9 +38,16 @@ object GoogleAccount {
     suspend fun signIn(activity: Activity): String {
         val cid = DriveSync.clientId(activity)
         if (cid.isBlank()) throw Exception("Configurez d'abord l'identifiant client Google (Données → Google Drive).")
-        val opt = GetGoogleIdOption.Builder().setFilterByAuthorizedAccounts(false).setServerClientId(cid).setAutoSelectEnabled(false).build()
-        val req = GetCredentialRequest.Builder().addCredentialOption(opt).build()
-        val res = CredentialManager.create(activity).getCredential(activity, req)
+        val cm = CredentialManager.create(activity)
+        // 1) bouton « Se connecter avec Google » (sélecteur de compte complet, ajout de compte possible)
+        val res = try {
+            cm.getCredential(activity, GetCredentialRequest.Builder().addCredentialOption(GetSignInWithGoogleOption.Builder(cid).build()).build())
+        } catch (e: androidx.credentials.exceptions.GetCredentialCancellationException) { throw e }
+        catch (e: Exception) {
+            // 2) repli : liste des comptes Google du téléphone
+            cm.getCredential(activity, GetCredentialRequest.Builder().addCredentialOption(
+                GetGoogleIdOption.Builder().setFilterByAuthorizedAccounts(false).setServerClientId(cid).setAutoSelectEnabled(false).build()).build())
+        }
         val c = res.credential
         if (c is CustomCredential && c.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
             val g = GoogleIdTokenCredential.createFrom(c.data)

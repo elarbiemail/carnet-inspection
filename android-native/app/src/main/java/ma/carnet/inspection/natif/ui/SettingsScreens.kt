@@ -210,7 +210,7 @@ fun GoogleAccountCard() {
                 if (act == null) return@GoogleSignInButton
                 busy = true; err = ""
                 scope.launch {
-                    try { GoogleAccount.signIn(act) } catch (e: Throwable) { err = signInError(e) }
+                    try { GoogleAccount.signIn(act) } catch (e: Throwable) { if (e.javaClass.simpleName.contains("Cancellation")) err = signInError(e) else err = signInError(e) + " Autorisation par Google Drive en cours…" }
                     busy = false
                     SyncHolder.fn(true)
                 }
@@ -224,7 +224,7 @@ fun signInError(e: Throwable): String {
     val n = e.javaClass.simpleName
     return when {
         n.contains("Cancellation") -> "Connexion annulée."
-        n.contains("NoCredential") -> "Aucun compte Google disponible sur ce téléphone, ou l'identifiant OAuth « Android » n'est pas encore créé."
+        n.contains("NoCredential") -> "Google refuse la connexion : l'identifiant OAuth « Android » (paquet net.fm6education.carnetinspection.natif, SHA-1 DD:45:C4:…:0B:6E) n'existe pas encore dans le projet de votre identifiant client, ou l'identifiant saisi n'est pas de type « Application Web »."
         else -> e.message ?: n
     }
 }
