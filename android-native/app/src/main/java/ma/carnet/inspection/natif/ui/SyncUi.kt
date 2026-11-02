@@ -82,7 +82,17 @@ fun rememberDriveSyncer(): (Boolean) -> Unit {
                 try { val tk = DriveSync.tokenFromIntent(act, res.data); exec(tk, action) }
                 catch (e: Throwable) { SyncState.ok.value = false; SyncState.msg.value = syncErrorText(e); SyncState.busy.value = false }
             }
-        } else { SyncState.busy.value = false; SyncState.ok.value = false; SyncState.msg.value = "Autorisation Google Drive annulée." }
+        } else if (action != null && DriveSync.clientId(ctx).isNotBlank()) { DriveSync.setAuthMode(ctx, "web"); openWebAuth(action) }
+        else { SyncState.busy.value = false; SyncState.ok.value = false; SyncState.msg.value = "Autorisation Google Drive annulée." }
+    }
+    fun openWebAuth(action: suspend (String) -> Unit) {
+        SyncState.msg.value = "Connexion à Google dans le navigateur…"
+        ma.carnet.inspection.natif.data.WebAuth.pending = { tk, err ->
+            if (tk != null) scope.launch { exec(tk, action) }
+            else { SyncState.busy.value = false; SyncState.ok.value = false; SyncState.msg.value = "Connexion Google refusée (" + (err ?: "annulée") + ")." }
+        }
+        try { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(DriveSync.webAuthUrl(ctx))).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        catch (e: Throwable) { SyncState.busy.value = false; SyncState.ok.value = false; SyncState.msg.value = "Aucun navigateur pour la connexion Google." }
     }
     fun start(label: String, interactive: Boolean, action: suspend (String) -> Unit) {
         if (act == null || SyncState.busy.value) return
@@ -91,6 +101,10 @@ fun rememberDriveSyncer(): (Boolean) -> Unit {
                 SyncState.busy.value = true; SyncState.msg.value = label
                 when (val a = DriveSync.authorize(act)) {
                     is DriveSync.Auth.Ok -> exec(a.token, action)
+                    is DriveSync.Auth.NeedsWeb -> {
+                        if (!interactive) { SyncState.busy.value = false; SyncState.ok.value = false; SyncState.msg.value = "Touchez « Synchroniser » pour vous reconnecter à Google (par le navigateur)."; return@launch }
+                        openWebAuth(action)
+                    }
                     is DriveSync.Auth.NeedsConsent -> {
                         val pi = a.result.pendingIntent
                         if (interactive && pi != null) { pending[0] = action; launcher.launch(IntentSenderRequest.Builder(pi.intentSender).build()) }

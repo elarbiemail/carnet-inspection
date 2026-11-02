@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connexion Google — Carnet natif</title>
+<style>
+  :root { --brand:#2F6F62; --ink:#1F2523; --faint:#6B7470; --bg:#F6F4EE; }
+  body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background:var(--bg); color:var(--ink); }
+  main { max-width:440px; margin:0 auto; padding:32px 18px; text-align:center; }
+  h1 { font-size:22px; margin:10px 0 6px; }
+  p { color:var(--faint); line-height:1.5; font-size:15px; }
+  button, a.btn { display:block; width:100%; box-sizing:border-box; margin:14px 0 0; padding:15px; border:0; border-radius:12px; font-size:16px; font-weight:600; text-decoration:none; cursor:pointer; }
+  .g { background:#fff; color:#1f1f1f; border:1px solid #dadce0; }
+  .back { background:var(--brand); color:#fff; }
+  #msg { margin-top:16px; font-size:14px; color:var(--ink); }
+  .err { color:#B3261E !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Carnet d'Inspection</h1>
+  <p>Autorisez l'application Android à enregistrer vos données dans <b>votre</b> Google Drive (même sauvegarde que le carnet web). Aucune donnée ne passe par un serveur tiers.</p>
+  <button class="g" id="go" type="button">Se connecter avec Google</button>
+  <a class="btn back" id="back" href="#" hidden>Revenir à l'application</a>
+  <div id="msg"></div>
+</main>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script>
+(function(){
+  var q = new URLSearchParams(location.search);
+  var cid = q.get('cid') || '';
+  var hint = q.get('hint') || '';
+  var PKG = 'net.fm6education.carnetinspection.natif';
+  var msg = document.getElementById('msg'), back = document.getElementById('back'), go = document.getElementById('go');
+  function say(t, err){ msg.textContent = t; msg.className = err ? 'err' : ''; }
+  if(!cid){ say("Identifiant client Google manquant : relancez la connexion depuis l'application.", true); go.disabled = true; return; }
+  function toApp(params){
+    var s = Object.keys(params).map(function(k){ return k+'='+encodeURIComponent(params[k]); }).join('&');
+    var url = 'intent://auth?'+s+'#Intent;scheme=carnetnatif;package='+PKG+';end';
+    back.href = url; back.hidden = false;
+    location.href = url;
+  }
+  go.onclick = function(){
+    if(!(window.google && google.accounts && google.accounts.oauth2)){ say('Chargement de Google… réessayez dans un instant.', true); return; }
+    say('Fenêtre Google ouverte…');
+    var tc = google.accounts.oauth2.initTokenClient({
+      client_id: cid,
+      scope: 'https://www.googleapis.com/auth/drive.file openid email profile',
+      hint: hint || undefined,
+      callback: function(r){
+        if(r && r.access_token){ say('Autorisation reçue : retour à l’application…'); toApp({ token: r.access_token, exp: r.expires_in || 3600 }); }
+        else { say('Autorisation refusée : ' + ((r && (r.error_description || r.error)) || 'inconnue'), true); toApp({ error: (r && r.error) || 'refus' }); }
+      },
+      error_callback: function(e){ say('Connexion interrompue : ' + ((e && (e.message || e.type)) || ''), true); }
+    });
+    tc.requestAccessToken({ prompt: '' });
+  };
+})();
+</script>
+</body>
+</html>

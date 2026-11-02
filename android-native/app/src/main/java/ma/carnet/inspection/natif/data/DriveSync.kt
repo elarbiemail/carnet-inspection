@@ -56,12 +56,33 @@ object DriveSync {
     sealed class Auth {
         data class Ok(val token: String) : Auth()
         data class NeedsConsent(val result: AuthorizationResult) : Auth()
+        data object NeedsWeb : Auth()
+    }
+
+    /** Mode de connexion : "auto" (Google Play, puis navigateur en cas d'échec) ou "web" (toujours par le navigateur). */
+    fun authMode(ctx: Context) = prefs(ctx).getString("authMode", "auto") ?: "auto"
+    fun setAuthMode(ctx: Context, v: String) = prefs(ctx).edit().putString("authMode", v).apply()
+    const val WEB_AUTH = "https://elarbiemail.github.io/carnet-inspection/natif-auth.html"
+    fun webAuthUrl(ctx: Context) = WEB_AUTH + "?cid=" + q(clientId(ctx)) + (GoogleAccount.email(ctx).let { if (it.isEmpty()) "" else "&hint=" + q(it) })
+
+    /** Jeton reçu par la page de connexion du navigateur (valable environ une heure). */
+    fun acceptWebToken(ctx: Context, t: String, expSec: Long) {
+        token = t; tokenAt = System.currentTimeMillis() - (3600 - expSec.coerceIn(60, 3600)) * 1000
+        prefs(ctx).edit().putString("webToken", t).putLong("webTokenAt", tokenAt).apply()
     }
 
     suspend fun authorize(activity: Activity): Auth {
         val tk = token
         if (tk != null && System.currentTimeMillis() - tokenAt < 45 * 60 * 1000) return Auth.Ok(tk)
-        val res = Identity.getAuthorizationClient(activity).authorize(request(GoogleAccount.email(activity))).await()
+        val p = prefs(activity); val wt = p.getString("webToken", null); val wa = p.getLong("webTokenAt", 0)
+        if (wt != null && System.currentTimeMillis() - wa < 45 * 60 * 1000) { token = wt; tokenAt = wa; return Auth.Ok(wt) }
+        if (authMode(activity) == "web") return if (clientId(activity).isBlank()) throw Exception("Saisissez d'abord l'identifiant client Google (Paramètres → Compte Google).") else Auth.NeedsWeb
+        val res = try { Identity.getAuthorizationClient(activity).authorize(request(GoogleAccount.email(activity))).await() }
+            catch (e: com.google.android.gms.common.api.ApiException) {
+                // identifiant OAuth Android absent ou refus de Google Play : on passe par le navigateur
+                if (e.statusCode in listOf(10, 16, 12500, 17, 8) && clientId(activity).isNotBlank()) { setAuthMode(activity, "web"); return Auth.NeedsWeb }
+                throw e
+            }
         return if (res.hasResolution()) Auth.NeedsConsent(res)
         else { val t = res.accessToken ?: throw Exception("Aucun jeton reçu de Google."); token = t; tokenAt = System.currentTimeMillis(); Auth.Ok(t) }
     }
@@ -72,7 +93,7 @@ object DriveSync {
         token = t; tokenAt = System.currentTimeMillis(); return t
     }
 
-    fun forget(ctx: Context) { token = null; tokenAt = 0; setEnabled(ctx, false) }
+    fun forget(ctx: Context) { token = null; tokenAt = 0; setEnabled(ctx, false); prefs(ctx).edit().remove("webToken").remove("webTokenAt").apply() }
 
     // ---------------- HTTP ----------------
     private class HttpError(val code: Int, msg: String) : Exception(msg)
@@ -92,7 +113,7 @@ object DriveSync {
         val stream = if (code in 200..299) c.inputStream else c.errorStream
         val out = ByteArrayOutputStream(); stream?.use { it.copyTo(out) }
         val txt = out.toString("UTF-8")
-        if (code == 401) { token = null }
+        if (code == 401) { token = null; tokenAt = 0 }
         if (code !in 200..299) {
             val msg = try { JSONObject(txt).optJSONObject("error")?.optString("message") ?: txt } catch (e: Exception) { txt }
             throw HttpError(code, "Google Drive ($code) : $msg")

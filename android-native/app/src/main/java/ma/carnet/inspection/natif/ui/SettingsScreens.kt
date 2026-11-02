@@ -217,6 +217,8 @@ fun GoogleAccountCard() {
                     SyncHolder.fn(true)
                 }
             }
+            OutlinedButton(onClick = { DriveSync.setAuthMode(ctx, "web"); SyncHolder.fn(true) }, modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) { Text("Se connecter par le navigateur (sans Google Cloud)") }
+            Text("Utilise l'identifiant client Web du carnet : aucune configuration dans Google Cloud n'est nécessaire.", color = InkFaint, fontSize = 11.5.sp)
             if (err.isNotEmpty()) Text(err, color = Danger, fontSize = 12.5.sp)
         }
     }
