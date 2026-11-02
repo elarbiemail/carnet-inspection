@@ -48,7 +48,7 @@ fun Context.findActivity(): Activity? {
 fun syncErrorText(e: Throwable): String = when {
     e is ApiException && e.statusCode == 10 ->
         "Google refuse la connexion : l'identifiant OAuth « Android » n'est pas encore créé (ou pas dans le bon projet). Voir Données → Google Drive."
-    e is ApiException && e.statusCode == 16 -> "Connexion annulée."
+    e is ApiException && e.statusCode == 16 -> "Connexion annulée par Google. Si vous n'avez rien annulé vous-même, l'identifiant OAuth « Android » manque dans Google Cloud (voir Paramètres → Compte Google)."
     e is ApiException && e.statusCode == 7 -> "Pas de connexion Internet."
     else -> e.message ?: e.toString()
 }
