@@ -38,6 +38,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.asCoroutineDispatcher
+import androidx.compose.foundation.horizontalScroll
 import kotlinx.coroutines.withContext
 import ma.carnet.inspection.natif.data.*
 import org.jsoup.Jsoup
@@ -232,35 +234,66 @@ private fun ZoomImage(f: File) {
     }
 }
 
+/** Rendu des pages PDF : un seul fil, une page à la fois (PdfRenderer n'accepte qu'une page ouverte). */
+object PdfPages {
+    val dispatcher = java.util.concurrent.Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+}
+
 @Composable
 fun PdfView(f: File) {
     val ctx = LocalContext.current
-    val state = remember(f) {
-        try { val pfd = ParcelFileDescriptor.open(f, ParcelFileDescriptor.MODE_READ_ONLY); PdfRenderer(pfd) } catch (_: Throwable) { null }
+    var count by remember(f) { mutableIntStateOf(-1) }
+    var err by remember(f) { mutableStateOf("") }
+    val holder = remember(f) { arrayOfNulls<PdfRenderer>(1) }
+    val pfdHolder = remember(f) { arrayOfNulls<ParcelFileDescriptor>(1) }
+    LaunchedEffect(f) {
+        try {
+            withContext(PdfPages.dispatcher) {
+                val pfd = ParcelFileDescriptor.open(f, ParcelFileDescriptor.MODE_READ_ONLY)
+                pfdHolder[0] = pfd; holder[0] = PdfRenderer(pfd); count = holder[0]!!.pageCount
+            }
+        } catch (e: Throwable) { err = "PDF illisible : " + (e.message ?: e.javaClass.simpleName) }
     }
-    DisposableEffect(f) { onDispose { try { state?.close() } catch (_: Throwable) {} } }
-    if (state == null) { Column(Modifier.padding(24.dp)) { Text("PDF illisible (protégé ou endommagé).", color = Danger); Button(onClick = { FileOps.openWith(ctx, f) }) { Text("Ouvrir avec une autre application") } }; return }
-    var scale by remember { mutableFloatStateOf(1f) }
-    val st = rememberTransformableState { z, _, _ -> scale = (scale * z).coerceIn(1f, 4f) }
+    DisposableEffect(f) { onDispose { val r = holder[0]; val p = pfdHolder[0]; holder[0] = null
+        kotlinx.coroutines.CoroutineScope(PdfPages.dispatcher).launch { try { r?.close() } catch (_: Throwable) {}; try { p?.close() } catch (_: Throwable) {} } } }
+    if (err.isNotEmpty()) { Column(Modifier.padding(24.dp)) { Text(err, color = Danger); Button(onClick = { FileOps.openWith(ctx, f) }) { Text("Ouvrir avec une autre application") } }; return }
+    if (count < 0) { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }; return }
+    var zoom by remember { mutableFloatStateOf(1f) }
     val width = ctx.resources.displayMetrics.widthPixels
     Column(Modifier.fillMaxSize()) {
-        Text("${state.pageCount} page(s) — pincez pour zoomer", color = InkFaint, fontSize = 12.sp, modifier = Modifier.padding(8.dp))
-        LazyColumn(Modifier.fillMaxSize().background(Track).transformable(st).graphicsLayer(scaleX = scale, scaleY = scale)) {
-            items(state.pageCount) { i ->
-                var bmp by remember(i) { mutableStateOf<ImageBitmap?>(null) }
-                LaunchedEffect(i) {
-                    bmp = withContext(Dispatchers.IO) {
-                        synchronized(state) {
-                            state.openPage(i).use { p ->
-                                val w = (width * 1.5f).toInt(); val h = (w.toFloat() * p.height / p.width).toInt()
-                                val b = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888); b.eraseColor(android.graphics.Color.WHITE)
-                                p.render(b, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY); b.asImageBitmap()
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("$count page(s)", color = InkFaint, fontSize = 12.sp, modifier = Modifier.weight(1f))
+            TextButton(onClick = { zoom = (zoom - 0.5f).coerceAtLeast(1f) }, enabled = zoom > 1f) { Text("−", fontSize = 20.sp) }
+            Text("${(zoom * 100).toInt()} %", fontSize = 12.sp)
+            TextButton(onClick = { zoom = (zoom + 0.5f).coerceAtMost(3f) }, enabled = zoom < 3f) { Text("+", fontSize = 20.sp) }
+        }
+        val hs = androidx.compose.foundation.rememberScrollState()
+        Box(Modifier.fillMaxSize().background(Track).horizontalScroll(hs)) {
+            LazyColumn(Modifier.width(with(androidx.compose.ui.platform.LocalDensity.current) { (width * zoom).toDp() }).fillMaxHeight()) {
+                items(count) { i ->
+                    var bmp by remember(i, zoom) { mutableStateOf<ImageBitmap?>(null) }
+                    var ratio by remember(i) { mutableFloatStateOf(1.414f) }
+                    var perr by remember(i) { mutableStateOf("") }
+                    LaunchedEffect(i, zoom) {
+                        try {
+                            bmp = withContext(PdfPages.dispatcher) {
+                                val r = holder[0] ?: return@withContext null
+                                r.openPage(i).let { p ->
+                                    try {
+                                        ratio = p.height.toFloat() / p.width
+                                        val w = (width * zoom * 1.3f).toInt().coerceAtMost(3000); val h = (w * ratio).toInt().coerceAtMost(4500)
+                                        val b = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888); b.eraseColor(android.graphics.Color.WHITE)
+                                        p.render(b, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY); b.asImageBitmap()
+                                    } finally { p.close() }
+                                }
                             }
-                        }
+                        } catch (e: Throwable) { perr = e.message ?: e.javaClass.simpleName }
                     }
-                }
-                Box(Modifier.fillMaxWidth().padding(6.dp).aspectRatio(0.707f).background(Color.White), contentAlignment = Alignment.Center) {
-                    bmp?.let { Image(it, "Page ${i + 1}", Modifier.fillMaxSize(), contentScale = ContentScale.Fit) } ?: CircularProgressIndicator()
+                    Box(Modifier.fillMaxWidth().padding(6.dp).aspectRatio(1f / ratio).background(Color.White), contentAlignment = Alignment.Center) {
+                        when { bmp != null -> Image(bmp!!, "Page ${i + 1}", Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                            perr.isNotEmpty() -> Text("Page ${i + 1} illisible : $perr", color = Danger, fontSize = 12.sp)
+                            else -> CircularProgressIndicator() }
+                    }
                 }
             }
         }
