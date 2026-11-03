@@ -64,7 +64,7 @@ object Reader {
     }
 
     private fun esc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-    private const val CSS = "<style>body{font-family:sans-serif;font-size:15px;line-height:1.5;margin:12px;color:#111;background:#fff;word-wrap:break-word}table{border-collapse:collapse;margin:8px 0;width:100%}td,th{border:1px solid #999;padding:4px 6px;font-size:13px;vertical-align:top}th{background:#eee}img{max-width:100%}h2{font-size:18px}.slide{border:1px solid #ccc;border-radius:8px;padding:10px;margin:10px 0}pre{white-space:pre-wrap;font-size:13px}</style>"
+    private const val CSS = "<style>body{font-family:sans-serif;font-size:15px;line-height:1.5;margin:12px;color:#111;background:#fff;word-wrap:break-word}table{border-collapse:collapse;margin:8px 0;width:100%}td,th{border:1px solid #999;padding:4px 6px;font-size:13px;vertical-align:top}th{background:#eee}img{max-width:100%}h2{font-size:18px}.slide{border:1px solid #ccc;border-radius:8px;padding:10px;margin:10px 0}pre{white-space:pre-wrap;font-size:13px}p,h2,li,td,th,pre,div.slide p{unicode-bidi:plaintext;text-align:start}[dir=rtl]{font-family:'Noto Naskh Arabic','Droid Arabic Naskh',sans-serif}</style>"
     private fun page(body: String, rtl: Boolean = false) = "<!DOCTYPE html><html dir=\"${if (rtl) "rtl" else "auto"}\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">$CSS</head><body>$body</body></html>"
 
     fun docxHtml(f: File): String = ZipFile(f).use { z ->
@@ -94,20 +94,25 @@ object Reader {
             }
             return sb.toString()
         }
+        fun isAr(t: String) = Regex("[\\u0600-\\u06FF\\u0750-\\u077F\\uFB50-\\uFDFF\\uFE70-\\uFEFF]").containsMatchIn(t)
         fun para(p: Element): String {
             val style = p.selectFirst("w|pPr > w|pStyle")?.attr("w:val") ?: ""
             val jc = p.selectFirst("w|pPr > w|jc")?.attr("w:val") ?: ""
-            if (p.selectFirst("w|pPr > w|bidi") != null) rtl = true
-            val align = when (jc) { "center" -> "center"; "right", "end" -> "right"; "both" -> "justify"; else -> "" }
+            val txt = p.select("w|t").joinToString("") { it.text() }
+            // sens du paragraphe : réglage Word (bidi / rtl), sinon d'après le texte lui-même
+            val pr = p.selectFirst("w|pPr > w|bidi")?.let { it.attr("w:val") !in listOf("0", "false") } ?: (p.selectFirst("w|rPr > w|rtl") != null || isAr(txt))
+            if (pr) rtl = true
+            // Word lit « left/right » comme début/fin du paragraphe (à droite pour l'arabe)
+            val al = when (jc) { "center" -> "center"; "both", "distribute", "lowKashida", "mediumKashida", "highKashida" -> "justify"; "right", "end" -> "end"; else -> "start" }
             val tag = if (Regex("(?i)heading|titre|title").containsMatchIn(style)) "h2" else "p"
-            return "<$tag" + (if (align.isNotEmpty()) " style=\"text-align:$align\"" else "") + ">" + runs(p).ifEmpty { "&nbsp;" } + "</$tag>"
+            return "<$tag dir=\"${if (pr) "rtl" else if (txt.isBlank()) "auto" else "ltr"}\" style=\"text-align:$al;unicode-bidi:isolate\">" + runs(p).ifEmpty { "&nbsp;" } + "</$tag>"
         }
         val body = x.selectFirst("w|body") ?: return@use page("")
         val sb = StringBuilder()
         body.children().forEach { e ->
             when (e.tagName()) {
                 "w:p" -> sb.append(para(e))
-                "w:tbl" -> { sb.append("<table>"); e.select("w|tr").forEach { tr -> sb.append("<tr>"); tr.select("w|tc").forEach { tc -> sb.append("<td>").append(tc.select("w|p").joinToString("") { para(it) }).append("</td>") }; sb.append("</tr>") }; sb.append("</table>") }
+                "w:tbl" -> { sb.append(if (e.selectFirst("w|tblPr > w|bidiVisual") != null || isAr(e.text())) "<table dir=\"rtl\">" else "<table>"); e.select("w|tr").forEach { tr -> sb.append("<tr>"); tr.select("w|tc").forEach { tc -> sb.append("<td>").append(tc.select("w|p").joinToString("") { para(it) }).append("</td>") }; sb.append("</tr>") }; sb.append("</table>") }
             }
         }
         page(sb.toString(), rtl)
@@ -131,7 +136,7 @@ object Reader {
                     val ref = c.attr("r"); val colIdx = ref.takeWhile { it.isLetter() }.fold(0) { a, ch -> a * 26 + (ch - 'A' + 1) } - 1
                     while (expected < colIdx) { sb.append("<td></td>"); expected++ }
                     val v = when (c.attr("t")) { "s" -> shared.getOrElse(c.selectFirst("v")?.text()?.toIntOrNull() ?: -1) { "" }; "inlineStr" -> c.select("t").text(); else -> c.selectFirst("v")?.text() ?: "" }
-                    sb.append("<td>").append(esc(v)).append("</td>"); expected++
+                    sb.append("<td dir=\"auto\">").append(esc(v)).append("</td>"); expected++
                 }
                 sb.append("</tr>")
             }
@@ -144,20 +149,20 @@ object Reader {
         val slides = z.entries().toList().map { it.name }.filter { Regex("ppt/slides/slide\\d+\\.xml").matches(it) }.sortedBy { Regex("\\d+").find(it.substringAfterLast('/'))?.value?.toIntOrNull() ?: 0 }
         page(slides.mapIndexed { i, n ->
             val d = Jsoup.parse(z.getInputStream(z.getEntry(n)).use { String(it.readBytes()) }, "", Parser.xmlParser())
-            "<div class=\"slide\"><b>Diapositive ${i + 1}</b>" + d.select("a|p").joinToString("") { p -> p.select("a|t").joinToString("") { esc(it.text()) }.let { if (it.isBlank()) "" else "<p>$it</p>" } } + "</div>"
+            "<div class=\"slide\"><b>Diapositive ${i + 1}</b>" + d.select("a|p").joinToString("") { p -> p.select("a|t").joinToString("") { esc(it.text()) }.let { if (it.isBlank()) "" else "<p dir=\"auto\">$it</p>" } } + "</div>"
         }.joinToString(""))
     }
 
     fun csvHtml(txt: String): String {
         val lines = txt.removePrefix("\uFEFF").lines().filter { it.isNotBlank() }
         val sep = if (lines.firstOrNull()?.count { it == ';' } ?: 0 > (lines.firstOrNull()?.count { it == ',' } ?: 0)) ';' else ','
-        return page("<table>" + lines.take(3000).mapIndexed { i, l -> "<tr>" + l.split(sep).joinToString("") { c -> val t = if (i == 0) "th" else "td"; "<$t>" + esc(c.trim().trim('"')) + "</$t>" } + "</tr>" }.joinToString("") + "</table>")
+        return page("<table>" + lines.take(3000).mapIndexed { i, l -> "<tr>" + l.split(sep).joinToString("") { c -> val t = if (i == 0) "th" else "td"; "<$t dir=\"auto\">" + esc(c.trim().trim('"')) + "</$t>" } + "</tr>" }.joinToString("") + "</table>")
     }
 
     fun toHtml(f: File, kind: String): String? = when (kind) {
         "docx" -> docxHtml(f); "xlsx" -> xlsxHtml(f); "pptx" -> pptxHtml(f)
         "html" -> f.readText(); "csv" -> csvHtml(f.readText())
-        "text" -> page("<pre>" + esc(f.readText().take(400_000)) + "</pre>")
+        "text" -> page(f.readText().take(400_000).lines().joinToString("") { "<pre dir=\"auto\" style=\"margin:0\">" + esc(it).ifEmpty { "&nbsp;" } + "</pre>" })
         else -> null
     }
 }
