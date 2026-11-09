@@ -92,7 +92,7 @@ fun ContactsBlock(ens: List<org.json.JSONObject>) {
     LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         items(l, key = { it.s("id") }) { e ->
             val tel = e.s("telephone").ifEmpty { e.s("tel") }
-            Card(Modifier.width(170.dp).height(150.dp), colors = CardDefaults.cardColors(containerColor = Surface), elevation = CardDefaults.cardElevation(1.dp), onClick = { Nav.push(Scr.EnsDetail(e.s("id"))) }) {
+            Card(onClick = { Nav.push(Scr.EnsDetail(e.s("id"))) }, modifier = Modifier.width(170.dp).height(150.dp), colors = CardDefaults.cardColors(containerColor = Surface), elevation = CardDefaults.cardElevation(1.dp)) {
                 Column(Modifier.fillMaxSize().padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.SpaceBetween) {
                     MarqueeText(e.s("nom"), fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, center = true)
                     MarqueeText(etabName(e.s("etablissementId")), color = InkFaint, fontSize = 11.5.sp, center = true)
