@@ -50,7 +50,7 @@ fun EtabRow(e: JSONObject, nEns: Int, sel: Sel? = null) {
 }
 
 @Composable
-fun EtabsScreen() {
+fun EtabsScreen(byZone: Boolean = true) {
     val v by Store.version
     var q by remember { mutableStateOf("") }
     var ty by remember { mutableStateOf("") }
@@ -63,7 +63,7 @@ fun EtabsScreen() {
     val sel = rememberSel()
     var askDel by remember { mutableStateOf(false) }
     var editSel by remember { mutableStateOf(false) }
-    ScreenScaffold(selTitle(sel, "Établissements"), if (sel.on) ({ sel.clear() }) else null, actions = {
+    ScreenScaffold(selTitle(sel, if (byZone) "Établissements par zone" else "Établissements"), if (sel.on) ({ sel.clear() }) else null, actions = {
         SelActions(sel, list.map { it.s("id") }, { editSel = true }, { askDel = true })
     }, fab = {
         FloatingActionButton(onClick = { Nav.push(Scr.EtabEdit(null)) }, containerColor = Brand, contentColor = OnBrand) { Icon(Icons.Default.Add, "Nouvel établissement") }
@@ -75,7 +75,7 @@ fun EtabsScreen() {
                 Spacer(Modifier.height(6.dp))
                 ChipRow(Ref.ETAB_TYPES, ty, { ty = it }, "Tous")
             }
-            val groups = zones.map { z -> Triple(z.s("id"), z.s("nom"), list.filter { it.s("zoneId") == z.s("id") }) } +
+            val groups = if (!byZone) listOf(Triple("__all", "Tous les établissements", list)) else zones.map { z -> Triple(z.s("id"), z.s("nom"), list.filter { it.s("zoneId") == z.s("id") }) } +
                 listOf(Triple("__none", "Sans zone", list.filter { e -> zones.none { it.s("id") == e.s("zoneId") } }))
             groups.forEach { (zid, zn, l) ->
                 if (l.isNotEmpty()) {

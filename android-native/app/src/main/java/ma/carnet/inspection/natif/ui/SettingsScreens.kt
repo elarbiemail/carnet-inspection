@@ -49,11 +49,11 @@ val SETTINGS_TABS = linkedMapOf(
 )
 
 @Composable
-fun SettingsScreen(initial: String) {
-    var tab by remember { mutableStateOf(initial) }
-    ScreenScaffold("Paramètres", { Nav.pop() }, actions = { HelpButton("parametres") }) { pad ->
+fun SettingsScreen(initial: String, showTabs: Boolean = true) {
+    var tab by remember(initial) { mutableStateOf(initial) }
+    ScreenScaffold(if (showTabs) "Paramètres" else (SETTINGS_TABS[tab] ?: "Paramètres"), { Nav.pop() }, actions = { HelpButton("parametres") }) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 10.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (showTabs) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 10.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 SETTINGS_TABS.forEach { (k, l) -> FilterChip(selected = tab == k, onClick = { tab = k }, label = { Text(l) }) }
             }
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 14.dp)) {

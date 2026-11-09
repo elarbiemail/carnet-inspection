@@ -79,6 +79,7 @@ fun HomeScreen() {
     val late = tasks.filter { isLate(it) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         Row(Modifier.fillMaxWidth().background(Brand).statusBarsPadding().padding(horizontal = 18.dp, vertical = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+            LocalDrawer.current?.let { open -> IconButton(onClick = open, modifier = Modifier.padding(end = 6.dp)) { Icon(Icons.Default.Menu, "Menu", tint = OnBrand) } }
             Column(Modifier.weight(1f)) {
                 Text("Carnet d'Inspection", color = OnBrand.copy(alpha = 0.8f), fontSize = 13.sp)
                 Text("Bonjour" + p.s("nomSignature").ifEmpty { p.s("nom") }.ifEmpty { GoogleAccount.name(LocalContext.current) }.let { if (it.isEmpty()) "" else ", $it" },
@@ -103,12 +104,12 @@ fun HomeScreen() {
                 }
             }
             Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Kpi("Tâches", tasks.size.toString(), Modifier.weight(1f)) { Nav.tab(1) }
-                Kpi("En retard", late.size.toString(), Modifier.weight(1f), if (late.isNotEmpty()) Danger else Brand) { Nav.tab(1) }
+                Kpi("Tâches", tasks.size.toString(), Modifier.weight(1f)) { Nav.root("taches", "toutes") }
+                Kpi("En retard", late.size.toString(), Modifier.weight(1f), if (late.isNotEmpty()) Danger else Brand) { Nav.root("taches", "retard") }
             }
             Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Kpi("Enseignants", ens.size.toString(), Modifier.weight(1f)) { Nav.tab(2) }
-                Kpi("Établissements", etabs.size.toString(), Modifier.weight(1f)) { Nav.tab(3) }
+                Kpi("Enseignants", ens.size.toString(), Modifier.weight(1f)) { Nav.root("ens", "liste") }
+                Kpi("Établissements", etabs.size.toString(), Modifier.weight(1f)) { Nav.root("etab", "liste") }
             }
             SectionTitle("À venir (14 jours)")
             if (upcoming.isEmpty()) EmptyState("Aucune tâche prévue dans les 14 prochains jours.")
@@ -159,22 +160,25 @@ fun MiniCard(title: String, sub: String, color: Color = Brand, onClick: () -> Un
 
 // ---------------- Liste des tâches ----------------
 @Composable
-fun TasksScreen() {
+fun TasksScreen(preset: String = "") {
     val v by Store.version
     var q by remember { mutableStateOf("") }
-    var st by remember { mutableStateOf("") }
+    var st by remember(preset) { mutableStateOf(if (preset == "late") "late" else "") }
+    val upcomingOnly = preset == "upcoming"
+    val today0 = LocalDate.now()
     var ty by remember { mutableStateOf("") }
     val all = remember(v) { Store.tasks() }
     val nq = norm(q)
     val list = all.filter { t ->
         (st.isEmpty() || (st == "late" && isLate(t)) || Ref.statut(t) == st) &&
+        (!upcomingOnly || (parseDate(t.s("echeance"))?.let { !it.isBefore(today0) } == true && Ref.statut(t) !in Ref.DONE)) &&
         (ty.isEmpty() || Ref.type(t) == ty) &&
         (nq.isEmpty() || norm(listOf(t.s("titre"), taskEnsName(t), taskEtabName(t), t.s("lieu")).joinToString(" ")).contains(nq))
-    }.sortedWith(compareByDescending<JSONObject> { it.s("echeance") })
+    }.let { l -> if (upcomingOnly) l.sortedBy { it.s("echeance") + taskTime(it) } else l.sortedWith(compareByDescending<JSONObject> { it.s("echeance") }) }
     val sel = rememberSel()
     var askDel by remember { mutableStateOf(false) }
     var editSel by remember { mutableStateOf(false) }
-    ScreenScaffold(selTitle(sel, "Tâches"), if (sel.on) ({ sel.clear() }) else null, actions = {
+    ScreenScaffold(selTitle(sel, when (preset) { "upcoming" -> "Tâches à venir"; "late" -> "Tâches en retard"; else -> "Toutes les tâches" }), if (sel.on) ({ sel.clear() }) else null, actions = {
         SelActions(sel, list.map { it.s("id") }, { editSel = true }, { askDel = true })
     }, fab = {
         FloatingActionButton(onClick = { Nav.push(Scr.TaskEdit(null)) }, containerColor = Brand, contentColor = OnBrand) { Icon(Icons.Default.Add, "Nouvelle tâche") }

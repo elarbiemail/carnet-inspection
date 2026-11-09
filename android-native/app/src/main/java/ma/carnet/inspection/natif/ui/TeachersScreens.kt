@@ -59,12 +59,12 @@ fun slotMatches(sl: JSONObject, jour: String, heure: String): Boolean =
     sl.s("jour") == jour && sl.s("debut") <= heure && heure <= sl.s("fin")
 
 @Composable
-fun TeachersScreen() {
+fun TeachersScreen(initialMode: String = "liste") {
     val v by Store.version
     var q by remember { mutableStateOf("") }
     var cyc by remember { mutableStateOf("") }
     var gen by remember { mutableStateOf("") }
-    var mode by remember { mutableStateOf("liste") }
+    var mode by remember(initialMode) { mutableStateOf(initialMode) }
     val all = remember(v) { Store.enseignants() }
     val sel = rememberSel()
     var askDel by remember { mutableStateOf(false) }
