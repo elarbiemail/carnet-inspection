@@ -156,7 +156,7 @@ fun TeacherDetailScreen(id: String) {
                     }
                 }
                 ContactButtons(e.s("telephone"), e.s("nom"), e.s("email"))
-                PhotoButton(id, e.s("telephone"))
+                PhotoButton(id, e.s("telephone"), e.s("nom"))
             }
             CardBox {
                 InfoRow("PPR", e.s("ppr")); InfoRow("Cadre", e.s("cadre")); InfoRow("Matière", e.s("matiere")); InfoRow("Niveaux", e.s("cycle"))

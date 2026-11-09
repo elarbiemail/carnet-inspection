@@ -124,7 +124,7 @@ fun EtabDetailScreen(id: String) {
                     Text(e.s("directeur").ifEmpty { "—" }, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (e.s("directeurTel").isNotEmpty()) Text(e.s("directeurTel"), color = InkFaint, fontSize = 13.sp)
                     ContactButtons(e.s("directeurTel"), e.s("directeur"))
-                    PhotoButton(id, e.s("directeurTel"))
+                    PhotoButton(id, e.s("directeurTel"), e.s("directeur").ifEmpty { e.s("nom") })
                 }
             }
             val ens = Store.list("enseignants").filter { it.s("etablissementId") == id }.sortedBy { norm(it.s("nom")) }

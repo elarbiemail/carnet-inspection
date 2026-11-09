@@ -16,11 +16,13 @@ class MainActivity : ComponentActivity() {
         ma.carnet.inspection.natif.ui.ThemeState.load(applicationContext)
         setContent { CarnetTheme { App() } }
         ma.carnet.inspection.natif.data.WebAuth.handle(applicationContext, intent)
+        ma.carnet.inspection.natif.data.SharedPhoto.handle(applicationContext, intent)
     }
 
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         ma.carnet.inspection.natif.data.WebAuth.handle(applicationContext, intent)
+        ma.carnet.inspection.natif.data.SharedPhoto.handle(applicationContext, intent)
     }
 }

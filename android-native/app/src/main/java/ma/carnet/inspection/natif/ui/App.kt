@@ -65,6 +65,7 @@ fun App() {
     var welcome by remember { mutableStateOf(!ma.carnet.inspection.natif.data.GoogleAccount.welcomeDone(ctx)) }
     if (welcome) { WelcomeScreen { welcome = false }; return }
     AutoScreenshot(cur)
+    SharedPhotoDialog()
     val notifReq = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { ma.carnet.inspection.natif.data.Reminders.schedule(ctx) }
     LaunchedEffect(Unit) {
         val pr = ctx.getSharedPreferences("carnet", android.content.Context.MODE_PRIVATE)
