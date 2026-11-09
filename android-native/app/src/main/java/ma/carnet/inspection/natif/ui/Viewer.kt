@@ -196,7 +196,7 @@ fun ViewerScreen() {
                 Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Default.Search, null, tint = Brand, modifier = Modifier.size(48.dp))
                     Text("Ouvrez un PDF, un document Word, un classeur Excel, une présentation, une image ou un fichier texte.", color = InkFaint, modifier = Modifier.padding(16.dp))
-                    Button(onClick = { pick.launch(arrayOf("*/*")) }) { Text("Ouvrir un fichier", maxLines = 1, softWrap = false) }
+                    Button(onClick = { pick.launch(arrayOf("*/*")) }) { BtnText("Ouvrir un fichier", maxLines = 1, softWrap = false) }
                 }
             } else {
                 val kind = Reader.kind(f.name.ifEmpty { title }, mime).let { if (it == "autre") Reader.kind(title, mime) else it }
@@ -205,14 +205,14 @@ fun ViewerScreen() {
                     "image" -> ZoomImage(f)
                     "autre" -> Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Ce format ne peut pas être affiché ici.", color = InkFaint)
-                        Button(onClick = { FileOps.openWith(ctx, f) }) { Text("Ouvrir avec une autre application", maxLines = 1, softWrap = false) }
+                        Button(onClick = { FileOps.openWith(ctx, f) }) { BtnText("Ouvrir avec une autre application", maxLines = 1, softWrap = false) }
                     }
                     else -> {
                         var html by remember(f) { mutableStateOf<String?>(null) }
                         var err by remember(f) { mutableStateOf("") }
                         LaunchedEffect(f) { try { html = withContext(Dispatchers.IO) { Reader.toHtml(f, kind) } } catch (e: Throwable) { err = "Lecture impossible : " + (e.message ?: "") } }
                         when {
-                            err.isNotEmpty() -> Column(Modifier.padding(24.dp)) { Text(err, color = Danger); Button(onClick = { FileOps.openWith(ctx, f) }) { Text("Ouvrir avec une autre application", maxLines = 1, softWrap = false) } }
+                            err.isNotEmpty() -> Column(Modifier.padding(24.dp)) { Text(err, color = Danger); Button(onClick = { FileOps.openWith(ctx, f) }) { BtnText("Ouvrir avec une autre application", maxLines = 1, softWrap = false) } }
                             html == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                             else -> AndroidView(factory = { c -> WebView(c).apply {
                                 settings.builtInZoomControls = true; settings.displayZoomControls = false; settings.loadWithOverviewMode = true; settings.useWideViewPort = kind == "html"
@@ -261,16 +261,16 @@ fun PdfView(f: File) {
     }
     DisposableEffect(f) { onDispose { val r = holder[0]; val p = pfdHolder[0]; holder[0] = null
         kotlinx.coroutines.CoroutineScope(PdfPages.dispatcher).launch { try { r?.close() } catch (_: Throwable) {}; try { p?.close() } catch (_: Throwable) {} } } }
-    if (err.isNotEmpty()) { Column(Modifier.padding(24.dp)) { Text(err, color = Danger); Button(onClick = { FileOps.openWith(ctx, f) }) { Text("Ouvrir avec une autre application", maxLines = 1, softWrap = false) } }; return }
+    if (err.isNotEmpty()) { Column(Modifier.padding(24.dp)) { Text(err, color = Danger); Button(onClick = { FileOps.openWith(ctx, f) }) { BtnText("Ouvrir avec une autre application", maxLines = 1, softWrap = false) } }; return }
     if (count < 0) { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }; return }
     var zoom by remember { mutableFloatStateOf(1f) }
     val width = ctx.resources.displayMetrics.widthPixels
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("$count page(s)", color = InkFaint, fontSize = 12.sp, modifier = Modifier.weight(1f))
-            TextButton(onClick = { zoom = (zoom - 0.5f).coerceAtLeast(1f) }, enabled = zoom > 1f) { Text("−", fontSize = 20.sp) }
+            TextButton(onClick = { zoom = (zoom - 0.5f).coerceAtLeast(1f) }, enabled = zoom > 1f) { BtnText("−", fontSize = 20.sp) }
             Text("${(zoom * 100).toInt()} %", fontSize = 12.sp)
-            TextButton(onClick = { zoom = (zoom + 0.5f).coerceAtMost(3f) }, enabled = zoom < 3f) { Text("+", fontSize = 20.sp) }
+            TextButton(onClick = { zoom = (zoom + 0.5f).coerceAtMost(3f) }, enabled = zoom < 3f) { BtnText("+", fontSize = 20.sp) }
         }
         val hs = androidx.compose.foundation.rememberScrollState()
         Box(Modifier.fillMaxSize().background(Track).horizontalScroll(hs)) {

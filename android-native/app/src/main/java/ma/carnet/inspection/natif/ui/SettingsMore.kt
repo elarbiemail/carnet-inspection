@@ -84,8 +84,8 @@ fun ModelesTab() {
                         IconButton(onClick = { items.removeAt(i) }) { Icon(Icons.Default.Delete, "Retirer", tint = Danger) }
                     }
                 }
-                Row { TextButton(onClick = { items.add("") }) { Text("+ Critère", maxLines = 1, softWrap = false) }
-                    TextButton(onClick = { tplRoot().put("criteres", JSONArray(items.filter { it.isNotBlank() })); tplSave(); toast(ctx, "Critères enregistrés.") }) { Text("Enregistrer les critères", maxLines = 1, softWrap = false) } }
+                Row { TextButton(onClick = { items.add("") }) { BtnText("+ Critère", maxLines = 1, softWrap = false) }
+                    TextButton(onClick = { tplRoot().put("criteres", JSONArray(items.filter { it.isNotBlank() })); tplSave(); toast(ctx, "Critères enregistrés.") }) { BtnText("Enregistrer les critères", maxLines = 1, softWrap = false) } }
                 HorizontalDivider(Modifier.padding(vertical = 8.dp))
             }
             Text("Balises utilisables : " + DOC_TEMPLATE_TAGS.joinToString(" ") { "{{$it}}" }, color = InkFaint, fontSize = 11.5.sp)
@@ -101,14 +101,14 @@ fun ModelesTab() {
                 zt
                 OutlinedTextField(z.s("label"), { z.put("label", it); zt++ }, Modifier.fillMaxWidth(), label = { Text("Libellé de la zone") }, singleLine = true)
                 OutlinedTextField(z.s("prompt"), { z.put("prompt", it); zt++ }, Modifier.fillMaxWidth(), label = { Text("Consigne pour l'IA") })
-                TextButton(onClick = { zones.removeAt(i) }) { Text("Retirer cette zone", color = Danger) }
+                TextButton(onClick = { zones.removeAt(i) }) { BtnText("Retirer cette zone", color = Danger) }
             }
-            TextButton(onClick = { zones.add(JSONObject().put("id", "z" + (zones.size + 1) + "_" + UUID.randomUUID().toString().take(4)).put("label", "").put("prompt", "")) }) { Text("+ Zone IA", maxLines = 1, softWrap = false) }
+            TextButton(onClick = { zones.add(JSONObject().put("id", "z" + (zones.size + 1) + "_" + UUID.randomUUID().toString().take(4)).put("label", "").put("prompt", "")) }) { BtnText("+ Zone IA", maxLines = 1, softWrap = false) }
             Button(onClick = {
                 DOC_TEMPLATE_FIELDS[sel]?.forEach { f -> fields.put(f, vals[f] ?: "") }
                 dt.put("aiZones", JSONArray().apply { zones.forEach { put(it) } })
                 tplSave(); toast(ctx, "Modèle « ${Docs.LABELS[sel]} » enregistré.")
-            }, modifier = Modifier.fillMaxWidth()) { Text("Enregistrer ce modèle", maxLines = 1, softWrap = false) }
+            }, modifier = Modifier.fillMaxWidth()) { BtnText("Enregistrer ce modèle", maxLines = 1, softWrap = false) }
         }
     }
 }
@@ -172,7 +172,7 @@ fun CustomTplEditScreen(id: String?, starter: String) {
     ScreenScaffold(if (orig == null) "Nouveau modèle" else "Modifier le modèle", { Nav.pop() }, actions = {
         HelpButton("modeles")
         if (orig != null) IconButton(onClick = { askDel = true }) { Icon(Icons.Default.Delete, "Supprimer") }
-        TextButton(onClick = { save(); toast(ctx, "Modèle enregistré."); Nav.pop() }) { Text("Enregistrer", color = OnBrand, fontWeight = FontWeight.Bold) }
+        TextButton(onClick = { save(); toast(ctx, "Modèle enregistré."); Nav.pop() }) { BtnText("Enregistrer", color = OnBrand, fontWeight = FontWeight.Bold) }
     }) { pad ->
         Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(14.dp)) {
             TextFieldRow("Nom du modèle", nom, { nom = it })
@@ -196,7 +196,7 @@ fun CustomTplEditScreen(id: String?, starter: String) {
                     Text("{{ia:${z.s("id")}}}", fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = Brand)
                     OutlinedTextField(z.s("label"), { z.put("label", it); zt++ }, Modifier.fillMaxWidth(), label = { Text("Libellé") }, singleLine = true)
                     OutlinedTextField(z.s("prompt"), { z.put("prompt", it); zt++ }, Modifier.fillMaxWidth(), label = { Text("Consigne pour l'IA (balises permises)") })
-                    Row { TextButton(onClick = { insert("ia:" + z.s("id")) }) { Text("Insérer dans le texte", maxLines = 1, softWrap = false) }; TextButton(onClick = { zones.removeAt(i) }) { Text("Retirer", color = Danger) } }
+                    Row { TextButton(onClick = { insert("ia:" + z.s("id")) }) { BtnText("Insérer dans le texte", maxLines = 1, softWrap = false) }; TextButton(onClick = { zones.removeAt(i) }) { BtnText("Retirer", color = Danger) } }
                 }
             }
             OutlinedButton(onClick = { val n = "z" + (zones.size + 1); zones.add(JSONObject().put("id", n).put("label", "Zone $n").put("prompt", "")); insert("ia:$n") }) { Icon(Icons.Default.Add, null); Text("Ajouter une zone IA") }
@@ -211,9 +211,9 @@ fun CustomTplEditScreen(id: String?, starter: String) {
                             ct.put("gdocFileId", id2).put("gdocUrl", "https://docs.google.com/document/d/$id2/edit"); save()
                             gmsg = "Google Doc créé."; openUri(ctx, ct.s("gdocUrl"))
                         }
-                    }) { Text("Créer sur Google Docs", maxLines = 1, softWrap = false) }
+                    }) { BtnText("Créer sur Google Docs", maxLines = 1, softWrap = false) }
                     else {
-                        OutlinedButton(onClick = { openUri(ctx, ct.s("gdocUrl")) }) { Text("Ouvrir sur Google Docs", maxLines = 1, softWrap = false) }
+                        OutlinedButton(onClick = { openUri(ctx, ct.s("gdocUrl")) }) { BtnText("Ouvrir sur Google Docs", maxLines = 1, softWrap = false) }
                         Button(onClick = {
                             SyncHolder.withToken("Récupération du Google Doc…") { tk ->
                                 val txt = withContext(Dispatchers.IO) { String(DriveSync.export(tk, ct.s("gdocFileId"), "text/plain"), Charsets.UTF_8) }
@@ -221,7 +221,7 @@ fun CustomTplEditScreen(id: String?, starter: String) {
                                 if (parsed == null) gmsg = "Repère « TEXTE DU MODÈLE » introuvable dans le Google Doc."
                                 else { corps = TextFieldValue(parsed.first); parsed.second.forEach { (zid, pr) -> zones.firstOrNull { it.s("id") == zid }?.put("prompt", pr) }; zt++; gmsg = "Texte récupéré depuis Google Docs." }
                             }
-                        }) { Text("Récupérer le texte", maxLines = 1, softWrap = false) }
+                        }) { BtnText("Récupérer le texte", maxLines = 1, softWrap = false) }
                     }
                 }
                 if (gmsg.isNotEmpty()) Text(gmsg, fontSize = 12.5.sp, color = Brand)
@@ -294,16 +294,16 @@ fun ReferentielTab() {
                     IconButton(onClick = { dps.removeAt(di); tick++ }) { Icon(Icons.Default.Close, "Retirer", tint = InkFaint) }
                 }
             }
-            TextButton(onClick = { dps.add(""); tick++ }) { Text("+ Direction provinciale", maxLines = 1, softWrap = false) }
+            TextButton(onClick = { dps.add(""); tick++ }) { BtnText("+ Direction provinciale", maxLines = 1, softWrap = false) }
         }
     }
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(onClick = { list.add("" to mutableListOf()); tick++ }) { Text("+ Académie", maxLines = 1, softWrap = false) }
-        TextButton(onClick = { list.clear(); DEFAULT_REGIONS.forEach { list.add(it.first to it.second.toMutableList()) }; tick++ }) { Text("Liste par défaut", maxLines = 1, softWrap = false) }
+        OutlinedButton(onClick = { list.add("" to mutableListOf()); tick++ }) { BtnText("+ Académie", maxLines = 1, softWrap = false) }
+        TextButton(onClick = { list.clear(); DEFAULT_REGIONS.forEach { list.add(it.first to it.second.toMutableList()) }; tick++ }) { BtnText("Liste par défaut", maxLines = 1, softWrap = false) }
         Button(onClick = {
             Store.root.put("regionsMaroc", JSONArray().apply { list.filter { it.first.isNotBlank() }.forEach { (a, d) -> put(JSONObject().put("aref", a.trim()).put("dps", JSONArray(d.filter { it.isNotBlank() }.map { it.trim() }))) } })
             Store.root.put("regionsMarocUpdatedAt", Store.now()); Store.save(); toast(ctx, "Référentiel enregistré.")
-        }) { Text("Enregistrer", maxLines = 1, softWrap = false) }
+        }) { BtnText("Enregistrer", maxLines = 1, softWrap = false) }
     }
 }
 
@@ -323,13 +323,13 @@ fun NotificationsTab() {
         }
         if (!perm) {
             Text("Les notifications ne sont pas encore autorisées sur ce téléphone.", color = Warn, fontSize = 12.5.sp)
-            if (Build.VERSION.SDK_INT >= 33) Button(onClick = { req.launch(android.Manifest.permission.POST_NOTIFICATIONS) }) { Text("Autoriser les notifications", maxLines = 1, softWrap = false) }
+            if (Build.VERSION.SDK_INT >= 33) Button(onClick = { req.launch(android.Manifest.permission.POST_NOTIFICATIONS) }) { BtnText("Autoriser les notifications", maxLines = 1, softWrap = false) }
         }
         OutlinedTextField(lead, { lead = it.filter { c -> c.isDigit() }.take(4) }, Modifier.fillMaxWidth().padding(top = 6.dp), label = { Text("Me prévenir combien de minutes avant le début ?") },
             singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { Reminders.setLeadMinutes(ctx, lead.toIntOrNull() ?: 60); toast(ctx, "Enregistré.") }) { Text("Enregistrer", maxLines = 1, softWrap = false) }
-            OutlinedButton(onClick = { Reminders.show(ctx, 4242, "Carnet d'Inspection", "Ceci est une notification de test.") }) { Text("Tester", maxLines = 1, softWrap = false) }
+            Button(onClick = { Reminders.setLeadMinutes(ctx, lead.toIntOrNull() ?: 60); toast(ctx, "Enregistré.") }) { BtnText("Enregistrer", maxLines = 1, softWrap = false) }
+            OutlinedButton(onClick = { Reminders.show(ctx, 4242, "Carnet d'Inspection", "Ceci est une notification de test.") }) { BtnText("Tester", maxLines = 1, softWrap = false) }
         }
         Text("Les rappels fonctionnent même application fermée. Une tâche sans heure est rappelée sur la base de 8 h.", color = InkFaint, fontSize = 11.5.sp)
     }
@@ -386,12 +386,12 @@ fun VacancesTab() {
     CardBox {
         TextFieldRow("Nom", nom, { nom = it })
         DateField("Début", deb, { deb = it }); DateField("Fin", fin, { fin = it })
-        Button(onClick = { add(listOf(Triple(nom, deb, fin)), "manuel"); nom = ""; deb = ""; fin = "" }, enabled = deb.isNotEmpty()) { Text("Ajouter", maxLines = 1, softWrap = false) }
+        Button(onClick = { add(listOf(Triple(nom, deb, fin)), "manuel"); nom = ""; deb = ""; fin = "" }, enabled = deb.isNotEmpty()) { BtnText("Ajouter", maxLines = 1, softWrap = false) }
     }
     SectionTitle("Importer")
     CardBox {
         Text("Fichier CSV : colonnes nom, debut (ou dateDebut), fin (ou dateFin), au format AAAA-MM-JJ.", fontSize = 12.5.sp, color = InkFaint)
-        OutlinedButton(onClick = { csv.launch(arrayOf("text/*", "*/*")) }) { Text("Importer un CSV", maxLines = 1, softWrap = false) }
+        OutlinedButton(onClick = { csv.launch(arrayOf("text/*", "*/*")) }) { BtnText("Importer un CSV", maxLines = 1, softWrap = false) }
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
         TextFieldRow("Adresse d'un agenda iCal (.ics) ou d'une API JSON", url, { url = it })
         OutlinedButton(enabled = url.startsWith("http"), onClick = {
@@ -399,17 +399,17 @@ fun VacancesTab() {
                 msg = "Récupération…"
                 try { val txt = withContext(Dispatchers.IO) { java.net.URL(url).readText() }; add(Vacances.parseFeed(txt), "url") } catch (e: Throwable) { msg = "Échec : " + (e.message ?: "") }
             }
-        }) { Text("Récupérer", maxLines = 1, softWrap = false) }
+        }) { BtnText("Récupérer", maxLines = 1, softWrap = false) }
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
         TextFieldRow("Ou coller le contenu .ics ou JSON", paste, { paste = it }, multiline = true)
-        OutlinedButton(enabled = paste.isNotBlank(), onClick = { add(Vacances.parseFeed(paste), "url"); paste = "" }) { Text("Importer ce contenu", maxLines = 1, softWrap = false) }
+        OutlinedButton(enabled = paste.isNotBlank(), onClick = { add(Vacances.parseFeed(paste), "url"); paste = "" }) { BtnText("Importer ce contenu", maxLines = 1, softWrap = false) }
         if (msg.isNotEmpty()) Text(msg, color = Brand, fontSize = 12.5.sp)
     }
     SectionTitle("Rappel")
     CardBox {
         OutlinedTextField(leadD, { leadD = it.filter { c -> c.isDigit() }.take(2) }, Modifier.fillMaxWidth(), label = { Text("Me prévenir combien de jours avant le début ?") }, singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-        Button(onClick = { Reminders.setVacLeadDays(ctx, leadD.toIntOrNull() ?: 7); toast(ctx, "Enregistré.") }) { Text("Enregistrer", maxLines = 1, softWrap = false) }
+        Button(onClick = { Reminders.setVacLeadDays(ctx, leadD.toIntOrNull() ?: 7); toast(ctx, "Enregistré.") }) { BtnText("Enregistrer", maxLines = 1, softWrap = false) }
     }
 }
 

@@ -22,3 +22,8 @@
 -dontwarn com.google.auto.value.**
 -dontwarn org.checkerframework.**
 -keepclasseswithmembernames class * { native <methods>; }
+
+# widgets (Glance) et préférences
+-keep class androidx.glance.** { *; }
+-keep class androidx.datastore.** { *; }
+-dontwarn androidx.glance.**

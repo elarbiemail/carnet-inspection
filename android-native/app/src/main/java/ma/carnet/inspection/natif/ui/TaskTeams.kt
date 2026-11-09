@@ -62,7 +62,7 @@ fun TeamsEditor(t: JSONObject, tick: Int, changed: () -> Unit) {
                 OutlinedButton(onClick = { pickFor = i }) { Icon(Icons.Default.Person, null); Spacer(Modifier.width(4.dp)); Text("Ajouter des enseignant(e)s", maxLines = 1, softWrap = false) }
                 var ext by remember(i) { mutableStateOf("") }
                 OutlinedTextField(ext, { ext = it }, Modifier.width(170.dp), singleLine = true, label = { Text("Autre membre (nom)", fontSize = 11.sp) })
-                TextButton(enabled = ext.isNotBlank(), onClick = { mem.put(JSONObject().put("enseignantId", "").put("nom", ext.trim()).put("ppr", "").put("etablissementNom", "").put("role", "")); ext = ""; changed() }) { Text("Ajouter", maxLines = 1, softWrap = false) }
+                TextButton(enabled = ext.isNotBlank(), onClick = { mem.put(JSONObject().put("enseignantId", "").put("nom", ext.trim()).put("ppr", "").put("etablissementNom", "").put("role", "")); ext = ""; changed() }) { BtnText("Ajouter", maxLines = 1, softWrap = false) }
             }
         }
     }

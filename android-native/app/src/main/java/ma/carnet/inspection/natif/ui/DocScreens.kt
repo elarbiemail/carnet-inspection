@@ -145,7 +145,7 @@ fun DocEditScreen(docId: String?, taskId: String, type: String, tplId: String?) 
     ScreenScaffold(Docs.label(d.value), { Nav.pop() }, actions = {
         IconButton(onClick = { val id = save(); Nav.replace(Scr.DocPreview(id)) }) { Icon(Icons.Default.Search, "Aperçu") }
         if (orig != null) IconButton(onClick = { askDelete = true }) { Icon(Icons.Default.Delete, "Supprimer") }
-        TextButton(onClick = { save(); toast(ctx, "Document enregistré."); Nav.pop() }) { Text("Enregistrer", color = OnBrand, fontWeight = FontWeight.Bold) }
+        TextButton(onClick = { save(); toast(ctx, "Document enregistré."); Nav.pop() }) { BtnText("Enregistrer", color = OnBrand, fontWeight = FontWeight.Bold) }
     }) { pad ->
         Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(14.dp)) {
             if (rtl) Text("Document rédigé en arabe.", color = InkFaint, fontSize = 12.sp)
@@ -330,7 +330,7 @@ fun PreviewWithExport(title: String, html: String, name: String, landscape: Bool
                         }
                     }
                 }
-                OutlinedButton(onClick = { web?.let { printWeb(ctx, it, name) } }) { Text("Imprimer", maxLines = 1, softWrap = false) }
+                OutlinedButton(onClick = { web?.let { printWeb(ctx, it, name) } }) { BtnText("Imprimer", maxLines = 1, softWrap = false) }
             }
             AndroidView(factory = { c ->
                 WebView(c).apply {
@@ -396,7 +396,7 @@ fun MultiTeacherPicker(initial: Set<String>, etabId: String, onDismiss: () -> Un
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Fermer") }
                     Text("Choisir des enseignant(e)s (${sel.size})", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                    TextButton(onClick = { onDone(all.filter { it.s("id") in sel }) }) { Text("Valider", maxLines = 1, softWrap = false) }
+                    TextButton(onClick = { onDone(all.filter { it.s("id") in sel }) }) { BtnText("Valider", maxLines = 1, softWrap = false) }
                 }
                 SearchField(q, { q = it }, "Rechercher…")
                 if (zones.isNotEmpty()) SelectField("Zone", zones.associate { it.s("id") to it.s("nom") }, zone, { zone = it; if (etab.isNotEmpty() && zone.isNotEmpty() && etabZone[etab] != zone) etab = "" }, allowEmpty = true)
@@ -412,8 +412,8 @@ fun MultiTeacherPicker(initial: Set<String>, etabId: String, onDismiss: () -> Un
                     (nq.isEmpty() || norm(e.s("nom") + " " + e.s("ppr") + " " + etabName(eid)).contains(nq))
                 }.sortedBy { norm(it.s("nom")) }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = { list.forEach { if (it.s("id") !in sel) sel.add(it.s("id")) } }) { Text("Tout cocher (${list.size})", maxLines = 1, softWrap = false) }
-                    TextButton(onClick = { val ids = list.map { it.s("id") }.toSet(); sel.removeAll { it in ids } }) { Text("Tout décocher", maxLines = 1, softWrap = false) }
+                    TextButton(onClick = { list.forEach { if (it.s("id") !in sel) sel.add(it.s("id")) } }) { BtnText("Tout cocher (${list.size})", maxLines = 1, softWrap = false) }
+                    TextButton(onClick = { val ids = list.map { it.s("id") }.toSet(); sel.removeAll { it in ids } }) { BtnText("Tout décocher", maxLines = 1, softWrap = false) }
                     Spacer(Modifier.weight(1f))
                     Checkbox(checked = onlySel, onCheckedChange = { onlySel = it }); Text("Cochés", fontSize = 13.sp)
                 }

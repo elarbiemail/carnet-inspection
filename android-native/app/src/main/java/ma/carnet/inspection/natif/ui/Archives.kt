@@ -95,7 +95,7 @@ fun ArchivesScreen(initialColl: String, initialTab: String = "supprimes") {
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("${list.size} opération(s)", color = InkFaint, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                        TextButton(onClick = { exportJournalCsv(ctx, list) }) { Text("Exporter en CSV", maxLines = 1, softWrap = false) }
+                        TextButton(onClick = { exportJournalCsv(ctx, list) }) { BtnText("Exporter en CSV", maxLines = 1, softWrap = false) }
                     }
                 }
                 if (list.isEmpty()) item { EmptyState("Aucune opération.") }
@@ -148,7 +148,7 @@ fun ArchiveViewScreen(coll: String, id: String) {
         ScreenScaffold("Fiche", { Nav.pop() }) { pad ->
             Column(Modifier.padding(pad)) {
                 EmptyState(if (live != null) "Cette fiche a été restaurée." else "Fiche introuvable dans les archives.")
-                if (live != null) TextButton(onClick = { Nav.replace(when (coll) { "enseignants" -> Scr.EnsDetail(id); "etablissements" -> Scr.EtabDetail(id); "tasks" -> Scr.TaskDetail(id); else -> Scr.DocPreview(id) }) }) { Text("Ouvrir la fiche", maxLines = 1, softWrap = false) }
+                if (live != null) TextButton(onClick = { Nav.replace(when (coll) { "enseignants" -> Scr.EnsDetail(id); "etablissements" -> Scr.EtabDetail(id); "tasks" -> Scr.TaskDetail(id); else -> Scr.DocPreview(id) }) }) { BtnText("Ouvrir la fiche", maxLines = 1, softWrap = false) }
             }
         }
         return

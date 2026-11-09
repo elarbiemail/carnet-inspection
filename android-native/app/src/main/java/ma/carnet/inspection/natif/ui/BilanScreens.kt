@@ -257,8 +257,8 @@ fun BilanScreen() {
                 cf.put("data", data).put("type", type).put("titre", titre.trim()).put("export", exp)
                 val l = charts.toMutableList(); val i = l.indexOfFirst { it.s("id") == cf.s("id") }; if (i >= 0) l[i] = cf else l.add(cf)
                 charts = l; setBilanCharts(l); edit = null
-            }) { Text("Enregistrer", maxLines = 1, softWrap = false) }
-        }, dismissButton = { TextButton(onClick = { edit = null }) { Text("Annuler", maxLines = 1, softWrap = false) } })
+            }) { BtnText("Enregistrer", maxLines = 1, softWrap = false) }
+        }, dismissButton = { TextButton(onClick = { edit = null }) { BtnText("Annuler", maxLines = 1, softWrap = false) } })
     }
 }
 

@@ -59,7 +59,7 @@ fun RemarquesPicker(onDismiss: () -> Unit, onPick: (String) -> Unit) {
                 item { Text("• $t", fontSize = 13.5.sp, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).clickable { onPick(t) }) }
             }
         }
-    }, confirmButton = { TextButton(onClick = onDismiss) { Text("Fermer", maxLines = 1, softWrap = false) } })
+    }, confirmButton = { TextButton(onClick = onDismiss) { BtnText("Fermer", maxLines = 1, softWrap = false) } })
 }
 
 
@@ -87,16 +87,16 @@ fun TsSection(t: JSONObject) {
                 var obs by remember(f.s("enseignantId"), tick) { mutableStateOf(f.s("observation")) }
                 OutlinedTextField(obs, { obs = it }, Modifier.fillMaxWidth(), label = { Text("Remarques (motif de la non-validation)") })
                 Row {
-                    TextButton(onClick = { save { c -> c.optJSONArray("feuilles")?.optJSONObject(idx)?.put("observation", obs) } }) { Text("Enregistrer", maxLines = 1, softWrap = false) }
-                    TextButton(onClick = { save { c -> c.optJSONArray("feuilles")?.optJSONObject(idx)?.put("observation", obs) }; remarkFor = idx }) { Text("+ Remarque usuelle", maxLines = 1, softWrap = false) }
+                    TextButton(onClick = { save { c -> c.optJSONArray("feuilles")?.optJSONObject(idx)?.put("observation", obs) } }) { BtnText("Enregistrer", maxLines = 1, softWrap = false) }
+                    TextButton(onClick = { save { c -> c.optJSONArray("feuilles")?.optJSONObject(idx)?.put("observation", obs) }; remarkFor = idx }) { BtnText("+ Remarque usuelle", maxLines = 1, softWrap = false) }
                 }
             }
-            TextButton(onClick = { save { c -> val a = c.optJSONArray("feuilles") ?: return@save; val nn = JSONArray(); for (j in 0 until a.length()) if (j != idx) nn.put(a.opt(j)); c.put("feuilles", nn) } }) { Text("Retirer", color = Danger) }
+            TextButton(onClick = { save { c -> val a = c.optJSONArray("feuilles") ?: return@save; val nn = JSONArray(); for (j in 0 until a.length()) if (j != idx) nn.put(a.opt(j)); c.put("feuilles", nn) } }) { BtnText("Retirer", color = Danger) }
         }
         Row(Modifier.horizontalScrollRow(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            if (missing.isNotEmpty()) OutlinedButton(onClick = { save { c -> val a = c.optJSONArray("feuilles") ?: JSONArray().also { c.put("feuilles", it) }; missing.sortedBy { norm(it.s("nom")) }.forEach { e -> a.put(JSONObject().put("enseignantId", e.s("id")).put("nom", e.s("nom")).put("ppr", e.s("ppr")).put("statut", "en_attente").put("observation", "")) } } }) { Text("Ajouter les enseignant(e)s (${missing.size})", maxLines = 1, softWrap = false) }
-            OutlinedButton(onClick = { pickOne = true }) { Text("+ Enseignant(e)", maxLines = 1, softWrap = false) }
-            if (n("en_attente") > 0) OutlinedButton(onClick = { save { c -> c.optJSONArray("feuilles")?.let { a -> for (j in 0 until a.length()) a.optJSONObject(j)?.let { if (it.s("statut").ifEmpty { "en_attente" } == "en_attente") it.put("statut", "validee") } } } }) { Text("Valider celles en attente", maxLines = 1, softWrap = false) }
+            if (missing.isNotEmpty()) OutlinedButton(onClick = { save { c -> val a = c.optJSONArray("feuilles") ?: JSONArray().also { c.put("feuilles", it) }; missing.sortedBy { norm(it.s("nom")) }.forEach { e -> a.put(JSONObject().put("enseignantId", e.s("id")).put("nom", e.s("nom")).put("ppr", e.s("ppr")).put("statut", "en_attente").put("observation", "")) } } }) { BtnText("Ajouter les enseignant(e)s (${missing.size})", maxLines = 1, softWrap = false) }
+            OutlinedButton(onClick = { pickOne = true }) { BtnText("+ Enseignant(e)", maxLines = 1, softWrap = false) }
+            if (n("en_attente") > 0) OutlinedButton(onClick = { save { c -> c.optJSONArray("feuilles")?.let { a -> for (j in 0 until a.length()) a.optJSONObject(j)?.let { if (it.s("statut").ifEmpty { "en_attente" } == "en_attente") it.put("statut", "validee") } } } }) { BtnText("Valider celles en attente", maxLines = 1, softWrap = false) }
         }
     }
     if (remarkFor >= 0) RemarquesPicker({ remarkFor = -1 }) { r ->
@@ -314,8 +314,8 @@ fun CsvImportCard() {
     CardBox {
         Text("Enregistrez votre tableau Excel au format CSV. Colonnes reconnues — enseignant(e)s : nom, nomAr, ppr, matiere, cadre, genre, telephone, email, etablissement, niveau ; établissements : nom, nomAr, code, zone, cycle, directeur, telDirecteur, telephone, adresse.", fontSize = 12.5.sp, color = InkFaint)
         Row(Modifier.horizontalScrollRow(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { ens.launch(arrayOf("text/*", "*/*")) }) { Text("Enseignant(e)s (CSV)", maxLines = 1, softWrap = false) }
-            OutlinedButton(onClick = { ets.launch(arrayOf("text/*", "*/*")) }) { Text("Établissements (CSV)", maxLines = 1, softWrap = false) }
+            OutlinedButton(onClick = { ens.launch(arrayOf("text/*", "*/*")) }) { BtnText("Enseignant(e)s (CSV)", maxLines = 1, softWrap = false) }
+            OutlinedButton(onClick = { ets.launch(arrayOf("text/*", "*/*")) }) { BtnText("Établissements (CSV)", maxLines = 1, softWrap = false) }
         }
         if (msg.isNotEmpty()) Text(msg, color = Brand, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
     }
@@ -363,8 +363,8 @@ fun ZoneEditDialog(z: JSONObject, onDismiss: () -> Unit) {
                 if (inSel != was) { val c = JSONObject(e.toString()); c.put("zoneId", if (inSel) z.s("id") else ""); Store.upsert("etablissements", c) }
             }
             onDismiss()
-        }) { Text("Enregistrer", maxLines = 1, softWrap = false) }
-    }, dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler", maxLines = 1, softWrap = false) } })
+        }) { BtnText("Enregistrer", maxLines = 1, softWrap = false) }
+    }, dismissButton = { TextButton(onClick = onDismiss) { BtnText("Annuler", maxLines = 1, softWrap = false) } })
 }
 
 // ---------------- Déconnexion et fermeture ----------------
@@ -392,8 +392,8 @@ fun LogoutDialog(onDismiss: () -> Unit) {
                 }
             }
             if (DriveSync.enabled(ctx)) SyncHolder.withToken("Dernière synchronisation…") { tk -> try { DriveSync.sync(ctx, tk) } catch (_: Throwable) {}; finish() } else finish()
-        }) { Text("Se déconnecter et fermer", color = Danger) }
-    }, dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler", maxLines = 1, softWrap = false) } })
+        }) { BtnText("Se déconnecter et fermer", color = Danger) }
+    }, dismissButton = { TextButton(onClick = onDismiss) { BtnText("Annuler", maxLines = 1, softWrap = false) } })
 }
 
 // ---------------- Écran de bienvenue (connexion Google) ----------------
@@ -419,7 +419,7 @@ fun WelcomeScreen(onDone: () -> Unit) {
                 if (showCid) {
                     OutlinedTextField(cid, { cid = it; DriveSync.setClientId(ctx, it) }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Identifiant client Google (Google ID)") }, placeholder = { Text("123…-xxx.apps.googleusercontent.com") })
                     Text("Celui du carnet web (Paramètres → Synchronisation). Voir l'aide dans Paramètres → Compte Google.", fontSize = 11.5.sp, color = InkFaint)
-                } else TextButton(onClick = { showCid = true }) { Text("Modifier l'identifiant client Google", maxLines = 1, softWrap = false) }
+                } else TextButton(onClick = { showCid = true }) { BtnText("Modifier l'identifiant client Google", maxLines = 1, softWrap = false) }
                 GoogleSignInButton(busy) {
                     if (act == null) return@GoogleSignInButton
                     busy = true; err = ""
@@ -439,7 +439,7 @@ fun WelcomeScreen(onDone: () -> Unit) {
                 }
                 if (err.isNotEmpty()) Text(err, color = Danger, fontSize = 12.5.sp, modifier = Modifier.padding(top = 6.dp))
                 OutlinedButton(onClick = { if (DriveSync.clientId(ctx).isBlank()) { err = "Saisissez d'abord l'identifiant client Google."; return@OutlinedButton }; DriveSync.setAuthMode(ctx, "web"); DriveSync.forceChoose = true; GoogleAccount.setWelcomeDone(ctx); onDone(); SyncHolder.fn(true) },
-                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) { Text("Se connecter par le navigateur (sans Google Cloud)", maxLines = 1, softWrap = false) }
+                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) { BtnText("Se connecter par le navigateur (sans Google Cloud)", maxLines = 1, softWrap = false) }
                 TextButton(onClick = { GoogleAccount.setWelcomeDone(ctx); onDone() }, modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) { MarqueeText("Continuer sans compte (données sur ce téléphone)", center = true) }
             }
         }

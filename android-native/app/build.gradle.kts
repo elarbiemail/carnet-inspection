@@ -65,4 +65,6 @@ dependencies {
     implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
     implementation("com.google.mediapipe:tasks-genai:0.10.24")
     implementation("org.jsoup:jsoup:1.17.2")
+    implementation("androidx.glance:glance-appwidget:1.1.1")
+    implementation("androidx.datastore:datastore-preferences:1.1.1")
 }

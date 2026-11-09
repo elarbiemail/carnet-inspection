@@ -102,7 +102,7 @@ fun NotesScreen() {
             item {
                 ZoneFilterBar()
                 PickField("Établissement", if (etab.isEmpty()) "Tous (zones sélectionnées)" else etabName(etab)) { pick = true }
-                if (etab.isNotEmpty()) TextButton(onClick = { etab = "" }) { Text("Tous les établissements", maxLines = 1, softWrap = false) }
+                if (etab.isNotEmpty()) TextButton(onClick = { etab = "" }) { BtnText("Tous les établissements", maxLines = 1, softWrap = false) }
                 Button(onClick = { showHtml("Notes d'inspection", notesHtml(ctx, ens, etab)) }, modifier = Modifier.fillMaxWidth()) { MarqueeText("Fiche synthèse imprimable (${ens.size})", center = true) }
             }
             items(ens, key = { it.s("id") }) { e ->
@@ -178,7 +178,7 @@ fun ProgrammeScreen() {
     val cats = pa.getJSONArray("categories")
     ScreenScaffold("Programme annuel", { Nav.pop() }, actions = {
         IconButton(onClick = { showHtml("Programme annuel", programmeHtml(ctx, pa), true) }) { Icon(Icons.Default.Share, "Imprimer") }
-        TextButton(onClick = { save() }, enabled = dirty) { Text("Enregistrer", color = OnBrand, fontWeight = FontWeight.Bold) }
+        TextButton(onClick = { save() }, enabled = dirty) { BtnText("Enregistrer", color = OnBrand, fontWeight = FontWeight.Bold) }
     }) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
             tick
@@ -243,7 +243,7 @@ fun ProgrammeScreen() {
                     }
                     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = { groups.put(JSONObject().put("id", UUID.randomUUID().toString()).put("typeActivite", "").put("rows", JSONArray())); ch() }) { Icon(Icons.Default.Add, null); Text("Type d'activité") }
-                        TextButton(onClick = { pa.put("categories", cats.without(ci)); tab = -1; ch() }) { Text("Supprimer la catégorie", color = Danger) }
+                        TextButton(onClick = { pa.put("categories", cats.without(ci)); tab = -1; ch() }) { BtnText("Supprimer la catégorie", color = Danger) }
                     }
                 }
                 Spacer(Modifier.height(60.dp))

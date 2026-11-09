@@ -139,9 +139,9 @@ fun EtabDetailScreen(id: String) {
             SectionTitle("Documents de l'établissement")
             val ctx2 = LocalContext.current
             Row(Modifier.horizontalScrollRow(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { showHtml("Emploi du temps - " + e.s("nom"), etabTimetableHtml(ctx2, id), true) }) { Text("Emploi du temps hebdomadaire", maxLines = 1, softWrap = false) }
-                OutlinedButton(onClick = { showHtml("Notes d'inspection - " + e.s("nom"), notesHtml(ctx2, Store.list("enseignants").filter { it.s("etablissementId") == id }.sortedBy { norm(it.s("nom")) }, id)) }) { Text("Fiche synthèse des notes", maxLines = 1, softWrap = false) }
-                OutlinedButton(onClick = { Nav.push(Scr.TaskEdit(null, etabId = id)) }) { Text("Validation des tableaux de service", maxLines = 1, softWrap = false) }
+                OutlinedButton(onClick = { showHtml("Emploi du temps - " + e.s("nom"), etabTimetableHtml(ctx2, id), true) }) { BtnText("Emploi du temps hebdomadaire", maxLines = 1, softWrap = false) }
+                OutlinedButton(onClick = { showHtml("Notes d'inspection - " + e.s("nom"), notesHtml(ctx2, Store.list("enseignants").filter { it.s("etablissementId") == id }.sortedBy { norm(it.s("nom")) }, id)) }) { BtnText("Fiche synthèse des notes", maxLines = 1, softWrap = false) }
+                OutlinedButton(onClick = { Nav.push(Scr.TaskEdit(null, etabId = id)) }) { BtnText("Validation des tableaux de service", maxLines = 1, softWrap = false) }
             }
             val tsT = Store.list("tasks").filter { Ref.type(it) == "validation_ts" && it.s("etablissementId") == id }.maxByOrNull { it.s("echeance") }
             if (tsT != null) CardBox(onClick = { Nav.push(Scr.TaskDetail(tsT.s("id"))) }) {
@@ -172,7 +172,7 @@ fun EtabEditScreen(id: String?) {
             if (e.value.s("nom").isBlank()) { toast(ctx, "Indiquez le nom."); return@TextButton }
             Store.upsert("etablissements", e.value); toast(ctx, "Établissement enregistré.")
             Nav.replace(Scr.EtabDetail(e.value.s("id")))
-        }) { Text("Enregistrer", color = OnBrand, fontWeight = FontWeight.Bold) }
+        }) { BtnText("Enregistrer", color = OnBrand, fontWeight = FontWeight.Bold) }
     }) { pad ->
         Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(14.dp)) {
             TextFieldRow("Nom", g("nom"), { set("nom", it) })
