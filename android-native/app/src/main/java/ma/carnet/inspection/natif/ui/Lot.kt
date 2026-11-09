@@ -24,7 +24,7 @@ import ma.carnet.inspection.natif.data.*
 import org.json.JSONObject
 
 /**
- * Rattache chaque fichier à l'enseignant(e) dont le PPR figure dans son nom (ex. « 1408356_AGOUJIL_ZOUHIR.pdf »),
+ * Rattache chaque fichier à l'enseignant(e) dont le PPR figure dans son nom (ex. « 1234567_NOM_PRENOM.pdf »),
  * sinon dont tous les mots du nom y figurent (même règle que le carnet web).
  */
 fun feuilleMatchEns(name: String): JSONObject? {
@@ -54,7 +54,7 @@ fun FeuillesLotButton() {
         val ko = plan.filter { it.third == null }
         AlertDialog(onDismissRequest = { plan = emptyList() }, title = { Text("Feuilles personnelles (lot)") }, text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
-                if (ok.isEmpty()) Text("Aucun fichier reconnu : mettez le PPR ou le nom de l'enseignant(e) dans le nom du fichier (ex. 1408356_AGOUJIL_ZOUHIR.pdf).", fontSize = 13.5.sp)
+                if (ok.isEmpty()) Text("Aucun fichier reconnu : mettez le PPR ou le nom de l'enseignant(e) dans le nom du fichier (ex. 1234567_NOM_PRENOM.pdf).", fontSize = 13.5.sp)
                 else Text("Joindre ${ok.size} feuille(s) :", fontSize = 13.5.sp)
                 ok.forEach { Text("• ${it.second} → ${it.third!!.s("nom")}", fontSize = 12.5.sp) }
                 if (ko.isNotEmpty()) {

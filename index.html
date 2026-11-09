@@ -3904,10 +3904,10 @@
      Chaque tâche a son propre dossier dans le Drive de l'application, rangé par année scolaire et par
      type de tâche :
        Carnet d'Inspection — Données /
-         Tâches / Année 2026-2027 / Inspections / 2026-10-22 — Inspection · ALAMI Sara · Lycée Chorouk /
+         Tâches / Année 2026-2027 / Inspections / 2026-10-22 — Inspection · NOM Prénom · Lycée Exemple /
            Pièces jointes /      ← fichiers joints à la tâche (tout type, plusieurs à la fois)
            Documents générés /   ← rapports, grilles, courriers produits depuis la tâche (PDF / Word)
-         Enseignants / ALAMI Sara — 1234567 /   ← pièces jointes des fiches enseignant(e)s
+         Enseignants / NOM Prénom — 1234567 /   ← pièces jointes des fiches enseignant(e)s
      Les fichiers joints sont d'abord gardés sur l'appareil (espace privé du navigateur, OPFS) puis
      envoyés sur Drive dès que possible : sans connexion ou sans Drive connecté, ils restent « en
      attente » et partent automatiquement plus tard (au retour du réseau, après connexion à Drive, ou
@@ -8555,7 +8555,7 @@
     if(!tasks.length){
       html += '<div style="position:relative;"><div class="task-card preview-card" style="--prio:var(--warn)"><div class="preview-tag">Aperçu</div>'+
         '<div class="task-meta"><span class="type-badge violet">Inspection</span></div>'+
-        '<div class="task-title">Inspection — 2AC Période 5</div><div class="task-meta">Mme Ilham · Établissement Chorouk</div>'+
+        '<div class="task-title">Inspection — 2AC Période 5</div><div class="task-meta">Mme Nadia B. · Établissement Les Oliviers</div>'+
         '<div class="task-foot"><span class="pill wf-a_planifier">À planifier</span><span class="due-chip">18/09</span></div></div></div>'+
         '<div class="empty">Aucune tâche pour l\'instant. Touchez « + » pour créer la première.</div>';
     } else if(!filtered.length){
@@ -9298,7 +9298,7 @@
     return '<div id="fVacanceWarning">'+(v ? '<div class="banner warn" style="margin:-4px 0 10px;">'+ICONS.warn+'<div>Cette date tombe pendant <b>'+esc(v.nom||'une période de vacances')+'</b> (du '+fmtDate(v.dateDebut)+' au '+fmtDate(v.dateFin)+').</div></div>' : '')+'</div>';
   }
   /* Titre automatique de la tâche, composé de ses éléments significatifs : type, personne ou public
-     visé, établissement (ou lieu), date et heure — ex. « Inspection · ALAMI Sara · Lycée Chorouk ·
+     visé, établissement (ou lieu), date et heure — ex. « Inspection · NOM Prénom · Lycée Exemple ·
      21/10/2026 », « Réunion pédagogique · 12 enseignant(e)s · 3 établissements · 24/10/2026 à 09:00 ».
      Tant que l'utilisateur n'a pas écrit son propre titre, il se met à jour à chaque modification ;
      dès qu'il le modifie à la main, son titre est conservé (bouton « Titre automatique » pour revenir
@@ -9610,7 +9610,7 @@
         '<div class="field"><label for="pProvince">Province / Nyaba</label><input type="text" id="pProvince" value="'+esc(p.province)+'"></div></div>'+
         '<div class="field"><label for="pNbEncadres">Nombre d\'encadré(e)s</label><input type="number" min="0" id="pNbEncadres" value="'+esc(p.nbEncadres)+'"></div>'+
         '<div class="section-label" style="margin-top:6px;">Documents officiels (rapport d\'inspection, ورقة إرسال, رسالة إخبارية)</div>'+
-        '<div class="field"><label for="pNomSig">Nom tel qu\'il apparaît sur le rapport d\'inspection</label><input type="text" id="pNomSig" value="'+esc(p.nomSignature||DEFAULT_PROFIL.nomSignature)+'" placeholder="M. El Arbi EL ADLOUNI"></div>'+
+        '<div class="field"><label for="pNomSig">Nom tel qu\'il apparaît sur le rapport d\'inspection</label><input type="text" id="pNomSig" value="'+esc(p.nomSignature||DEFAULT_PROFIL.nomSignature)+'" placeholder="M. Prénom NOM"></div>'+
         '<div class="field-row"><div class="field"><label for="pNomAr">الاسم الكامل</label><input type="text" id="pNomAr" dir="rtl" value="'+esc(p.nomAr||DEFAULT_PROFIL.nomAr)+'"></div>'+
         '<div class="field"><label for="pMatAr">المادة</label><input type="text" id="pMatAr" dir="rtl" value="'+esc(p.matiereAr||DEFAULT_PROFIL.matiereAr)+'"></div></div>'+
         '<div class="field-row"><div class="field"><label for="pCycleAr">السلك</label><input type="text" id="pCycleAr" dir="rtl" value="'+esc(p.cycleAr||'')+'" placeholder="الثانوي الإعدادي / الثانوي التأهيلي"></div>'+
@@ -11063,7 +11063,7 @@
       '<div class="field"><label for="etTel">Téléphone de l\'établissement</label><input type="tel" id="etTel" value="'+esc(e.telephone)+'"></div>'+
       /* Directeur(trice) : nom et numéro (carte SIM de fonction), avec appel et WhatsApp directs. */
       '<div class="field-row"><div class="field"><label for="etDir">Directeur(trice)</label><input type="text" id="etDir" dir="auto" value="'+esc(e.directeur||'')+'" placeholder="Nom du/de la directeur(trice)"></div>'+
-      '<div class="field"><label for="etDirTel">Téléphone du/de la directeur(trice)</label><input type="tel" id="etDirTel" value="'+esc(e.directeurTel||'')+'" placeholder="Ex. 0700025805"></div></div>'+
+      '<div class="field"><label for="etDirTel">Téléphone du/de la directeur(trice)</label><input type="tel" id="etDirTel" value="'+esc(e.directeurTel||'')+'" placeholder="Ex. 06 00 00 00 00"></div></div>'+
       '<div class="btn-row"><a class="btn ghost sm" id="btnEtabDirCall" href="'+telHref(e.directeurTel)+'">'+ICONS.phone+' Appeler le/la directeur(trice)</a>'+
       '<a class="btn ghost sm" id="btnEtabDirWa" href="'+waHref(e.directeurTel, waGreeting(e.directeur))+'" target="_blank" rel="noopener">'+ICONS.chat+' WhatsApp</a>'+
       '<a class="btn ghost sm" id="btnEtabCall" href="'+telHref(e.telephone)+'">'+ICONS.phone+' Appeler l\'établissement</a></div>'+
@@ -13078,7 +13078,7 @@
   }
   /* ---- Feuilles personnelles en lot (liste Enseignants) ----
      Chaque fichier est rattaché à l'enseignant(e) dont le PPR figure dans son nom (ex.
-     « 1408356_AGOUJIL_ZOUHIR.pdf »), sinon dont tous les mots du nom y figurent. Bilan montré avant
+     « 1234567_NOM_PRENOM.pdf »), sinon dont tous les mots du nom y figurent. Bilan montré avant
      d'enregistrer ; les fichiers non reconnus sont signalés et ignorés. */
   function feuilleMatchEns(fname){
     var base = String(fname||'').replace(/\.[a-z0-9]+$/i,'');
