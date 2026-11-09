@@ -41,9 +41,9 @@ fun isLate(t: JSONObject): Boolean {
 }
 
 @Composable
-fun TaskCard(t: JSONObject) {
+fun TaskCard(t: JSONObject, sel: Sel? = null) {
     val st = Ref.statut(t)
-    CardBox(onClick = { Nav.push(Scr.TaskDetail(t.s("id"))) }) {
+    val body: @Composable ColumnScope.() -> Unit = {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(t.s("titre").ifEmpty { autoTaskTitle(t) }, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -61,6 +61,8 @@ fun TaskCard(t: JSONObject) {
             Icon(Icons.Default.KeyboardArrowRight, null, tint = InkFaint)
         }
     }
+    if (sel != null) SelCard(t.s("id"), sel, { Nav.push(Scr.TaskDetail(t.s("id"))) }, body)
+    else CardBox(onClick = { Nav.push(Scr.TaskDetail(t.s("id"))) }, content = body)
 }
 
 // ---------------- Accueil ----------------
@@ -169,7 +171,12 @@ fun TasksScreen() {
         (ty.isEmpty() || Ref.type(t) == ty) &&
         (nq.isEmpty() || norm(listOf(t.s("titre"), taskEnsName(t), taskEtabName(t), t.s("lieu")).joinToString(" ")).contains(nq))
     }.sortedWith(compareByDescending<JSONObject> { it.s("echeance") })
-    ScreenScaffold("Tâches", null, fab = {
+    val sel = rememberSel()
+    var askDel by remember { mutableStateOf(false) }
+    var editSel by remember { mutableStateOf(false) }
+    ScreenScaffold(selTitle(sel, "Tâches"), if (sel.on) ({ sel.clear() }) else null, actions = {
+        SelActions(sel, list.map { it.s("id") }, { editSel = true }, { askDel = true })
+    }, fab = {
         FloatingActionButton(onClick = { Nav.push(Scr.TaskEdit(null)) }, containerColor = Brand, contentColor = OnBrand) { Icon(Icons.Default.Add, "Nouvelle tâche") }
     }) { pad ->
         LazyColumn(Modifier.padding(pad).padding(horizontal = 14.dp)) {
@@ -182,10 +189,12 @@ fun TasksScreen() {
                 Text("${list.size} tâche(s)", color = InkFaint, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
             }
             if (list.isEmpty()) item { EmptyState("Aucune tâche.") }
-            items(list, key = { it.s("id") }) { TaskCard(it) }
+            items(list, key = { it.s("id") }) { TaskCard(it, sel) }
             item { Spacer(Modifier.height(80.dp)) }
         }
     }
+    if (askDel) BatchDeleteDialog(sel.ids.size, "tâches", onDismiss = { askDel = false }) { Store.deleteMany("tasks", sel.ids.toList()); sel.clear() }
+    if (editSel) BatchEditDialog(sel.ids.size, taskBatchFields(), { editSel = false }) { f, vals -> applyBatch("tasks", sel.ids.toList(), f, vals); sel.clear() }
 }
 
 // ---------------- Fiche d'une tâche ----------------
@@ -247,6 +256,7 @@ fun TaskDetailScreen(id: String) {
             if (Ref.type(t) == "validation_ts") TsSection(t)
             TaskDocsSection(t)
             AttachmentsSection("tasks", id)
+            HistorySection(id)
             Spacer(Modifier.height(40.dp))
         }
     }
@@ -282,6 +292,7 @@ fun TaskEditScreen(id: String?, etabId: String?, ensId: String?) {
     var pickEtab by remember { mutableStateOf(false) }
     var pickEns by remember { mutableStateOf(false) }
     var pickInv by remember { mutableStateOf(false) }
+    DraftGuard("task:" + (id ?: "new"), t, tick, { tick++ }) { Nav.stack.any { it is Scr.TaskEdit && it.id == id } }
 
     ScreenScaffold(if (orig == null) "Nouvelle tâche" else "Modifier la tâche", { Nav.pop() }, actions = {
         TextButton(onClick = {

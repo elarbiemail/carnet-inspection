@@ -28,11 +28,11 @@ import java.time.LocalTime
 fun genreColor(g: String): Color = if (g == "F") FemColor else if (g == "H") HomColor else Brand
 
 @Composable
-fun TeacherRow(e: JSONObject, sub: String = "") {
+fun TeacherRow(e: JSONObject, sub: String = "", sel: Sel? = null) {
     val li = remember(e.s("updatedAt"), e.s("id")) { ensInspections(e).firstOrNull() }
-    CardBox(onClick = { Nav.push(Scr.EnsDetail(e.s("id"))) }) {
+    val body: @Composable ColumnScope.() -> Unit = {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Avatar(e.s("nom"), genreColor(e.s("genre")))
+            Avatar(e.s("nom"), genreColor(e.s("genre")), tel = e.s("telephone"), photoId = e.s("id"))
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
                 Text(e.s("nom"), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Row(Modifier.padding(top = 2.dp)) {
@@ -50,6 +50,8 @@ fun TeacherRow(e: JSONObject, sub: String = "") {
             }
         }
     }
+    if (sel != null) SelCard(e.s("id"), sel, { Nav.push(Scr.EnsDetail(e.s("id"))) }, body)
+    else CardBox(onClick = { Nav.push(Scr.EnsDetail(e.s("id"))) }, content = body)
 }
 
 /** Créneau horaire : « qui est en classe à ce moment ? » */
@@ -64,7 +66,12 @@ fun TeachersScreen() {
     var gen by remember { mutableStateOf("") }
     var mode by remember { mutableStateOf("liste") }
     val all = remember(v) { Store.enseignants() }
-    ScreenScaffold("Enseignant(e)s", null, fab = {
+    val sel = rememberSel()
+    var askDel by remember { mutableStateOf(false) }
+    var editSel by remember { mutableStateOf(false) }
+    ScreenScaffold(selTitle(sel, "Enseignant(e)s"), if (sel.on) ({ sel.clear() }) else null, actions = {
+        SelActions(sel, all.map { it.s("id") }, { editSel = true }, { askDel = true })
+    }, fab = {
         FloatingActionButton(onClick = { Nav.push(Scr.EnsEdit(null)) }, containerColor = Brand, contentColor = OnBrand) { Icon(Icons.Default.Add, "Nouvel(le) enseignant(e)") }
     }) { pad ->
         LazyColumn(Modifier.padding(pad).padding(horizontal = 14.dp)) {
@@ -72,6 +79,7 @@ fun TeachersScreen() {
                 Spacer(Modifier.height(8.dp)); ZoneFilterBar()
                 ChipRow(mapOf("liste" to "Liste", "horaire" to "Par horaire"), mode, { mode = it.ifEmpty { "liste" } }, null)
                 FicheImportButton()
+                FeuillesLotButton()
             }
             if (mode == "horaire") {
                 item { HoraireSearch(all) }
@@ -86,14 +94,20 @@ fun TeachersScreen() {
                     Spacer(Modifier.height(6.dp))
                     ChipRow(Ref.ENS_CYCLES, cyc, { cyc = it }, "Tous cycles")
                     ChipRow(mapOf("F" to "Femmes", "H" to "Hommes"), gen, { gen = it }, "Tous")
-                    Text("${list.size} enseignant(e)(s)", color = InkFaint, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("${list.size} enseignant(e)(s)", color = InkFaint, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                        TextButton(onClick = { Nav.push(Scr.Archives("enseignants")) }) { Text("Fiches supprimées") }
+                    }
                 }
                 if (list.isEmpty()) item { EmptyState("Aucun(e) enseignant(e).") }
-                items(list, key = { it.s("id") }) { TeacherRow(it) }
+                items(list, key = { it.s("id") }) { TeacherRow(it, sel = sel) }
+                if (sel.on) item { TextButton(onClick = { sel.selectAll(list.map { it.s("id") }) }) { Text("Sélectionner les ${list.size} de la liste (filtre actuel)") } }
             }
             item { Spacer(Modifier.height(80.dp)) }
         }
     }
+    if (askDel) BatchDeleteDialog(sel.ids.size, "enseignant(e)s", onDismiss = { askDel = false }) { Store.deleteMany("enseignants", sel.ids.toList()); sel.clear() }
+    if (editSel) BatchEditDialog(sel.ids.size, ENS_BATCH_FIELDS, { editSel = false }) { f, vals -> applyBatch("enseignants", sel.ids.toList(), f, vals); sel.clear() }
 }
 
 @Composable
@@ -134,7 +148,7 @@ fun TeacherDetailScreen(id: String) {
         Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(14.dp)) {
             CardBox {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Avatar(e.s("nom"), genreColor(e.s("genre")), 56)
+                    Avatar(e.s("nom"), genreColor(e.s("genre")), 56, tel = e.s("telephone"), photoId = id)
                     Column(Modifier.padding(start = 12.dp)) {
                         Text(e.s("nom"), fontWeight = FontWeight.Bold, fontSize = 17.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         if (e.s("nomAr").isNotEmpty()) Text(e.s("nomAr"), color = InkFaint, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -142,6 +156,7 @@ fun TeacherDetailScreen(id: String) {
                     }
                 }
                 ContactButtons(e.s("telephone"), e.s("nom"), e.s("email"))
+                PhotoButton(id, e.s("telephone"))
             }
             CardBox {
                 InfoRow("PPR", e.s("ppr")); InfoRow("Cadre", e.s("cadre")); InfoRow("Matière", e.s("matiere")); InfoRow("Niveaux", e.s("cycle"))
@@ -187,6 +202,7 @@ fun TeacherDetailScreen(id: String) {
                 CardBox { ts.forEach { (t, f) -> Text(fmtDate(t.s("echeance")) + " — " + (TS_STATUTS[f.s("statut")] ?: "En attente") + if (f.s("observation").isNotEmpty()) " : " + f.s("observation") else "", fontSize = 13.sp, maxLines = 3, overflow = TextOverflow.Ellipsis) } }
             }
             AttachmentsSection("enseignants", id)
+            HistorySection(id)
             Spacer(Modifier.height(40.dp))
         }
     }
@@ -236,6 +252,7 @@ fun TeacherEditScreen(id: String?, etabId: String?) {
     fun set(k: String, value: Any?) { e.value.put(k, value ?: JSONObject.NULL); tick++ }
     fun g(k: String): String { tick; return e.value.s(k) }
     var pickEtab by remember { mutableStateOf(false) }
+    DraftGuard("ens:" + (id ?: "new"), e, tick, { tick++ }) { Nav.stack.any { it is Scr.EnsEdit && it.id == id } }
     ScreenScaffold(if (orig == null) "Nouvel(le) enseignant(e)" else "Modifier la fiche", { Nav.pop() }, actions = {
         TextButton(onClick = {
             if (e.value.s("nom").isBlank()) { toast(ctx, "Indiquez le nom."); return@TextButton }

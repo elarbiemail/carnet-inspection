@@ -54,6 +54,8 @@ object Store {
         val tb = root.getJSONObject("tombstones")
         COLLECTIONS.forEach { if (!tb.has(it)) tb.put(it, JSONObject()) }
         if (!root.has("templates") || root.isNull("templates")) root.put("templates", JSONObject())
+        if (!root.has("journal") || root.isNull("journal")) root.put("journal", JSONArray())
+        if (!root.has("archive") || root.isNull("archive")) root.put("archive", JSONObject())
     }
 
     private fun bump() { version.intValue = version.intValue + 1 }
@@ -85,10 +87,13 @@ object Store {
         rec.put("updatedAt", ts)
         val a = root.optJSONArray(coll) ?: JSONArray().also { root.put(coll, it) }
         var replaced = false
+        var old: JSONObject? = null
         for (i in 0 until a.length()) {
-            if (a.optJSONObject(i)?.optString("id") == rec.optString("id")) { a.put(i, rec); replaced = true; break }
+            if (a.optJSONObject(i)?.optString("id") == rec.optString("id")) { old = JSONObject(a.optJSONObject(i).toString()); a.put(i, rec); replaced = true; break }
         }
         if (!replaced) a.put(rec)
+        if (old == null) log("création", coll, rec)
+        else { val d = diff(old, rec); if (d.isNotEmpty()) log("modification", coll, rec, d) }
         save()
     }
 
@@ -97,10 +102,132 @@ object Store {
         val out = JSONArray()
         for (i in 0 until a.length()) {
             val o = a.optJSONObject(i) ?: continue
-            if (o.optString("id") != id) out.put(o)
+            if (o.optString("id") != id) out.put(o) else { archive(coll, o); log("suppression", coll, o) }
         }
         root.put(coll, out)
         root.getJSONObject("tombstones").getJSONObject(coll).put(id, now())
+        save()
+    }
+
+    // ---------- journal permanent et archives ----------
+    /** Opérations enregistrées (création, modification, suppression, restauration, synchronisation) : jamais effacées. */
+    fun journal(): List<JSONObject> {
+        val a = root.optJSONArray("journal") ?: return emptyList()
+        return (0 until a.length()).mapNotNull { a.optJSONObject(it) }
+    }
+
+    fun historyOf(id: String): List<JSONObject> = journal().filter { it.optString("recId") == id }.sortedByDescending { it.optString("t") }
+
+    fun labelOf(coll: String, rec: JSONObject): String = when (coll) {
+        "documents" -> Docs.label(rec) + (if (rec.s("beneficiaireNom").isNotEmpty()) " — " + rec.s("beneficiaireNom") else "")
+        "tasks" -> rec.s("titre").ifEmpty { autoTaskTitle(rec) }
+        else -> rec.s("nom").ifEmpty { rec.s("titre") }.ifEmpty { rec.s("id").take(8) }
+    }
+
+    fun log(op: String, coll: String, rec: JSONObject?, detail: String = "") {
+        val a = root.optJSONArray("journal") ?: JSONArray().also { root.put("journal", it) }
+        a.put(JSONObject().put("id", UUID.randomUUID().toString()).put("t", now()).put("op", op).put("coll", coll)
+            .put("recId", rec?.optString("id") ?: "").put("label", if (rec != null) labelOf(coll, rec) else "").put("detail", detail).put("source", "natif"))
+    }
+
+    private val DIFF_SKIP = setOf("updatedAt", "createdAt", "attachments")
+    private fun diff(old: JSONObject, new: JSONObject): String {
+        val keys = (old.keys().asSequence().toList() + new.keys().asSequence().toList()).toSet() - DIFF_SKIP
+        val out = mutableListOf<String>()
+        for (k in keys.sorted()) {
+            val a = if (old.isNull(k)) "" else old.opt(k).toString()
+            val b = if (new.isNull(k)) "" else new.opt(k).toString()
+            if (a == b) continue
+            val complex = a.startsWith("[") || a.startsWith("{") || b.startsWith("[") || b.startsWith("{") || a.length > 60 || b.length > 60
+            out.add(if (complex) k else "$k : ${a.take(40)} → ${b.take(40)}")
+        }
+        return out.take(12).joinToString("\n")
+    }
+
+    /** Fiches supprimées (conservées en permanence pour consultation et restauration). */
+    fun archived(coll: String): List<JSONObject> {
+        val a = root.optJSONObject("archive")?.optJSONArray(coll) ?: return emptyList()
+        return (0 until a.length()).mapNotNull { a.optJSONObject(it) }.sortedByDescending { it.optString("deletedAt") }
+    }
+    fun archivedById(coll: String, id: String?): JSONObject? = if (id.isNullOrEmpty()) null else archived(coll).firstOrNull { it.optString("id") == id }
+
+    private fun archive(coll: String, rec: JSONObject) {
+        val ar = root.optJSONObject("archive") ?: JSONObject().also { root.put("archive", it) }
+        val a = ar.optJSONArray(coll) ?: JSONArray().also { ar.put(coll, it) }
+        val copy = JSONObject(rec.toString()); copy.put("deletedAt", now())
+        val out = JSONArray()
+        for (i in 0 until a.length()) { val o = a.optJSONObject(i) ?: continue; if (o.optString("id") != rec.optString("id")) out.put(o) }
+        out.put(copy); ar.put(coll, out)
+    }
+
+    /** Remet une fiche supprimée dans le carnet. */
+    fun restore(coll: String, id: String): Boolean {
+        val rec = archivedById(coll, id) ?: return false
+        val copy = JSONObject(rec.toString()); copy.remove("deletedAt"); copy.put("updatedAt", now())
+        root.optJSONObject("tombstones")?.optJSONObject(coll)?.remove(id)
+        val a = root.optJSONArray(coll) ?: JSONArray().also { root.put(coll, it) }
+        a.put(copy)
+        val ar = root.optJSONObject("archive")?.optJSONArray(coll)
+        if (ar != null) { val out = JSONArray(); for (i in 0 until ar.length()) { val o = ar.optJSONObject(i) ?: continue; if (o.optString("id") != id) out.put(o) }; root.getJSONObject("archive").put(coll, out) }
+        log("restauration", coll, copy)
+        save()
+        return true
+    }
+
+    /** Fusionne le journal et les archives d'une autre sauvegarde (union, sans doublon). */
+    private fun mergeLog(remote: JSONObject) {
+        val byId = LinkedHashMap<String, JSONObject>()
+        journal().forEach { byId[it.optString("id")] = it }
+        remote.optJSONArray("journal")?.let { ra -> for (i in 0 until ra.length()) ra.optJSONObject(i)?.let { if (it.optString("id").isNotEmpty() && it.optString("id") !in byId) byId[it.optString("id")] = it } }
+        val sorted = JSONArray(); byId.values.sortedBy { it.optString("t") }.forEach { sorted.put(it) }
+        root.put("journal", sorted)
+        val rar = remote.optJSONObject("archive") ?: return
+        val ar = root.optJSONObject("archive") ?: JSONObject().also { root.put("archive", it) }
+        rar.keys().forEach { coll ->
+            val ra = rar.optJSONArray(coll) ?: return@forEach
+            val live = list(coll).map { it.s("id") }.toSet()
+            val cur = LinkedHashMap<String, JSONObject>()
+            ar.optJSONArray(coll)?.let { a -> for (i in 0 until a.length()) a.optJSONObject(i)?.let { cur[it.optString("id")] = it } }
+            for (i in 0 until ra.length()) {
+                val r = ra.optJSONObject(i) ?: continue; val rid = r.optString("id")
+                if (rid.isEmpty() || rid in live) continue
+                val l = cur[rid]
+                if (l == null || r.optString("deletedAt") > l.optString("deletedAt")) cur[rid] = r
+            }
+            ar.put(coll, JSONArray().also { out -> cur.values.forEach { out.put(it) } })
+        }
+    }
+
+    /** Supprime plusieurs enregistrements d'un coup (une seule sauvegarde, une pierre tombale chacun). */
+    fun deleteMany(coll: String, ids: Collection<String>) {
+        if (ids.isEmpty()) return
+        val set = ids.toSet()
+        val a = root.optJSONArray(coll) ?: return
+        val out = JSONArray()
+        val ts = now()
+        val tb = root.getJSONObject("tombstones").getJSONObject(coll)
+        for (i in 0 until a.length()) {
+            val o = a.optJSONObject(i) ?: continue
+            if (o.optString("id") in set) { tb.put(o.optString("id"), ts); archive(coll, o); log("suppression", coll, o, "Suppression en lot") } else out.put(o)
+        }
+        root.put(coll, out)
+        save()
+    }
+
+    /** Modifie plusieurs enregistrements d'un coup (updatedAt mis à jour pour chacun). */
+    fun updateMany(coll: String, ids: Collection<String>, change: (JSONObject) -> Unit) {
+        if (ids.isEmpty()) return
+        val set = ids.toSet()
+        val a = root.optJSONArray(coll) ?: return
+        val ts = now()
+        for (i in 0 until a.length()) {
+            val o = a.optJSONObject(i) ?: continue
+            if (o.optString("id") in set) {
+                val before = JSONObject(o.toString())
+                change(o); o.put("updatedAt", ts)
+                val d = diff(before, o); if (d.isNotEmpty()) log("modification", coll, o, "Modification en lot\n$d")
+            }
+        }
         save()
     }
 
@@ -185,7 +312,7 @@ object Store {
             val out = JSONArray()
             local.values.forEach { o ->
                 val tomb = lt.optString(o.s("id"), "")
-                if (tomb.isNotEmpty() && tomb >= o.s("updatedAt")) removed++ else out.put(o)
+                if (tomb.isNotEmpty() && tomb >= o.s("updatedAt")) { removed++; archive(coll, o); log("suppression", coll, o, "Suppression reçue par synchronisation") } else out.put(o)
             }
             root.put(coll, out)
         }
@@ -202,6 +329,8 @@ object Store {
         listOf("regionsMaroc", "regionsMarocUpdatedAt").forEach { k ->
             if (remote.has(k) && (!root.has(k) || root.isNull(k))) root.put(k, remote.get(k))
         }
+        mergeLog(remote)
+        if (added + updated + removed > 0) log("synchronisation", "", null, "Fusion de données : $added ajout(s), $updated mise(s) à jour, $removed suppression(s)")
         save()
         return ImportReport(added, updated, removed)
     }

@@ -37,6 +37,7 @@ import org.json.JSONObject
 /** Boutons « + document » d'une tâche et liste de ses documents. */
 @Composable
 fun TaskDocsSection(task: JSONObject) {
+    val ctx = LocalContext.current
     val v by Store.version
     val id = task.s("id")
     val docs = remember(v, id) { Store.list("documents").filter { it.s("taskId") == id }.sortedBy { it.s("createdAt") } }
@@ -60,15 +61,23 @@ fun TaskDocsSection(task: JSONObject) {
             types.forEach { t -> AssistChip(onClick = { Nav.push(Scr.DocEdit(null, id, t, null)) }, label = { Text(Docs.LABELS[t] ?: t, fontSize = 12.sp) }, leadingIcon = { Icon(Icons.Default.Add, null, Modifier.size(16.dp)) }) }
             CustomTpl.forTask(task).forEach { ct -> AssistChip(onClick = { Nav.push(Scr.DocEdit(null, id, "custom", ct.s("id"))) }, label = { Text(ct.s("nom"), fontSize = 12.sp) }, leadingIcon = { Icon(Icons.Default.Star, null, Modifier.size(16.dp)) }) }
             if (task.arr("invites").isNotEmpty() && "attestation" in types)
-                AssistChip(onClick = { createAttestations(task) }, label = { Text("Attestations des invité(e)s (${task.arr("invites").size})", fontSize = 12.sp) }, leadingIcon = { Icon(Icons.Default.Add, null, Modifier.size(16.dp)) })
+                AssistChip(onClick = { createAttestations(ctx, task) }, label = { Text("Attestations des invité(e)s (${task.arr("invites").size})", fontSize = 12.sp) }, leadingIcon = { Icon(Icons.Default.Add, null, Modifier.size(16.dp)) })
         }
     }
 }
 
-fun createAttestations(task: JSONObject) {
+/** Une attestation par invité(e), sans doublon si elle existe déjà (comme le carnet web). */
+fun createAttestations(ctx: Context, task: JSONObject) {
+    val existing = Store.list("documents").filter { it.s("taskId") == task.s("id") && it.s("type") == "attestation" }.map { it.s("beneficiaireNom") }.toSet()
+    var n = 0
     task.arr("invites").forEach { iv ->
-        val d = Docs.defaultDoc(task, "attestation"); d.put("beneficiaireNom", iv.s("nom")); Store.upsert("documents", d)
+        if (iv.s("nom").isEmpty() || iv.s("nom") in existing) return@forEach
+        val d = Docs.defaultDoc(task, "attestation"); d.put("beneficiaireNom", iv.s("nom"))
+        val lieu = iv.s("etablissementNom").ifEmpty { etabName(Store.byId("enseignants", iv.s("enseignantId"))?.s("etablissementId")) }
+        if (lieu.isNotEmpty()) d.put("lieu", lieu)
+        Store.upsert("documents", d); n++
     }
+    toast(ctx, if (n > 0) "$n attestation(s) générée(s) pour les invité(e)s." else "Une attestation existe déjà pour chaque invité(e).")
 }
 
 /** Disposition en lignes qui passent à la ligne (FlowRow simplifié). */
@@ -120,6 +129,7 @@ fun DocEditScreen(docId: String?, taskId: String, type: String, tplId: String?) 
     fun g(k: String): String { tick; return d.value.s(k) }
     var aiBusy by remember { mutableStateOf("") }
     var askDelete by remember { mutableStateOf(false) }
+    DraftGuard("doc:" + (docId ?: ("new-$taskId-$type")), d, tick, { tick++ }) { Nav.stack.any { it is Scr.DocEdit && it.id == docId && it.taskId == taskId && it.type == type } }
     var pickTeachers by remember { mutableStateOf<String?>(null) }
     val rtl = Docs.isRtl(d.value)
     fun save(): String { Store.upsert("documents", d.value); return d.value.s("id") }
@@ -320,13 +330,17 @@ fun DocsAllScreen() {
     val all = remember(v) { Store.list("documents").sortedByDescending { it.s("updatedAt").ifEmpty { it.s("date") } } }
     val nq = norm(q)
     val list = all.filter { d -> (ty.isEmpty() || d.s("type") == ty) && (nq.isEmpty() || norm(Docs.label(d) + " " + (Store.byId("tasks", d.s("taskId"))?.s("titre") ?: "")).contains(nq)) }
-    ScreenScaffold("Documents", { Nav.pop() }) { pad ->
+    val sel = rememberSel()
+    var askDel by remember { mutableStateOf(false) }
+    ScreenScaffold(selTitle(sel, "Documents"), { if (sel.on) sel.clear() else Nav.pop() }, actions = {
+        SelActions(sel, list.map { it.s("id") }, null, { askDel = true })
+    }) { pad ->
         LazyColumn(Modifier.padding(pad).padding(horizontal = 14.dp)) {
             item { Spacer(Modifier.height(8.dp)); SearchField(q, { q = it }, "Rechercher un document…"); ChipRow(Docs.LABELS, ty, { ty = it }, "Tous") }
             if (list.isEmpty()) item { EmptyState("Aucun document.") }
             items(list, key = { it.s("id") }) { d ->
                 val t = Store.byId("tasks", d.s("taskId"))
-                CardBox(onClick = { Nav.push(Scr.DocPreview(d.s("id"))) }) {
+                SelCard(d.s("id"), sel, { Nav.push(Scr.DocPreview(d.s("id"))) }) {
                     Text(Docs.label(d), fontWeight = FontWeight.SemiBold)
                     Text(listOfNotNull(t?.s("titre"), fmtDate(d.s("date"))).filter { it.isNotEmpty() }.joinToString(" · "), color = InkFaint, fontSize = 12.5.sp)
                 }
@@ -334,15 +348,25 @@ fun DocsAllScreen() {
             item { Spacer(Modifier.height(40.dp)) }
         }
     }
+    if (askDel) BatchDeleteDialog(sel.ids.size, "documents", onDismiss = { askDel = false }) { Store.deleteMany("documents", sel.ids.toList()); sel.clear() }
 }
 
 // ---------------- Sélection multiple d'enseignant(e)s ----------------
+/** Choix de plusieurs enseignant(e)s (invités d'une réunion, d'une leçon…), filtrables par zone, établissement, cycle, genre. */
 @Composable
 fun MultiTeacherPicker(initial: Set<String>, etabId: String, onDismiss: () -> Unit, onDone: (List<JSONObject>) -> Unit) {
     var q by remember { mutableStateOf("") }
-    var onlyEtab by remember { mutableStateOf(etabId.isNotEmpty()) }
+    var etab by remember { mutableStateOf(etabId) }
+    var zone by remember { mutableStateOf("") }
+    var cyc by remember { mutableStateOf("") }
+    var gen by remember { mutableStateOf("") }
+    var onlySel by remember { mutableStateOf(false) }
     val sel = remember { mutableStateListOf<String>().apply { addAll(initial) } }
     val all = remember { Store.enseignants() }
+    val zones = remember { Store.list("zones").sortedBy { norm(it.s("nom")) } }
+    val etabs = remember { Store.etabs().sortedBy { norm(it.s("nom")) } }
+    val etabZone = remember { etabs.associate { it.s("id") to it.s("zoneId") } }
+    val etabsInZone = etabs.filter { zone.isEmpty() || it.s("zoneId") == zone }
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss, properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(Modifier.padding(12.dp)) {
@@ -352,20 +376,32 @@ fun MultiTeacherPicker(initial: Set<String>, etabId: String, onDismiss: () -> Un
                     TextButton(onClick = { onDone(all.filter { it.s("id") in sel }) }) { Text("Valider") }
                 }
                 SearchField(q, { q = it }, "Rechercher…")
-                if (etabId.isNotEmpty()) Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(checked = onlyEtab, onCheckedChange = { onlyEtab = it }); Text("Seulement : " + etabName(etabId), fontSize = 13.sp)
-                }
+                if (zones.isNotEmpty()) SelectField("Zone", zones.associate { it.s("id") to it.s("nom") }, zone, { zone = it; if (etab.isNotEmpty() && zone.isNotEmpty() && etabZone[etab] != zone) etab = "" }, allowEmpty = true)
+                SelectField("Établissement", etabsInZone.associate { it.s("id") to it.s("nom") }, etab, { etab = it }, allowEmpty = true)
+                ChipRow(Ref.ENS_CYCLES, cyc, { cyc = it }, "Tous cycles")
+                ChipRow(mapOf("F" to "Femmes", "H" to "Hommes"), gen, { gen = it }, "Tous")
                 val nq = norm(q)
-                val list = all.filter { (!onlyEtab || it.s("etablissementId") == etabId) && (nq.isEmpty() || norm(it.s("nom") + " " + it.s("ppr") + " " + etabName(it.s("etablissementId"))).contains(nq)) }.sortedBy { norm(it.s("nom")) }
-                TextButton(onClick = { list.forEach { if (it.s("id") !in sel) sel.add(it.s("id")) } }) { Text("Tout cocher (${list.size})") }
-                LazyColumn(Modifier.fillMaxSize()) {
+                val list = all.filter { e ->
+                    val eid = e.s("etablissementId")
+                    (etab.isEmpty() || eid == etab) && (zone.isEmpty() || etabZone[eid] == zone) &&
+                    (cyc.isEmpty() || ensCycle(e) == cyc) && (gen.isEmpty() || e.s("genre") == gen) &&
+                    (!onlySel || e.s("id") in sel) &&
+                    (nq.isEmpty() || norm(e.s("nom") + " " + e.s("ppr") + " " + etabName(eid)).contains(nq))
+                }.sortedBy { norm(it.s("nom")) }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = { list.forEach { if (it.s("id") !in sel) sel.add(it.s("id")) } }) { Text("Tout cocher (${list.size})") }
+                    TextButton(onClick = { val ids = list.map { it.s("id") }.toSet(); sel.removeAll { it in ids } }) { Text("Tout décocher") }
+                    Spacer(Modifier.weight(1f))
+                    Checkbox(checked = onlySel, onCheckedChange = { onlySel = it }); Text("Cochés", fontSize = 13.sp)
+                }
+                LazyColumn(Modifier.weight(1f)) {
                     items(list, key = { it.s("id") }) { e ->
                         val id = e.s("id")
                         Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                             Checkbox(checked = id in sel, onCheckedChange = { if (it) sel.add(id) else sel.remove(id) })
                             Column(Modifier.weight(1f)) {
                                 Text(e.s("nom"), fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(listOf(e.s("ppr"), etabName(e.s("etablissementId"))).filter { it.isNotEmpty() }.joinToString(" · "), color = InkFaint, fontSize = 12.sp, maxLines = 1)
+                                Text(listOf(e.s("ppr"), etabName(e.s("etablissementId")), Ref.ENS_CYCLES[ensCycle(e)] ?: "").filter { it.isNotEmpty() }.joinToString(" · "), color = InkFaint, fontSize = 12.sp, maxLines = 1)
                             }
                         }
                     }

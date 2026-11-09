@@ -8,6 +8,9 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.compose.ui.graphics.asImageBitmap
+import ma.carnet.inspection.natif.data.Photos
+import ma.carnet.inspection.natif.data.Store
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -56,6 +59,14 @@ fun whatsapp(ctx: Context, tel: String, msg: String) {
     openUri(ctx, "https://wa.me/$n?text=" + Uri.encode(msg))
 }
 
+/** Messenger n'accepte pas d'ouvrir une conversation par numéro : on ouvre Messenger avec le message prêt, il suffit de choisir le contact. */
+fun messenger(ctx: Context, msg: String) {
+    try {
+        ctx.startActivity(Intent(Intent.ACTION_SEND).setType("text/plain").setPackage("com.facebook.orca")
+            .putExtra(Intent.EXTRA_TEXT, msg).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    } catch (e: Exception) { toast(ctx, "Messenger n'est pas installé.") }
+}
+
 fun mail(ctx: Context, to: String, subject: String = "") {
     try { ctx.startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:$to?subject=" + Uri.encode(subject))).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
     catch (e: Exception) { toast(ctx, "Aucune application de messagerie.") }
@@ -66,11 +77,27 @@ fun greeting(nom: String): String =
 
 // ---------------- composants ----------------
 @Composable
-fun Avatar(text: String, color: Color = Brand, size: Int = 42) {
-    Box(
-        Modifier.size(size.dp).clip(CircleShape).background(color.copy(alpha = 0.15f)),
-        contentAlignment = Alignment.Center
-    ) { Text(initials(text), color = color, fontWeight = FontWeight.Bold, fontSize = (size / 2.8).sp) }
+fun Avatar(text: String, color: Color = Brand, size: Int = 42, tel: String = "", contactName: String = text, photoId: String = "") {
+    val ctx = LocalContext.current
+    val v by Store.version
+    val photo = remember(photoId, v) { Photos.load(ctx, photoId) }
+    var menu by remember { mutableStateOf(false) }
+    val canCall = tel.isNotBlank()
+    Box {
+        Box(
+            Modifier.size(size.dp).clip(CircleShape).background(color.copy(alpha = 0.15f))
+                .then(if (canCall) Modifier.clickable { menu = true } else Modifier),
+            contentAlignment = Alignment.Center
+        ) {
+            if (photo != null) androidx.compose.foundation.Image(photo.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+            else Text(initials(text), color = color, fontWeight = FontWeight.Bold, fontSize = (size / 2.8).sp)
+        }
+        if (canCall) DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+            DropdownMenuItem(text = { Text("WhatsApp") }, onClick = { menu = false; whatsapp(ctx, tel, greeting(contactName)) })
+            DropdownMenuItem(text = { Text("Messenger") }, onClick = { menu = false; messenger(ctx, greeting(contactName)) })
+            DropdownMenuItem(text = { Text("Appeler") }, onClick = { menu = false; dial(ctx, tel) })
+        }
+    }
 }
 
 @Composable
@@ -119,6 +146,7 @@ fun ContactButtons(tel: String, nom: String, email: String = "") {
         if (tel.isNotBlank()) {
             FilledTonalButton(onClick = { dial(ctx, tel) }) { Icon(Icons.Default.Call, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Appeler") }
             FilledTonalButton(onClick = { whatsapp(ctx, tel, greeting(nom)) }) { Icon(Icons.Default.Send, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("WhatsApp") }
+            FilledTonalButton(onClick = { messenger(ctx, greeting(nom)) }) { Text("Messenger") }
         }
         if (email.isNotBlank()) FilledTonalButton(onClick = { mail(ctx, email) }) { Icon(Icons.Default.Email, null, Modifier.size(18.dp)) }
     }

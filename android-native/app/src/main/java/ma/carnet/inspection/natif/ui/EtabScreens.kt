@@ -26,11 +26,11 @@ import org.json.JSONObject
 val PriveColor = Color(0xFF8A5A00)
 
 @Composable
-fun EtabRow(e: JSONObject, nEns: Int) {
+fun EtabRow(e: JSONObject, nEns: Int, sel: Sel? = null) {
     val ctx = LocalContext.current
-    CardBox(onClick = { Nav.push(Scr.EtabDetail(e.s("id"))) }) {
+    val body: @Composable ColumnScope.() -> Unit = {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Avatar(e.s("nom"), if (e.s("type") == "prive") PriveColor else Brand)
+            Avatar(e.s("nom"), if (e.s("type") == "prive") PriveColor else Brand, tel = e.s("directeurTel").ifEmpty { e.s("telephone") }, contactName = e.s("directeur").ifEmpty { e.s("nom") }, photoId = e.s("id"))
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
                 Text(e.s("nom"), fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Row(Modifier.padding(top = 2.dp)) {
@@ -45,6 +45,8 @@ fun EtabRow(e: JSONObject, nEns: Int) {
             if (e.s("directeurTel").isNotEmpty()) IconButton(onClick = { whatsapp(ctx, e.s("directeurTel"), greeting(e.s("directeur"))) }) { Icon(Icons.Default.Send, "WhatsApp", tint = Brand) }
         }
     }
+    if (sel != null) SelCard(e.s("id"), sel, { Nav.push(Scr.EtabDetail(e.s("id"))) }, body)
+    else CardBox(onClick = { Nav.push(Scr.EtabDetail(e.s("id"))) }, content = body)
 }
 
 @Composable
@@ -58,7 +60,12 @@ fun EtabsScreen() {
     val nq = norm(q)
     val list = etabs.filter { (ty.isEmpty() || (if (ty == "prive") it.s("type") == "prive" else it.s("type") != "prive")) &&
         (nq.isEmpty() || norm(listOf(it.s("nom"), it.s("nomAr"), it.s("nomFr"), it.s("directeur")).joinToString(" ")).contains(nq)) }
-    ScreenScaffold("Établissements", null, fab = {
+    val sel = rememberSel()
+    var askDel by remember { mutableStateOf(false) }
+    var editSel by remember { mutableStateOf(false) }
+    ScreenScaffold(selTitle(sel, "Établissements"), if (sel.on) ({ sel.clear() }) else null, actions = {
+        SelActions(sel, list.map { it.s("id") }, { editSel = true }, { askDel = true })
+    }, fab = {
         FloatingActionButton(onClick = { Nav.push(Scr.EtabEdit(null)) }, containerColor = Brand, contentColor = OnBrand) { Icon(Icons.Default.Add, "Nouvel établissement") }
     }) { pad ->
         LazyColumn(Modifier.padding(pad).padding(horizontal = 14.dp)) {
@@ -73,13 +80,15 @@ fun EtabsScreen() {
             groups.forEach { (zid, zn, l) ->
                 if (l.isNotEmpty()) {
                     item(key = "zone_$zid") { SectionTitle("$zn (${l.size})") }
-                    items(l.sortedBy { norm(it.s("nom")) }, key = { it.s("id") }) { e -> EtabRow(e, ens.count { it.s("etablissementId") == e.s("id") }) }
+                    items(l.sortedBy { norm(it.s("nom")) }, key = { it.s("id") }) { e -> EtabRow(e, ens.count { it.s("etablissementId") == e.s("id") }, sel) }
                 }
             }
             if (list.isEmpty()) item { EmptyState("Aucun établissement.") }
             item { Spacer(Modifier.height(80.dp)) }
         }
     }
+    if (askDel) BatchDeleteDialog(sel.ids.size, "établissements", " Les enseignant(e)s restent.", { askDel = false }) { Store.deleteMany("etablissements", sel.ids.toList()); sel.clear() }
+    if (editSel) BatchEditDialog(sel.ids.size, etabBatchFields(), { editSel = false }) { f, vals -> applyBatch("etablissements", sel.ids.toList(), f, vals); sel.clear() }
 }
 
 @Composable
@@ -115,6 +124,7 @@ fun EtabDetailScreen(id: String) {
                     Text(e.s("directeur").ifEmpty { "—" }, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (e.s("directeurTel").isNotEmpty()) Text(e.s("directeurTel"), color = InkFaint, fontSize = 13.sp)
                     ContactButtons(e.s("directeurTel"), e.s("directeur"))
+                    PhotoButton(id, e.s("directeurTel"))
                 }
             }
             val ens = Store.list("enseignants").filter { it.s("etablissementId") == id }.sortedBy { norm(it.s("nom")) }
@@ -140,6 +150,7 @@ fun EtabDetailScreen(id: String) {
                 Text("${fs.count { it.s("statut") == "validee" }} validée(s) · ${fs.count { it.s("statut") == "non_validee" }} non validée(s) · ${fs.count { it.s("statut").ifEmpty { "en_attente" } == "en_attente" }} en attente", color = InkFaint, fontSize = 12.5.sp)
             }
             AttachmentsSection("etablissements", id)
+            HistorySection(id)
             Spacer(Modifier.height(40.dp))
         }
     }
@@ -155,6 +166,7 @@ fun EtabEditScreen(id: String?) {
     fun set(k: String, value: Any?) { e.value.put(k, value ?: JSONObject.NULL); tick++ }
     fun g(k: String): String { tick; return e.value.s(k) }
     val zones = Store.list("zones").sortedBy { norm(it.s("nom")) }
+    DraftGuard("etab:" + (id ?: "new"), e, tick, { tick++ }) { Nav.stack.any { it is Scr.EtabEdit && it.id == id } }
     ScreenScaffold(if (orig == null) "Nouvel établissement" else "Modifier", { Nav.pop() }, actions = {
         TextButton(onClick = {
             if (e.value.s("nom").isBlank()) { toast(ctx, "Indiquez le nom."); return@TextButton }

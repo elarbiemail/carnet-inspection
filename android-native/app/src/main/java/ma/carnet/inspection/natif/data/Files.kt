@@ -26,7 +26,7 @@ object Attach {
         ctx.contentResolver.getType(uri) ?: MimeTypeMap.getSingleton().getMimeTypeFromExtension(name.substringAfterLast('.', "").lowercase()) ?: "application/octet-stream"
 
     /** Ajoute des fichiers à un enregistrement (coll = tasks, enseignants, etablissements). */
-    fun add(ctx: Context, coll: String, recId: String, uris: List<Uri>): Int {
+    fun add(ctx: Context, coll: String, recId: String, uris: List<Uri>, kind: String = ""): Int {
         val rec = Store.byId(coll, recId) ?: return 0
         val c = JSONObject(rec.toString())
         val arr = c.optJSONArray("attachments") ?: JSONArray().also { c.put("attachments", it) }
@@ -35,6 +35,7 @@ object Attach {
             try {
                 val name = nameOf(ctx, u); val e = JSONObject().put("id", UUID.randomUUID().toString()).put("titre", name).put("type", mimeOf(ctx, u, name))
                     .put("addedAt", Store.now()).put("status", "pending").put("driveFileId", JSONObject.NULL).put("driveUrl", JSONObject.NULL).put("local", true)
+                if (kind.isNotEmpty()) { e.put("kind", kind); val d = java.time.LocalDate.now(); val y = if (d.monthValue >= 8) d.year else d.year - 1; e.put("annee", "$y/${y + 1}") }
                 ctx.contentResolver.openInputStream(u)?.use { inp -> local(ctx, e).outputStream().use { inp.copyTo(it) } }
                 e.put("size", local(ctx, e).length()); arr.put(e); n++
             } catch (_: Exception) {}

@@ -56,6 +56,7 @@ fun MoreScreen() {
             MenuItem(Icons.Default.LocationOn, "Zones", "Gérer les zones d'établissements") { Nav.push(Scr.Zones) }
             MenuItem(Icons.Default.Settings, "Paramètres", "Profil, compte Google, IA, thèmes, modèles, vacances…") { Nav.push(Scr.Settings()) }
             MenuItem(Icons.Default.Refresh, "Données et synchronisation", "Google Drive, import / export, CSV") { Nav.push(Scr.Data) }
+            MenuItem(Icons.Default.Search, "Archives et historique", "Fiches supprimées (restaurables) et journal permanent des opérations") { Nav.push(Scr.Archives("enseignants")) }
             MenuItem(Icons.Default.Info, "Aide et contact", "Aide illustrée par les captures de vos écrans") { Nav.push(Scr.Help("")) }
             MenuItem(Icons.Default.Share, "Ouvrir le carnet web", "La version web du carnet, dans le navigateur") { openUri(ctx, WEB_URL) }
             MenuItem(Icons.Default.ExitToApp, "Déconnexion et fermeture", "Synchroniser, se déconnecter de Google et fermer") { logout = true }
@@ -136,6 +137,7 @@ fun DataScreen() {
                 if (lastImport.isNotEmpty()) Text("Dernier import : " + fmtDate(lastImport) + " " + lastImport.substring(11, 16), color = InkFaint, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
                 if (lastExport.isNotEmpty()) Text("Dernier export : " + fmtDate(lastExport) + " " + lastExport.substring(11, 16), color = InkFaint, fontSize = 12.sp)
             }
+            GeneratedFilesCard()
             GoogleAccountCard()
             DriveCard(SyncHolder.fn)
             CsvImportCard()

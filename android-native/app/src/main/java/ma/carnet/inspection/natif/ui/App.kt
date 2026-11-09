@@ -33,6 +33,8 @@ sealed class Scr {
     data object Viewer : Scr()
     data class Help(val topic: String) : Scr()
     data object Search : Scr()
+    data class Archives(val coll: String = "enseignants") : Scr()
+    data class ArchiveView(val coll: String, val id: String) : Scr()
 }
 
 object Nav {
@@ -114,5 +116,7 @@ fun App() {
         Scr.Viewer -> ViewerScreen()
         is Scr.Help -> HelpScreen(cur.topic)
         Scr.Search -> SearchScreen()
+        is Scr.Archives -> ArchivesScreen(cur.coll)
+        is Scr.ArchiveView -> ArchiveViewScreen(cur.coll, cur.id)
     }
 }
