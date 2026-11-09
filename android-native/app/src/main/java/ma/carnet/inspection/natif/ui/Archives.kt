@@ -79,7 +79,7 @@ fun ArchivesScreen(initialColl: String) {
             }
             val nq = norm(q)
             if (tab == "supprimes") {
-                val list = remember(v, coll) { Store.archived(coll) }.filter { nq.isEmpty() || norm(Store.labelOf(coll, it) + " " + it.s("ppr") + " " + it.s("matiere")).contains(nq) }
+                v; val list = Store.archived(coll).filter { nq.isEmpty() || norm(Store.labelOf(coll, it) + " " + it.s("ppr") + " " + it.s("matiere")).contains(nq) }
                 item { Text("${list.size} fiche(s) supprimée(s) conservée(s)", color = InkFaint, fontSize = 12.sp, modifier = Modifier.padding(vertical = 6.dp)) }
                 if (list.isEmpty()) item { EmptyState("Aucune fiche supprimée.") }
                 items(list, key = { it.s("id") }) { r ->
@@ -89,7 +89,7 @@ fun ArchivesScreen(initialColl: String) {
                     }
                 }
             } else {
-                val all = remember(v) { Store.journal().sortedByDescending { it.optString("t") } }
+                v; val all = Store.journal().sortedByDescending { it.optString("t") }
                 val list = all.filter { (coll.isEmpty() || it.optString("coll") == coll || it.optString("coll").isEmpty()) && (op.isEmpty() || it.optString("op") == op) &&
                     (nq.isEmpty() || norm(it.optString("label") + " " + it.optString("detail")).contains(nq)) }
                 item {
