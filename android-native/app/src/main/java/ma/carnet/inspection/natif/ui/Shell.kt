@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -38,35 +39,35 @@ data class SecDef(val key: String, val label: String, val icon: ImageVector, val
 object ShellState { val logout = mutableStateOf(false); val openWeb = mutableIntStateOf(0) }
 
 val SECTIONS = listOf(
-    SecDef("accueil", "Accueil", Icons.Default.Home, listOf(
-        SubDef("dash", "Tableau de bord", Icons.Default.Home), SubDef("recherche", "Recherche", Icons.Default.Search),
-        SubDef("rappels", "Rappels", Icons.Default.Notifications))),
-    SecDef("taches", "Tâches", Icons.Default.DateRange, listOf(
-        SubDef("avenir", "À venir", Icons.Default.DateRange), SubDef("toutes", "Toutes", Icons.Default.List),
-        SubDef("retard", "En retard", Icons.Default.Warning), SubDef("calendrier", "Calendrier", Icons.Default.DateRange),
-        SubDef("nouvelle", "Nouvelle", Icons.Default.Add) { Nav.push(Scr.TaskEdit(null)) })),
-    SecDef("ens", "Enseignant(e)s", Icons.Default.Person, listOf(
-        SubDef("liste", "Liste", Icons.Default.Person), SubDef("horaire", "Par horaire", Icons.Default.DateRange),
-        SubDef("notes", "Notes", Icons.Default.Check), SubDef("supprimes", "Supprimées", Icons.Default.Delete))),
-    SecDef("etab", "Établissements", Icons.Default.LocationOn, listOf(
-        SubDef("liste", "Liste", Icons.Default.List), SubDef("parzone", "Par zone", Icons.Default.LocationOn),
-        SubDef("zones", "Zones", Icons.Default.Place), SubDef("edt", "Emplois du temps", Icons.Default.DateRange))),
-    SecDef("docs", "Documents", Icons.Default.Create, listOf(
-        SubDef("tous", "Tous", Icons.Default.Create), SubDef("modeles", "Modèles", Icons.Default.Star),
-        SubDef("liseuse", "Liseuse", Icons.Default.Search), SubDef("fichiers", "Fichiers", Icons.Default.Email))),
-    SecDef("suivi", "Suivi", Icons.Default.Star, listOf(
-        SubDef("bilan", "Bilan", Icons.Default.Star), SubDef("programme", "Programme", Icons.Default.DateRange),
-        SubDef("historique", "Historique", Icons.Default.Refresh))),
-    SecDef("reglages", "Réglages", Icons.Default.Settings, listOf(
-        SubDef("profil", "Profil", Icons.Default.Person), SubDef("compte", "Compte Google", Icons.Default.AccountCircle),
-        SubDef("ia", "Assistant IA", Icons.Default.Build), SubDef("apparence", "Apparence", Icons.Default.Face),
-        SubDef("vacances", "Vacances", Icons.Default.DateRange), SubDef("notifications", "Notifications", Icons.Default.Notifications),
-        SubDef("referentiel", "Régions / DP", Icons.Default.Place), SubDef("inspectapp", "InspectApp", Icons.Default.Share),
-        SubDef("donnees", "Données", Icons.Default.Refresh))),
-    SecDef("aide", "Aide", Icons.Default.Info, listOf(
-        SubDef("aide", "Aide", Icons.Default.Info), SubDef("contact", "Contact", Icons.Default.Phone),
-        SubDef("web", "Carnet web", Icons.Default.Share) { ShellState.openWeb.intValue++ },
-        SubDef("deconnexion", "Déconnexion", Icons.Default.ExitToApp) { ShellState.logout.value = true }))
+    SecDef("accueil", "Accueil", Icons.Outlined.Home, listOf(
+        SubDef("dash", "Tableau de bord", Icons.Outlined.Dashboard), SubDef("recherche", "Recherche", Icons.Outlined.Search),
+        SubDef("rappels", "Rappels", Icons.Outlined.NotificationsActive), SubDef("perso", "Personnaliser", Icons.Outlined.Widgets))),
+    SecDef("taches", "Tâches", Icons.Outlined.Assignment, listOf(
+        SubDef("avenir", "À venir", Icons.Outlined.Today), SubDef("toutes", "Toutes", Icons.Outlined.ListAlt),
+        SubDef("retard", "En retard", Icons.Outlined.WarningAmber), SubDef("calendrier", "Calendrier", Icons.Outlined.CalendarToday),
+        SubDef("nouvelle", "Nouvelle", Icons.Outlined.AddCircleOutline) { Nav.push(Scr.TaskEdit(null)) })),
+    SecDef("ens", "Enseignant(e)s", Icons.Outlined.School, listOf(
+        SubDef("liste", "Liste", Icons.Outlined.Groups), SubDef("horaire", "Par horaire", Icons.Outlined.Schedule),
+        SubDef("notes", "Notes", Icons.Outlined.Notes), SubDef("supprimes", "Supprimées", Icons.Outlined.DeleteOutline))),
+    SecDef("etab", "Établissements", Icons.Outlined.Apartment, listOf(
+        SubDef("liste", "Liste", Icons.Outlined.ListAlt), SubDef("parzone", "Par zone", Icons.Outlined.Map),
+        SubDef("zones", "Zones", Icons.Outlined.Place), SubDef("edt", "Emplois du temps", Icons.Outlined.TableChart))),
+    SecDef("docs", "Documents", Icons.Outlined.Description, listOf(
+        SubDef("tous", "Tous", Icons.Outlined.Article), SubDef("modeles", "Modèles", Icons.Outlined.Bookmarks),
+        SubDef("liseuse", "Liseuse", Icons.Outlined.MenuBook), SubDef("fichiers", "Fichiers", Icons.Outlined.AttachFile))),
+    SecDef("suivi", "Suivi", Icons.Outlined.Insights, listOf(
+        SubDef("bilan", "Bilan", Icons.Outlined.Assessment), SubDef("programme", "Programme", Icons.Outlined.EventNote),
+        SubDef("historique", "Historique", Icons.Outlined.History))),
+    SecDef("reglages", "Réglages", Icons.Outlined.Settings, listOf(
+        SubDef("profil", "Profil", Icons.Outlined.Badge), SubDef("compte", "Compte Google", Icons.Outlined.AccountCircle),
+        SubDef("ia", "Assistant IA", Icons.Outlined.AutoAwesome), SubDef("apparence", "Apparence", Icons.Outlined.Palette), SubDef("meteo", "Météo", Icons.Outlined.WbSunny),
+        SubDef("vacances", "Vacances", Icons.Outlined.BeachAccess), SubDef("notifications", "Notifications", Icons.Outlined.NotificationsNone),
+        SubDef("referentiel", "Régions / DP", Icons.Outlined.Public), SubDef("inspectapp", "InspectApp", Icons.Outlined.SwapHoriz),
+        SubDef("donnees", "Données", Icons.Outlined.Storage))),
+    SecDef("aide", "Aide", Icons.Outlined.HelpOutline, listOf(
+        SubDef("aide", "Aide", Icons.Outlined.HelpOutline), SubDef("contact", "Contact", Icons.Outlined.ContactPhone),
+        SubDef("web", "Carnet web", Icons.Outlined.Language) { ShellState.openWeb.intValue++ },
+        SubDef("deconnexion", "Déconnexion", Icons.Outlined.Logout) { ShellState.logout.value = true }))
 )
 
 fun secOf(k: String) = SECTIONS.firstOrNull { it.key == k } ?: SECTIONS[0]
@@ -150,7 +151,7 @@ private fun SubBar(sec: SecDef, sub: String) {
 @Composable
 private fun SubContent(sec: String, sub: String) {
     when (sec) {
-        "accueil" -> when (sub) { "recherche" -> SearchScreen(); "rappels" -> RappelsScreen(); else -> HomeScreen() }
+        "accueil" -> when (sub) { "recherche" -> SearchScreen(); "rappels" -> RappelsScreen(); "perso" -> HomeEditScreen(); else -> HomeScreen() }
         "taches" -> when (sub) { "avenir" -> TasksScreen("upcoming"); "retard" -> TasksScreen("late"); "calendrier" -> CalendarScreen(); else -> TasksScreen() }
         "ens" -> when (sub) { "horaire" -> TeachersScreen("horaire"); "notes" -> NotesScreen(); "supprimes" -> ArchivesScreen("enseignants"); else -> TeachersScreen() }
         "etab" -> when (sub) { "parzone" -> EtabsScreen(true); "zones" -> ZonesScreen(); "edt" -> TimetablesScreen(); else -> EtabsScreen(false) }

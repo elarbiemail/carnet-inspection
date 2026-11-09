@@ -69,8 +69,8 @@ fun FeuillesLotButton() {
                     val n = withContext(Dispatchers.IO) { todo.groupBy { it.third!!.s("id") }.entries.sumOf { (id, l) -> Attach.add(ctx, "enseignants", id, l.map { it.first }, "feuille_personnelle") } }
                     toast(ctx, "$n feuille(s) personnelle(s) jointe(s)." + if (DriveSync.enabled(ctx)) " Envoi sur Drive à la prochaine synchronisation." else "")
                 }
-            }) { Text("Joindre", maxLines = 1, softWrap = false) }
-        }, dismissButton = { TextButton(onClick = { plan = emptyList() }) { Text("Annuler", maxLines = 1, softWrap = false) } })
+            }) { BtnText("Joindre", maxLines = 1, softWrap = false) }
+        }, dismissButton = { TextButton(onClick = { plan = emptyList() }) { BtnText("Annuler", maxLines = 1, softWrap = false) } })
     }
 }
 
@@ -87,6 +87,6 @@ fun DraftGuard(key: String, state: MutableState<JSONObject>, tick: Int, onRestor
     val o = offer
     if (o != null) AlertDialog(onDismissRequest = {}, title = { Text("Reprendre le brouillon ?") },
         text = { Text("Une saisie non enregistrée a été retrouvée (« " + listOf(o.s("nom"), o.s("titre"), o.s("beneficiaireNom")).firstOrNull { it.isNotEmpty() }.orEmpty().ifEmpty { "sans titre" } + " »). La reprendre ?") },
-        confirmButton = { TextButton(onClick = { state.value = JSONObject(o.toString()); offer = null; onRestored() }) { Text("Reprendre", maxLines = 1, softWrap = false) } },
-        dismissButton = { TextButton(onClick = { Drafts.clear(ctx, key); offer = null }) { Text("Ignorer", maxLines = 1, softWrap = false) } })
+        confirmButton = { TextButton(onClick = { state.value = JSONObject(o.toString()); offer = null; onRestored() }) { BtnText("Reprendre", maxLines = 1, softWrap = false) } },
+        dismissButton = { TextButton(onClick = { Drafts.clear(ctx, key); offer = null }) { BtnText("Ignorer", maxLines = 1, softWrap = false) } })
 }

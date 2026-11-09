@@ -102,8 +102,10 @@ fun Avatar(text: String, color: Color = Brand, size: Int = 42, tel: String = "",
 
 @Composable
 fun SectionTitle(text: String, modifier: Modifier = Modifier) {
-    Text(text.uppercase(), modifier = modifier.padding(start = 4.dp, top = 14.dp, bottom = 6.dp),
-        style = MaterialTheme.typography.labelMedium, color = InkFaint, fontWeight = FontWeight.SemiBold)
+    Row(modifier.padding(start = 4.dp, top = 14.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Picto.of(text)?.let { Icon(it, null, Modifier.size(17.dp), tint = Brand); Spacer(Modifier.width(6.dp)) }
+        Text(text.uppercase(), style = MaterialTheme.typography.labelMedium, color = InkFaint, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
 }
 
 @Composable
@@ -119,7 +121,8 @@ fun CardBox(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, conten
 fun InfoRow(label: String, value: String) {
     if (value.isBlank()) return
     Row(Modifier.fillMaxWidth().padding(vertical = 3.dp)) {
-        Text(label, Modifier.width(120.dp), color = InkFaint, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Picto.of(label)?.let { Icon(it, null, Modifier.padding(end = 6.dp, top = 1.dp).size(16.dp), tint = InkFaint) } ?: Spacer(Modifier.width(22.dp))
+        Text(label, Modifier.width(110.dp), color = InkFaint, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Text(value, Modifier.weight(1f), fontSize = 14.sp, maxLines = 6, overflow = TextOverflow.Ellipsis)
     }
 }
@@ -147,7 +150,7 @@ fun ContactButtons(tel: String, nom: String, email: String = "") {
         if (tel.isNotBlank()) {
             FilledTonalButton(onClick = { dial(ctx, tel) }) { Icon(Icons.Default.Call, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Appeler", maxLines = 1, softWrap = false) }
             FilledTonalButton(onClick = { whatsapp(ctx, tel, greeting(nom)) }) { Icon(Icons.Default.Send, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("WhatsApp", maxLines = 1, softWrap = false) }
-            FilledTonalButton(onClick = { messenger(ctx, greeting(nom)) }) { Text("Messenger", maxLines = 1, softWrap = false) }
+            FilledTonalButton(onClick = { messenger(ctx, greeting(nom)) }) { BtnText("Messenger", maxLines = 1, softWrap = false) }
         }
         if (email.isNotBlank()) FilledTonalButton(onClick = { mail(ctx, email) }) { Icon(Icons.Default.Email, null, Modifier.size(18.dp)) }
     }
@@ -226,7 +229,7 @@ fun PickerDialog(title: String, items: List<JSONObject>, label: (JSONObject) -> 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Fermer") }
                     Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    TextButton(onClick = { onPick(null) }) { Text("Aucun", maxLines = 1, softWrap = false) }
+                    TextButton(onClick = { onPick(null) }) { BtnText("Aucun", maxLines = 1, softWrap = false) }
                 }
                 SearchField(q, { q = it }, "Rechercher…")
                 val nq = norm(q)
@@ -284,7 +287,7 @@ val LocalDrawer = staticCompositionLocalOf<(() -> Unit)?> { null }
 fun ConfirmDialog(title: String, text: String, confirm: String = "Supprimer", onDismiss: () -> Unit, onConfirm: () -> Unit) {
     AlertDialog(onDismissRequest = onDismiss, title = { Text(title) }, text = { Text(text) },
         confirmButton = { TextButton(onClick = { onConfirm(); onDismiss() }) { Text(confirm, color = Danger) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler", maxLines = 1, softWrap = false) } })
+        dismissButton = { TextButton(onClick = onDismiss) { BtnText("Annuler", maxLines = 1, softWrap = false) } })
 }
 
 /** Filtre global de zones (cases à cocher). */

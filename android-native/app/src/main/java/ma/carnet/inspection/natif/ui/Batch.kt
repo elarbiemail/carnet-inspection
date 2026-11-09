@@ -138,8 +138,8 @@ fun BatchEditDialog(count: Int, fields: List<BField>, onDismiss: () -> Unit, onA
                 onApply(f, mapOf("v" to v.trim(), "date" to iso, "par" to p.trim()))
             } else onApply(f, mapOf("v" to v.trim()))
             onDismiss()
-        }) { Text("Appliquer", maxLines = 1, softWrap = false) }
-    }, dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler", maxLines = 1, softWrap = false) } })
+        }) { BtnText("Appliquer", maxLines = 1, softWrap = false) }
+    }, dismissButton = { TextButton(onClick = onDismiss) { BtnText("Annuler", maxLines = 1, softWrap = false) } })
     if (pickEtab) PickerDialog("Établissement", Store.etabs(), { it.s("nom") }, { zoneName(it.s("zoneId")) }, { pickEtab = false }) { x ->
         v = x?.s("id") ?: ""; etabLabel = x?.s("nom") ?: "Aucun"; pickEtab = false
     }
@@ -207,13 +207,13 @@ fun GeneratedFilesCard() {
                     Text(f.name, fontSize = 13.5.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Text(size(listOf(f)) + " · " + fmtDate(java.time.Instant.ofEpochMilli(f.lastModified()).toString()), color = InkFaint, fontSize = 11.5.sp)
                 }
-                TextButton(onClick = { FileOps.openWith(ctx, f) }) { Text("Ouvrir", maxLines = 1, softWrap = false) }
+                TextButton(onClick = { FileOps.openWith(ctx, f) }) { BtnText("Ouvrir", maxLines = 1, softWrap = false) }
             }
         }
         if (files.isNotEmpty()) Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(enabled = picked.isNotEmpty(), onClick = { askSel = true }) { Text("Supprimer (${picked.size})", maxLines = 1, softWrap = false) }
-            OutlinedButton(onClick = { askAll = true }) { Text("Tout supprimer", maxLines = 1, softWrap = false) }
-            if (picked.size < files.size) TextButton(onClick = { picked.clear(); picked.addAll(files.map { it.name }) }) { Text("Tout cocher", maxLines = 1, softWrap = false) }
+            OutlinedButton(enabled = picked.isNotEmpty(), onClick = { askSel = true }) { BtnText("Supprimer (${picked.size})", maxLines = 1, softWrap = false) }
+            OutlinedButton(onClick = { askAll = true }) { BtnText("Tout supprimer", maxLines = 1, softWrap = false) }
+            if (picked.size < files.size) TextButton(onClick = { picked.clear(); picked.addAll(files.map { it.name }) }) { BtnText("Tout cocher", maxLines = 1, softWrap = false) }
         }
     }
     if (askSel) ConfirmDialog("Supprimer ${picked.size} fichier(s) ?", "Les fichiers cochés seront effacés de cet appareil.", "Supprimer", { askSel = false }) {

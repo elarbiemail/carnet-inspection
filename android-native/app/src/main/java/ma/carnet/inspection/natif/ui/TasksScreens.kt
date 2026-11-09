@@ -100,38 +100,53 @@ fun HomeScreen() {
                 CardBox {
                     Text("Bienvenue !", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     Text("Importez votre sauvegarde du carnet web (fichier sauvegarde-donnees.json dans votre Google Drive) pour retrouver toutes vos données.", fontSize = 13.5.sp, modifier = Modifier.padding(vertical = 6.dp))
-                    Button(onClick = { Nav.push(Scr.Data) }) { Text("Importer mes données", maxLines = 1, softWrap = false) }
+                    Button(onClick = { Nav.push(Scr.Data) }) { BtnText("Importer mes données", maxLines = 1, softWrap = false) }
                 }
             }
-            Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Kpi("Tâches", tasks.size.toString(), Modifier.weight(1f)) { Nav.root("taches", "toutes") }
-                Kpi("En retard", late.size.toString(), Modifier.weight(1f), if (late.isNotEmpty()) Danger else Brand) { Nav.root("taches", "retard") }
-            }
-            Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Kpi("Enseignants", ens.size.toString(), Modifier.weight(1f)) { Nav.root("ens", "liste") }
-                Kpi("Établissements", etabs.size.toString(), Modifier.weight(1f)) { Nav.root("etab", "liste") }
-            }
-            SectionTitle("À venir (14 jours)")
-            if (upcoming.isEmpty()) EmptyState("Aucune tâche prévue dans les 14 prochains jours.")
-            upcoming.take(8).forEach { TaskCard(it) }
-            if (late.isNotEmpty()) { SectionTitle("En retard"); late.sortedBy { it.s("echeance") }.take(5).forEach { TaskCard(it) } }
-            if (etabs.isNotEmpty()) {
-                SectionTitle("Établissements")
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    items(etabs.sortedBy { norm(it.s("nom")) }, key = { it.s("id") }) { e ->
-                        val n = ens.count { it.s("etablissementId") == e.s("id") }
-                        MiniCard(e.s("nom"), "$n enseignant(s)") { Nav.push(Scr.EtabDetail(e.s("id"))) }
+            val ctx = LocalContext.current
+            val hb by HomeBlocks.version
+            val blocks = remember(hb) { HomeBlocks.list(ctx) }
+            blocks.forEach { blk ->
+                when (blk) {
+                    "meteo" -> WeatherBlock()
+                    "semaine" -> WeekTasksBlock(tasks)
+                    "contacts" -> ContactsBlock(ens)
+                    "kpi" -> {
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Kpi("Tâches", tasks.size.toString(), Modifier.weight(1f)) { Nav.root("taches", "toutes") }
+                    Kpi("En retard", late.size.toString(), Modifier.weight(1f), if (late.isNotEmpty()) Danger else Brand) { Nav.root("taches", "retard") }
+                }
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Kpi("Enseignants", ens.size.toString(), Modifier.weight(1f)) { Nav.root("ens", "liste") }
+                    Kpi("Établissements", etabs.size.toString(), Modifier.weight(1f)) { Nav.root("etab", "liste") }
+                }
+                    }
+                    "avenir" -> {
+                        SectionTitle("À venir (14 jours)")
+                        if (upcoming.isEmpty()) EmptyState("Aucune tâche prévue dans les 14 prochains jours.")
+                        upcoming.take(8).forEach { TaskCard(it) }
+                    }
+                    "retard" -> if (late.isNotEmpty()) { SectionTitle("En retard"); late.sortedBy { it.s("echeance") }.take(5).forEach { TaskCard(it) } }
+                    "etabs" -> if (etabs.isNotEmpty()) {
+                        SectionTitle("Établissements")
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            items(etabs.sortedBy { norm(it.s("nom")) }, key = { it.s("id") }) { e ->
+                                val n = ens.count { it.s("etablissementId") == e.s("id") }
+                                MiniCard(e.s("nom"), "$n enseignant(s)") { Nav.push(Scr.EtabDetail(e.s("id"))) }
+                            }
+                        }
+                    }
+                    "ens" -> if (ens.isNotEmpty()) {
+                        SectionTitle("Enseignant(e)s")
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            items(ens.sortedBy { norm(it.s("nom")) }, key = { it.s("id") }) { e ->
+                                MiniCard(e.s("nom"), etabName(e.s("etablissementId")), if (e.s("genre") == "F") FemColor else if (e.s("genre") == "H") HomColor else Brand) { Nav.push(Scr.EnsDetail(e.s("id"))) }
+                            }
+                        }
                     }
                 }
             }
-            if (ens.isNotEmpty()) {
-                SectionTitle("Enseignant(e)s")
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    items(ens.sortedBy { norm(it.s("nom")) }, key = { it.s("id") }) { e ->
-                        MiniCard(e.s("nom"), etabName(e.s("etablissementId")), if (e.s("genre") == "F") FemColor else if (e.s("genre") == "H") HomColor else Brand) { Nav.push(Scr.EnsDetail(e.s("id"))) }
-                    }
-                }
-            }
+            OutlinedButton(onClick = { Nav.root("accueil", "perso") }, modifier = Modifier.padding(top = 16.dp).align(Alignment.CenterHorizontally)) { BtnText("Personnaliser l'accueil") }
             Spacer(Modifier.height(24.dp))
         }
     }
@@ -225,7 +240,7 @@ fun TaskDetailScreen(id: String) {
                 InfoRow("Enseignant(e)", taskEnsName(t))
                 InfoRow("Priorité", Ref.PRIORITES[t.s("priorite")] ?: "")
                 if (t.s("noteGlobale").isNotEmpty()) InfoRow("Appréciation", t.s("noteGlobale"))
-                if (t.s("lienConnexion").isNotEmpty()) TextButton(onClick = { openUri(ctx, t.s("lienConnexion")) }) { Text("Rejoindre la réunion", maxLines = 1, softWrap = false) }
+                if (t.s("lienConnexion").isNotEmpty()) TextButton(onClick = { openUri(ctx, t.s("lienConnexion")) }) { BtnText("Rejoindre la réunion", maxLines = 1, softWrap = false) }
             }
             val ens = Store.byId("enseignants", t.s("enseignantId"))
             if (ens != null) {
@@ -306,7 +321,7 @@ fun TaskEditScreen(id: String?, etabId: String?, ensId: String?) {
             Store.upsert("tasks", o)
             toast(ctx, "Tâche enregistrée.")
             Nav.replace(Scr.TaskDetail(o.s("id")))
-        }) { Text("Enregistrer", color = OnBrand, fontWeight = FontWeight.Bold) }
+        }) { BtnText("Enregistrer", color = OnBrand, fontWeight = FontWeight.Bold) }
     }) { pad ->
         Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(14.dp)) {
             SelectField("Type de tâche", Ref.TASK_TYPES, g("taskType").ifEmpty { "inspection" }, { set("taskType", it) })

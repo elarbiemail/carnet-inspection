@@ -96,12 +96,12 @@ fun TeachersScreen(initialMode: String = "liste") {
                     ChipRow(mapOf("F" to "Femmes", "H" to "Hommes"), gen, { gen = it }, "Tous")
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("${list.size} enseignant(e)(s)", color = InkFaint, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                        TextButton(onClick = { Nav.push(Scr.Archives("enseignants")) }) { Text("Fiches supprimées", maxLines = 1, softWrap = false) }
+                        TextButton(onClick = { Nav.push(Scr.Archives("enseignants")) }) { BtnText("Fiches supprimées", maxLines = 1, softWrap = false) }
                     }
                 }
                 if (list.isEmpty()) item { EmptyState("Aucun(e) enseignant(e).") }
                 items(list, key = { it.s("id") }) { TeacherRow(it, sel = sel) }
-                if (sel.on) item { TextButton(onClick = { sel.selectAll(list.map { it.s("id") }) }) { Text("Sélectionner les ${list.size} de la liste (filtre actuel)", maxLines = 1, softWrap = false) } }
+                if (sel.on) item { TextButton(onClick = { sel.selectAll(list.map { it.s("id") }) }) { BtnText("Sélectionner les ${list.size} de la liste (filtre actuel)", maxLines = 1, softWrap = false) } }
             }
             item { Spacer(Modifier.height(80.dp)) }
         }
@@ -124,7 +124,7 @@ fun HoraireSearch(all: List<JSONObject>) {
         val ctx = LocalContext.current
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("${m.size} enseignant(e)(s) en séance", color = InkFaint, fontSize = 12.sp, modifier = Modifier.weight(1f).padding(top = 4.dp))
-            if (m.isNotEmpty()) TextButton(onClick = { showHtml("En séance le $jour à $heure", horaireSearchHtml(ctx, jour, heure, m)) }) { Text("Exporter la liste", maxLines = 1, softWrap = false) }
+            if (m.isNotEmpty()) TextButton(onClick = { showHtml("En séance le $jour à $heure", horaireSearchHtml(ctx, jour, heure, m)) }) { BtnText("Exporter la liste", maxLines = 1, softWrap = false) }
         }
         if (m.isEmpty()) EmptyState("Personne en séance à ce créneau.")
         m.forEach { e ->
@@ -234,8 +234,8 @@ fun AddNoteDialog(onDismiss: () -> Unit, onSave: (String, String, String) -> Uni
             val m = Regex("^(\\d{1,2})[/.-](\\d{1,2})[/.-](\\d{4})$").find(date.trim())
             val iso = if (m != null) "%s-%02d-%02d".format(m.groupValues[3], m.groupValues[2].toInt(), m.groupValues[1].toInt()) else date.trim()
             onSave(note.trim(), iso, par.trim()); onDismiss()
-        }) { Text("Ajouter", maxLines = 1, softWrap = false) }
-    }, dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler", maxLines = 1, softWrap = false) } })
+        }) { BtnText("Ajouter", maxLines = 1, softWrap = false) }
+    }, dismissButton = { TextButton(onClick = onDismiss) { BtnText("Annuler", maxLines = 1, softWrap = false) } })
 }
 
 @Composable
@@ -258,7 +258,7 @@ fun TeacherEditScreen(id: String?, etabId: String?) {
             if (e.value.s("nom").isBlank()) { toast(ctx, "Indiquez le nom."); return@TextButton }
             Store.upsert("enseignants", e.value); toast(ctx, "Fiche enregistrée.")
             Nav.replace(Scr.EnsDetail(e.value.s("id")))
-        }) { Text("Enregistrer", color = OnBrand, fontWeight = FontWeight.Bold) }
+        }) { BtnText("Enregistrer", color = OnBrand, fontWeight = FontWeight.Bold) }
     }) { pad ->
         Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(14.dp)) {
             TextFieldRow("Nom et prénom", g("nom"), { set("nom", it) })

@@ -34,6 +34,9 @@ object Store {
     var zoneFilter: Set<String> = emptySet()
         private set
 
+    /** Pour les widgets : charge les données si l'application n'est pas ouverte. */
+    fun ensure(ctx: Context) { if (file == null) init(ctx.applicationContext) }
+
     fun init(ctx: Context) {
         val f = File(ctx.filesDir, "carnet.json")
         file = f
