@@ -8,6 +8,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.transformable
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
 import ma.carnet.inspection.natif.data.*
@@ -25,7 +30,14 @@ fun PhotoButton(id: String, tel: String, name: String = "") {
     val ctx = LocalContext.current
     var open by remember { mutableStateOf(false) }
     fun done(ok: Boolean) { toast(ctx, if (ok) "Photo enregistrée." else "Photo introuvable ou illisible."); if (ok) Store.version.intValue++ }
-    val pick = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { u -> if (u != null) done(Photos.save(ctx, id, u)) }
+    // image de la galerie (ou capture d'écran WhatsApp) : recadrage avant enregistrement
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { u ->
+        if (u != null) try {
+            val f = java.io.File(java.io.File(ctx.cacheDir, "partages").also { it.mkdirs() }, "photo_" + System.currentTimeMillis() + ".jpg")
+            ctx.contentResolver.openInputStream(u)?.use { i -> f.outputStream().use { i.copyTo(it) } }
+            SharedPhoto.target = id; SharedPhoto.targetName = name; SharedPhoto.pending.value = f
+        } catch (_: Exception) { toast(ctx, "Image illisible.") }
+    }
     fun fromContacts() {
         val u = Photos.contactPhotoUri(ctx, tel)
         if (u == null) toast(ctx, "Aucune photo pour ce numéro dans vos contacts. Enregistrez le contact avec sa photo, ou choisissez-la dans la galerie.")
@@ -35,17 +47,17 @@ fun PhotoButton(id: String, tel: String, name: String = "") {
     OutlinedButton(onClick = { open = true }, modifier = Modifier.padding(top = 4.dp)) { Text(if (Photos.has(ctx, id)) "Changer la photo" else "Importer la photo") }
     if (open) AlertDialog(onDismissRequest = { open = false },
         title = { Text("Photo de profil") },
-        text = { Text("WhatsApp ne permet pas à une autre application de lire la photo d'un contact. Deux possibilités : choisir dans la galerie la photo que vous avez enregistrée depuis WhatsApp (ouvrez la photo de profil, puis « Enregistrer »), ou reprendre la photo du contact enregistré dans votre téléphone.") },
+        text = { Text("WhatsApp ne laisse ni partager ni enregistrer la photo de profil d'un contact. Le plus simple : « Depuis WhatsApp » ouvre la discussion ; touchez sa photo de profil, faites une capture d'écran, puis partagez la capture vers « Carnet natif » (ou choisissez-la ensuite dans la galerie). Vous recadrez ensuite le visage dans le cercle.") },
         confirmButton = { Column {
             if (tel.isNotBlank()) TextButton(onClick = {
                 open = false
                 SharedPhoto.target = id; SharedPhoto.targetName = name
-                toast(ctx, "Dans WhatsApp : touchez la photo du contact, puis Partager → Carnet natif.")
+                toast(ctx, "Dans WhatsApp : ouvrez la photo du contact, faites une capture d'écran, puis Partager → Carnet natif.")
                 val n = waNumber(tel)
                 try { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://wa.me/$n")).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
                 catch (_: Exception) { toast(ctx, "WhatsApp n'est pas installé.") }
             }) { Text("Depuis WhatsApp (actualiser)") }
-            TextButton(onClick = { open = false; pick.launch("image/*") }) { Text("Choisir dans la galerie") }
+            TextButton(onClick = { open = false; pick.launch("image/*") }) { Text("Choisir dans la galerie (ou une capture d'écran)") }
             if (tel.isNotBlank()) TextButton(onClick = {
                 open = false
                 if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) fromContacts() else perm.launch(Manifest.permission.READ_CONTACTS)
@@ -56,28 +68,62 @@ fun PhotoButton(id: String, tel: String, name: String = "") {
 }
 
 
-/** Photo reçue par « Partager » (WhatsApp…) : attribution à la fiche de départ, ou choix de la personne / de l'établissement. */
+/** Photo reçue par « Partager » (capture d'écran WhatsApp, galerie…) : recadrage, puis attribution à la fiche. */
 @Composable
 fun SharedPhotoDialog() {
     val ctx = LocalContext.current
     val f = SharedPhoto.pending.value ?: return
-    var pickWho by remember(f) { mutableStateOf(SharedPhoto.target == null) }
-    val bmp = remember(f) { try { android.graphics.BitmapFactory.decodeFile(f.absolutePath, android.graphics.BitmapFactory.Options().apply { inSampleSize = 4 })?.asImageBitmap() } catch (_: Throwable) { null } }
-    fun done(id: String) { toast(ctx, if (SharedPhoto.assign(ctx, id)) "Photo de profil actualisée." else "Photo illisible.") }
-    if (!pickWho) AlertDialog(onDismissRequest = { SharedPhoto.pending.value = null },
-        title = { Text("Actualiser la photo de profil") },
-        text = { Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
-            bmp?.let { androidx.compose.foundation.Image(it, null, Modifier.size(120.dp).clip(androidx.compose.foundation.shape.CircleShape), contentScale = androidx.compose.ui.layout.ContentScale.Crop) }
-            Text("Attribuer cette photo à " + SharedPhoto.targetName.ifEmpty { "la fiche ouverte" } + " ?", modifier = Modifier.padding(top = 8.dp))
-        } },
-        confirmButton = { TextButton(onClick = { done(SharedPhoto.target!!) }) { Text("Oui") } },
-        dismissButton = { Row { TextButton(onClick = { pickWho = true }) { Text("Autre personne") }; TextButton(onClick = { SharedPhoto.pending.value = null }) { Text("Annuler") } } })
-    else {
-        val people = remember(f) {
-            Store.list("enseignants").map { Triple(it.s("id"), it.s("nom"), "Enseignant(e) · " + etabName(it.s("etablissementId"))) } +
-                Store.list("etablissements").filter { it.s("directeur").isNotEmpty() }.map { Triple(it.s("id"), it.s("directeur"), "Directeur(trice) · " + it.s("nom")) }
-        }.sortedBy { norm(it.second) }
-        val items = people.map { org.json.JSONObject().put("id", it.first).put("nom", it.second).put("sub", it.third) }
-        PickerDialog("À qui attribuer cette photo ?", items, { it.s("nom") }, { it.s("sub") }, onDismiss = { SharedPhoto.pending.value = null }) { it?.let { p -> done(p.s("id")) } }
+    val src = remember(f) { try { decode(f, 1600) } catch (_: Throwable) { null } }
+    var who by remember(f) { mutableStateOf(SharedPhoto.target) }
+    var whoName by remember(f) { mutableStateOf(SharedPhoto.targetName) }
+    var pickWho by remember(f) { mutableStateOf(false) }
+    if (src == null) { LaunchedEffect(f) { toast(ctx, "Image illisible."); SharedPhoto.pending.value = null }; return }
+    if (pickWho) {
+        val items = remember(f) {
+            (Store.list("enseignants").map { org.json.JSONObject().put("id", it.s("id")).put("nom", it.s("nom")).put("sub", "Enseignant(e) · " + etabName(it.s("etablissementId"))) } +
+                Store.list("etablissements").filter { it.s("directeur").isNotEmpty() }.map { org.json.JSONObject().put("id", it.s("id")).put("nom", it.s("directeur")).put("sub", "Directeur(trice) · " + it.s("nom")) })
+                .sortedBy { norm(it.s("nom")) }
+        }
+        PickerDialog("À qui attribuer cette photo ?", items, { it.s("nom") }, { it.s("sub") }, onDismiss = { pickWho = false }) { p -> if (p != null) { who = p.s("id"); whoName = p.s("nom") }; pickWho = false }
+        return
+    }
+    // recadrage : pincer pour zoomer, glisser pour placer le visage dans le cercle
+    var scale by remember(f) { mutableFloatStateOf(1f) }
+    var off by remember(f) { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+    val img = remember(src) { src.asImageBitmap() }
+    val frameDp = 260.dp
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val framePx = with(density) { frameDp.toPx() }
+    val base = framePx / minOf(src.width, src.height)          // image ajustée pour couvrir le cadre
+    val st = androidx.compose.foundation.gestures.rememberTransformableState { z, p, _ -> scale = (scale * z).coerceIn(1f, 8f); off += p }
+    fun crop(): android.graphics.Bitmap {
+        val k = base * scale                                        // pixels écran par pixel image
+        val cx = src.width / 2f - off.x / k; val cy = src.height / 2f - off.y / k
+        val half = framePx / 2f / k
+        val l = (cx - half).toInt().coerceIn(0, src.width - 1); val t = (cy - half).toInt().coerceIn(0, src.height - 1)
+        val side = (2 * half).toInt().coerceAtMost(minOf(src.width - l, src.height - t)).coerceAtLeast(1)
+        return android.graphics.Bitmap.createBitmap(src, l, t, side, side)
+    }
+    androidx.compose.ui.window.Dialog(onDismissRequest = { SharedPhoto.pending.value = null }) {
+        Surface(shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)) {
+            Column(Modifier.padding(16.dp), horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+                Text("Photo de profil", style = MaterialTheme.typography.titleMedium)
+                Text("Pincez pour zoomer, glissez pour placer le visage dans le cercle.", color = InkFaint, fontSize = 12.sp, modifier = Modifier.padding(vertical = 6.dp))
+                Box(Modifier.size(frameDp).clip(androidx.compose.foundation.shape.RoundedCornerShape(8.dp)).background(androidx.compose.ui.graphics.Color.Black)
+                    .then(Modifier.transformable(st)), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                    val w = with(density) { (src.width * base).toDp() }; val h = with(density) { (src.height * base).toDp() }
+                    androidx.compose.foundation.Image(img, null, Modifier.requiredSize(w, h).graphicsLayer(scaleX = scale, scaleY = scale, translationX = off.x, translationY = off.y), contentScale = androidx.compose.ui.layout.ContentScale.FillBounds)
+                    Box(Modifier.size(frameDp).border(3.dp, androidx.compose.ui.graphics.Color.White, androidx.compose.foundation.shape.CircleShape))
+                }
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, modifier = Modifier.padding(top = 10.dp)) {
+                    Text("Pour : " + whoName.ifEmpty { "(à choisir)" }, Modifier.weight(1f), fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold, maxLines = 1)
+                    TextButton(onClick = { pickWho = true }) { Text(if (who == null) "Choisir" else "Changer") }
+                }
+                Row {
+                    TextButton(onClick = { SharedPhoto.pending.value = null }) { Text("Annuler") }
+                    Button(enabled = who != null, onClick = { val ok = try { SharedPhoto.assignBitmap(ctx, who!!, crop()) } catch (_: Throwable) { false }; toast(ctx, if (ok) "Photo de profil actualisée." else "Recadrage impossible.") }) { Text("Enregistrer") }
+                }
+            }
+        }
     }
 }

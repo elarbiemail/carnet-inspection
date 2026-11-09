@@ -264,18 +264,40 @@ fun PreviewWithExport(title: String, html: String, name: String, landscape: Bool
     var busy by remember { mutableStateOf("") }
     var last by remember { mutableStateOf<java.io.File?>(null) }
     val hasTables = remember(html) { html.contains("<table") }
-    val saveAs = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri -> val f = last; if (uri != null && f != null) { FileOps.copyTo(ctx, f, uri); toast(ctx, "Fichier enregistré.") } }
+    val onSaved: (android.net.Uri?) -> Unit = { uri -> val f = last; if (uri != null && f != null) { try { FileOps.copyTo(ctx, f, uri); toast(ctx, "Fichier enregistré.") } catch (e: Throwable) { toast(ctx, "Enregistrement impossible : " + (e.message ?: e.javaClass.simpleName)) } } }
+    val savePdf = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf"), onSaved)
+    val saveDocx = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.wordprocessingml.document"), onSaved)
+    val saveXlsx = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"), onSaved)
+    fun saveAs(f: java.io.File) {
+        try { when (f.extension) { "pdf" -> savePdf.launch(f.name); "docx" -> saveDocx.launch(f.name); else -> saveXlsx.launch(f.name) } }
+        catch (e: Throwable) { FileOps.share(ctx, f, title) }
+    }
     suspend fun make(kind: String): java.io.File {
         val dir = Export.outDir(ctx)
         return when (kind) {
-            "pdf" -> Export.pdf(ctx, html, java.io.File(dir, "$name.pdf"), landscape)
+            "pdf" -> {
+                // si une tentative précédente a fait fermer l'application (moteur web), on passe directement par l'impression
+                val pr = ctx.getSharedPreferences("carnet", android.content.Context.MODE_PRIVATE)
+                if (pr.getBoolean("pdfDirectCrash", false)) throw Exception("mode impression")
+                pr.edit().putBoolean("pdfDirectCrash", true).commit()
+                val f = kotlinx.coroutines.withTimeout(60_000) { Export.pdf(ctx, html, java.io.File(dir, "$name.pdf"), landscape) }
+                pr.edit().putBoolean("pdfDirectCrash", false).apply(); f
+            }
             "docx" -> withContext(Dispatchers.IO) { Export.docx(ctx, html, java.io.File(dir, "$name.docx"), landscape) }
             else -> withContext(Dispatchers.IO) { Export.xlsx(Export.tablesOf(html), java.io.File(dir, "$name.xlsx")) }
         }
     }
     fun run(kind: String, then: (java.io.File) -> Unit) {
         busy = kind
-        scope.launch { try { val f = make(kind); last = f; then(f) } catch (e: Throwable) { toast(ctx, "Échec : " + (e.message ?: e.javaClass.simpleName)) }; busy = "" }
+        scope.launch {
+            try { val f = make(kind); last = f; then(f) }
+            catch (e: Throwable) {
+                if (kind == "pdf") { if (e.message != "mode impression") ctx.getSharedPreferences("carnet", android.content.Context.MODE_PRIVATE).edit().putBoolean("pdfDirectCrash", false).apply()
+                    toast(ctx, "PDF direct impossible sur ce téléphone : utilisez « Enregistrer au format PDF » dans la fenêtre d'impression."); web?.let { printWeb(ctx, it, name) } }
+                else toast(ctx, "Échec : " + (e.message ?: e.javaClass.simpleName))
+            }
+            busy = ""
+        }
     }
     var menu by remember { mutableStateOf<String?>(null) }
     ScreenScaffold(title, { Nav.pop() }, actions = {
@@ -294,7 +316,7 @@ fun PreviewWithExport(title: String, html: String, name: String, landscape: Bool
                         DropdownMenu(expanded = menu == k, onDismissRequest = { menu = null }) {
                             DropdownMenuItem(text = { Text("Ouvrir dans la liseuse") }, onClick = { menu = null; run(k) { openInViewer(it, it.name) } })
                             DropdownMenuItem(text = { Text("Partager (WhatsApp, e-mail…)") }, onClick = { menu = null; run(k) { FileOps.share(ctx, it, title) } })
-                            DropdownMenuItem(text = { Text("Enregistrer sur le téléphone") }, onClick = { menu = null; run(k) { f -> saveAs.launch(f.name) } })
+                            DropdownMenuItem(text = { Text("Enregistrer sur le téléphone") }, onClick = { menu = null; run(k) { f -> saveAs(f) } })
                             DropdownMenuItem(text = { Text("Ouvrir avec une autre application") }, onClick = { menu = null; run(k) { FileOps.openWith(ctx, it) } })
                             DropdownMenuItem(text = { Text("Enregistrer sur Google Drive") }, onClick = {
                                 menu = null

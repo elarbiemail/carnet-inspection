@@ -31,6 +31,12 @@ object Photos {
         }
     } catch (e: Exception) { false }
 
+    /** Enregistre une image déjà recadrée (carré). */
+    fun saveBitmap(ctx: Context, id: String, bmp: Bitmap): Boolean = try {
+        val out = Bitmap.createScaledBitmap(bmp, 320, 320, true)
+        file(ctx, id).outputStream().use { out.compress(Bitmap.CompressFormat.JPEG, 90, it) }; true
+    } catch (e: Exception) { false }
+
     /** Photo du contact du téléphone portant ce numéro (nécessite READ_CONTACTS). */
     fun contactPhotoUri(ctx: Context, tel: String): Uri? = try {
         val u = Uri.withAppendedPath(ContactsContract.PhoneLookup.CONTENT_FILTER_URI, Uri.encode(tel))

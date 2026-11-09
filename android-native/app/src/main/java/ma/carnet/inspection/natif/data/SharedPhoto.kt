@@ -30,6 +30,13 @@ object SharedPhoto {
         } catch (_: Exception) { false }
     }
 
+    fun assignBitmap(ctx: Context, id: String, bmp: android.graphics.Bitmap): Boolean {
+        val ok = Photos.saveBitmap(ctx, id, bmp)
+        pending.value?.delete(); pending.value = null; target = null; targetName = ""
+        if (ok) Store.version.intValue++
+        return ok
+    }
+
     fun assign(ctx: Context, id: String): Boolean {
         val f = pending.value ?: return false
         val ok = Photos.save(ctx, id, Uri.fromFile(f))
