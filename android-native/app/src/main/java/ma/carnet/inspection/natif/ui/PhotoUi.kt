@@ -30,6 +30,13 @@ fun PhotoButton(id: String, tel: String, name: String = "") {
     val ctx = LocalContext.current
     var open by remember { mutableStateOf(false) }
     fun done(ok: Boolean) { toast(ctx, if (ok) "Photo enregistrée." else "Photo introuvable ou illisible."); if (ok) Store.version.intValue++ }
+    val cam = rememberCamera { b ->
+        if (b != null) try {
+            val f = java.io.File(java.io.File(ctx.cacheDir, "partages").also { it.mkdirs() }, "photo_" + System.currentTimeMillis() + ".jpg")
+            f.outputStream().use { b.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, it) }
+            SharedPhoto.target = id; SharedPhoto.targetName = name; SharedPhoto.pending.value = f
+        } catch (_: Exception) { toast(ctx, "Photo illisible.") }
+    }
     // image de la galerie (ou capture d'écran WhatsApp) : recadrage avant enregistrement
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { u ->
         if (u != null) try {
@@ -47,16 +54,17 @@ fun PhotoButton(id: String, tel: String, name: String = "") {
     OutlinedButton(onClick = { open = true }, modifier = Modifier.padding(top = 4.dp)) { Text(if (Photos.has(ctx, id)) "Changer la photo" else "Importer la photo") }
     if (open) AlertDialog(onDismissRequest = { open = false },
         title = { Text("Photo de profil") },
-        text = { Text("WhatsApp ne laisse ni partager ni enregistrer la photo de profil d'un contact. Le plus simple : « Depuis WhatsApp » ouvre la discussion ; touchez sa photo de profil, faites une capture d'écran, puis partagez la capture vers « Carnet natif » (ou choisissez-la ensuite dans la galerie). Vous recadrez ensuite le visage dans le cercle.") },
+        text = { Text("WhatsApp interdit aux autres applications de lire la photo de profil d'un contact, et en bloque même la capture d'écran. Solutions : demander à la personne de vous envoyer une photo sur WhatsApp (une photo reçue dans la discussion peut être partagée vers « Carnet natif »), reprendre la photo enregistrée dans vos contacts, prendre une photo ou en choisir une dans la galerie. Vous recadrez ensuite le visage dans le cercle.") },
         confirmButton = { Column {
             if (tel.isNotBlank()) TextButton(onClick = {
                 open = false
                 SharedPhoto.target = id; SharedPhoto.targetName = name
-                toast(ctx, "Dans WhatsApp : ouvrez la photo du contact, faites une capture d'écran, puis Partager → Carnet natif.")
-                val n = waNumber(tel)
-                try { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://wa.me/$n")).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
-                catch (_: Exception) { toast(ctx, "WhatsApp n'est pas installé.") }
-            }) { Text("Depuis WhatsApp (actualiser)") }
+                // la photo de profil WhatsApp n'est pas accessible : on demande à la personne d'envoyer une photo,
+                // qui, elle, peut être partagée depuis la discussion vers le Carnet
+                whatsapp(ctx, tel, greeting(name).trimEnd() + " Pourriez-vous m'envoyer ici une photo de vous (portrait) pour votre fiche ? Merci.")
+                toast(ctx, "Quand la photo arrive : appuyez longuement dessus dans WhatsApp → Partager → Carnet natif.")
+            }) { Text("Demander sa photo par WhatsApp") }
+            TextButton(onClick = { open = false; cam() }) { Text("Prendre une photo") }
             TextButton(onClick = { open = false; pick.launch("image/*") }) { Text("Choisir dans la galerie (ou une capture d'écran)") }
             if (tel.isNotBlank()) TextButton(onClick = {
                 open = false

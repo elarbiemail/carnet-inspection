@@ -142,11 +142,12 @@ fun EmptyState(text: String) {
 fun ContactButtons(tel: String, nom: String, email: String = "") {
     val ctx = LocalContext.current
     if (tel.isBlank() && email.isBlank()) return
-    Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    // boutons sur une ligne défilante : aucun bouton n'est écrasé quand la place manque
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         if (tel.isNotBlank()) {
-            FilledTonalButton(onClick = { dial(ctx, tel) }) { Icon(Icons.Default.Call, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Appeler") }
-            FilledTonalButton(onClick = { whatsapp(ctx, tel, greeting(nom)) }) { Icon(Icons.Default.Send, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("WhatsApp") }
-            FilledTonalButton(onClick = { messenger(ctx, greeting(nom)) }) { Text("Messenger") }
+            FilledTonalButton(onClick = { dial(ctx, tel) }) { Icon(Icons.Default.Call, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Appeler", maxLines = 1, softWrap = false) }
+            FilledTonalButton(onClick = { whatsapp(ctx, tel, greeting(nom)) }) { Icon(Icons.Default.Send, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("WhatsApp", maxLines = 1, softWrap = false) }
+            FilledTonalButton(onClick = { messenger(ctx, greeting(nom)) }) { Text("Messenger", maxLines = 1, softWrap = false) }
         }
         if (email.isNotBlank()) FilledTonalButton(onClick = { mail(ctx, email) }) { Icon(Icons.Default.Email, null, Modifier.size(18.dp)) }
     }
