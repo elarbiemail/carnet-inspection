@@ -43,4 +43,4 @@ jobs:
 
       - name: Compiler le code (sans APK)
         working-directory: android-native
-        run: gradle --no-daemon compileReleaseKotlin checkReleaseDuplicateClasses mergeReleaseJavaResource dexBuilderRelease
+        run: gradle --no-daemon compileReleaseKotlin checkReleaseDuplicateClasses mergeReleaseJavaResource minifyReleaseWithR8
