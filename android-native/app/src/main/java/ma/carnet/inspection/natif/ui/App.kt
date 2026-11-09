@@ -8,6 +8,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.dp
 
 /** Écrans de l'application (navigation simple par pile). */
 sealed class Scr {
@@ -81,7 +83,7 @@ fun App() {
                 NavigationBar {
                     TABS.forEachIndexed { i, t ->
                         NavigationBarItem(selected = cur.i == i, onClick = { Nav.tab(i) },
-                            icon = { Icon(t.icon, null) }, label = { Text(t.label, maxLines = 1) })
+                            icon = { Icon(t.icon, null) }, label = { MarqueeText(t.label, fontSize = 12.sp, center = true, velocity = 24.dp) })
                     }
                 }
             }

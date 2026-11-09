@@ -46,8 +46,8 @@ fun TaskCard(t: JSONObject, sel: Sel? = null) {
     val body: @Composable ColumnScope.() -> Unit = {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(t.s("titre").ifEmpty { autoTaskTitle(t) }, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Row(Modifier.padding(top = 4.dp)) {
+                MarqueeText(t.s("titre").ifEmpty { autoTaskTitle(t) }, fontWeight = FontWeight.SemiBold)
+                Row(Modifier.padding(top = 4.dp).horizontalScrollRow()) {
                     Tag(Ref.TASK_TYPES[Ref.type(t)] ?: "", Brand)
                     Tag(Ref.WORKFLOW[st] ?: "", statutColor(st))
                     if (isLate(t)) Tag("En retard", Danger)
@@ -56,7 +56,7 @@ fun TaskCard(t: JSONObject, sel: Sel? = null) {
                     t.s("echeance").let { if (it.isEmpty()) "" else fmtDate(it) + taskTime(t).let { h -> if (h.isEmpty()) "" else " à $h" } },
                     taskEnsName(t), taskEtabName(t).ifEmpty { t.s("lieu") }
                 ).filter { it.isNotEmpty() }.joinToString(" · ")
-                if (sub.isNotEmpty()) Text(sub, color = InkFaint, fontSize = 12.5.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                if (sub.isNotEmpty()) MarqueeText(sub, Modifier.padding(top = 2.dp), color = InkFaint, fontSize = 12.5.sp)
             }
             Icon(Icons.Default.KeyboardArrowRight, null, tint = InkFaint)
         }
@@ -138,21 +138,21 @@ fun HomeScreen() {
 
 @Composable
 fun Kpi(label: String, value: String, modifier: Modifier, color: Color = Brand, onClick: () -> Unit) {
-    Card(onClick = onClick, modifier = modifier, colors = CardDefaults.cardColors(containerColor = Surface), elevation = CardDefaults.cardElevation(1.dp)) {
-        Column(Modifier.padding(14.dp)) {
-            Text(value, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(label, color = InkFaint, fontSize = 12.5.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    Card(onClick = onClick, modifier = modifier.height(92.dp), colors = CardDefaults.cardColors(containerColor = Surface), elevation = CardDefaults.cardElevation(1.dp)) {
+        Column(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalArrangement = Arrangement.Center) {
+            MarqueeText(value, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = color)
+            MarqueeText(label, color = InkFaint, fontSize = 12.5.sp)
         }
     }
 }
 
 @Composable
 fun MiniCard(title: String, sub: String, color: Color = Brand, onClick: () -> Unit) {
-    Card(onClick = onClick, modifier = Modifier.width(150.dp), colors = CardDefaults.cardColors(containerColor = Surface), elevation = CardDefaults.cardElevation(1.dp)) {
-        Column(Modifier.padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    Card(onClick = onClick, modifier = Modifier.width(158.dp).height(150.dp), colors = CardDefaults.cardColors(containerColor = Surface), elevation = CardDefaults.cardElevation(1.dp)) {
+        Column(Modifier.fillMaxSize().padding(12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
             Avatar(title, color, 46)
-            Text(title, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
-            Text(sub, color = InkFaint, fontSize = 11.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            MarqueeText(title, Modifier.padding(top = 8.dp), fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, center = true)
+            MarqueeText(sub, Modifier.padding(top = 2.dp), color = InkFaint, fontSize = 11.5.sp, center = true)
         }
     }
 }

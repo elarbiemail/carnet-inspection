@@ -258,7 +258,7 @@ fun ScreenScaffold(title: String, onBack: (() -> Unit)?, actions: @Composable Ro
                    fab: @Composable () -> Unit = {}, content: @Composable (PaddingValues) -> Unit) {
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            TopAppBar(title = { MarqueeText(title) },
                 navigationIcon = { if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Retour") } },
                 actions = actions,
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Brand, titleContentColor = OnBrand,

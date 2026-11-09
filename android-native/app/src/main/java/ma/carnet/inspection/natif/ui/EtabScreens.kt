@@ -32,13 +32,13 @@ fun EtabRow(e: JSONObject, nEns: Int, sel: Sel? = null) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Avatar(e.s("nom"), if (e.s("type") == "prive") PriveColor else Brand, tel = e.s("directeurTel").ifEmpty { e.s("telephone") }, contactName = e.s("directeur").ifEmpty { e.s("nom") }, photoId = e.s("id"))
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                Text(e.s("nom"), fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                MarqueeText(e.s("nom"), fontWeight = FontWeight.SemiBold)
                 Row(Modifier.padding(top = 2.dp)) {
                     Tag(if (e.s("type") == "prive") "Privé" else "Public", if (e.s("type") == "prive") PriveColor else Brand)
                     Tag(Ref.ETAB_CYCLES[e.s("cycle")] ?: "", Earth)
                 }
-                Text(listOf("$nEns enseignant(s)", e.s("directeur").let { if (it.isEmpty()) "" else "Dir. $it" }).filter { it.isNotEmpty() }.joinToString(" · "),
-                    color = InkFaint, fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                MarqueeText(listOf("$nEns enseignant(s)", e.s("directeur").let { if (it.isEmpty()) "" else "Dir. $it" }).filter { it.isNotEmpty() }.joinToString(" · "),
+                    color = InkFaint, fontSize = 12.5.sp)
             }
             val tel = e.s("directeurTel").ifEmpty { e.s("telephone") }
             if (tel.isNotEmpty()) IconButton(onClick = { dial(ctx, tel) }) { Icon(Icons.Default.Call, "Appeler", tint = Brand) }

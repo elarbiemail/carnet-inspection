@@ -71,8 +71,8 @@ fun MenuItem(icon: ImageVector, title: String, sub: String, onClick: () -> Unit)
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(40.dp).clip(RoundedCornerShape(12.dp)).background(BrandSoft), contentAlignment = Alignment.Center) { Icon(icon, null, tint = Brand) }
             Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                Text(title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(sub, color = InkFaint, fontSize = 12.5.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                MarqueeText(title, fontWeight = FontWeight.SemiBold)
+                MarqueeText(sub, color = InkFaint, fontSize = 12.5.sp)
             }
             Icon(Icons.Default.KeyboardArrowRight, null, tint = InkFaint)
         }
