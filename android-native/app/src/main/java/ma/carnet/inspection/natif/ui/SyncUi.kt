@@ -81,7 +81,7 @@ fun rememberDriveSyncer(): (Boolean) -> Unit {
             if (tk != null) scope.launch { exec(tk, action) }
             else { SyncState.busy.value = false; SyncState.ok.value = false; SyncState.msg.value = "Connexion Google refusée (" + (err ?: "annulée") + ")." }
         }
-        try { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(DriveSync.webAuthUrl(ctx))).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        try { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(DriveSync.webAuthUrl(ctx, DriveSync.forceChoose).also { DriveSync.forceChoose = false })).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
         catch (e: Throwable) { SyncState.busy.value = false; SyncState.ok.value = false; SyncState.msg.value = "Aucun navigateur pour la connexion Google." }
     }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { res ->
@@ -115,6 +115,10 @@ fun rememberDriveSyncer(): (Boolean) -> Unit {
         }
     }
     SyncHolder.withToken = { label, action -> start(label, true, action) }
+    // jeton reçu du navigateur alors que l'écran avait été recréé : on lance la synchronisation
+    LaunchedEffect(ma.carnet.inspection.natif.data.WebAuth.orphan.intValue) {
+        if (ma.carnet.inspection.natif.data.WebAuth.orphan.intValue > 0) { ma.carnet.inspection.natif.data.WebAuth.orphan.intValue = 0; start("Synchronisation…", false) { syncWith(it) } }
+    }
     return { interactive -> start("Connexion à Google…", interactive) { syncWith(it) } }
 }
 

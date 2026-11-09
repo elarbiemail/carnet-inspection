@@ -438,7 +438,7 @@ fun WelcomeScreen(onDone: () -> Unit) {
                     }
                 }
                 if (err.isNotEmpty()) Text(err, color = Danger, fontSize = 12.5.sp, modifier = Modifier.padding(top = 6.dp))
-                OutlinedButton(onClick = { if (DriveSync.clientId(ctx).isBlank()) { err = "Saisissez d'abord l'identifiant client Google."; return@OutlinedButton }; DriveSync.setAuthMode(ctx, "web"); GoogleAccount.setWelcomeDone(ctx); onDone(); SyncHolder.fn(true) },
+                OutlinedButton(onClick = { if (DriveSync.clientId(ctx).isBlank()) { err = "Saisissez d'abord l'identifiant client Google."; return@OutlinedButton }; DriveSync.setAuthMode(ctx, "web"); DriveSync.forceChoose = true; GoogleAccount.setWelcomeDone(ctx); onDone(); SyncHolder.fn(true) },
                     modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) { Text("Se connecter par le navigateur (sans Google Cloud)") }
                 TextButton(onClick = { GoogleAccount.setWelcomeDone(ctx); onDone() }, modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) { Text("Continuer sans compte (données sur ce téléphone)") }
             }

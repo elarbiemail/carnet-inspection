@@ -21,7 +21,7 @@
 <main>
   <h1>Carnet d'Inspection</h1>
   <p>Autorisez l'application Android à enregistrer vos données dans <b>votre</b> Google Drive (même sauvegarde que le carnet web). Aucune donnée ne passe par un serveur tiers.</p>
-  <button class="g" id="go" type="button">Se connecter avec Google</button>
+  <button class="g" id="go" type="button">Choisir le compte Google</button>
   <a class="btn back" id="back" href="#" hidden>Revenir à l'application</a>
   <div id="msg"></div>
 </main>
@@ -31,6 +31,8 @@
   var q = new URLSearchParams(location.search);
   var cid = q.get('cid') || '';
   var hint = q.get('hint') || '';
+  // « select_account » : toujours proposer le choix du compte Google (et non le compte déjà ouvert dans le navigateur)
+  var prompt = q.has('prompt') ? q.get('prompt') : 'select_account';
   var PKG = 'net.fm6education.carnetinspection.natif';
   var msg = document.getElementById('msg'), back = document.getElementById('back'), go = document.getElementById('go');
   function say(t, err){ msg.textContent = t; msg.className = err ? 'err' : ''; }
@@ -39,7 +41,8 @@
     var s = Object.keys(params).map(function(k){ return k+'='+encodeURIComponent(params[k]); }).join('&');
     var url = 'intent://auth?'+s+'#Intent;scheme=carnetnatif;package='+PKG+';end';
     back.href = url; back.hidden = false;
-    location.href = url;
+    try { location.href = url; } catch (e) {}
+    // si le navigateur bloque le retour automatique, le bouton « Revenir à l'application » reste affiché
   }
   go.onclick = function(){
     if(!(window.google && google.accounts && google.accounts.oauth2)){ say('Chargement de Google… réessayez dans un instant.', true); return; }
@@ -47,14 +50,14 @@
     var tc = google.accounts.oauth2.initTokenClient({
       client_id: cid,
       scope: 'https://www.googleapis.com/auth/drive.file openid email profile',
-      hint: hint || undefined,
+      hint: (prompt === '' && hint) ? hint : undefined,
       callback: function(r){
         if(r && r.access_token){ say('Autorisation reçue : retour à l’application…'); toApp({ token: r.access_token, exp: r.expires_in || 3600 }); }
         else { say('Autorisation refusée : ' + ((r && (r.error_description || r.error)) || 'inconnue'), true); toApp({ error: (r && r.error) || 'refus' }); }
       },
       error_callback: function(e){ say('Connexion interrompue : ' + ((e && (e.message || e.type)) || ''), true); }
     });
-    tc.requestAccessToken({ prompt: '' });
+    tc.requestAccessToken({ prompt: prompt });
   };
 })();
 </script>
