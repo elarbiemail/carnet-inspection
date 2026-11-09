@@ -97,7 +97,7 @@ object Shots {
     fun dir(ctx: Context) = File(ctx.filesDir, "aide").also { it.mkdirs() }
     fun file(ctx: Context, key: String) = File(dir(ctx), "$key.jpg")
     fun keyOf(s: Scr): String = when (s) {
-        is Scr.Tab -> listOf("accueil", "taches", "enseignants", "etablissements", "plus").getOrElse(s.i) { "accueil" }
+        is Scr.Tab -> when (s.sec) { "accueil" -> "accueil"; "taches" -> "taches"; "ens" -> "enseignants"; "etab" -> "etablissements"; "reglages" -> "parametres"; else -> "plus" }
         is Scr.TaskDetail -> "tache"; is Scr.DocPreview -> "document"; is Scr.Settings -> "parametres"; is Scr.CustomTplEdit -> "modeles"
         is Scr.Viewer -> "liseuse"; is Scr.EnsDetail -> "enseignant"; is Scr.EtabDetail -> "etablissement"
         else -> ""

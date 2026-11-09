@@ -59,10 +59,10 @@ private fun openRecord(coll: String, id: String) {
 }
 
 @Composable
-fun ArchivesScreen(initialColl: String) {
+fun ArchivesScreen(initialColl: String, initialTab: String = "supprimes") {
     val v by Store.version
     val ctx = LocalContext.current
-    var tab by remember { mutableStateOf("supprimes") }
+    var tab by remember(initialTab) { mutableStateOf(initialTab) }
     var coll by remember { mutableStateOf(initialColl.ifEmpty { "enseignants" }) }
     var q by remember { mutableStateOf("") }
     var op by remember { mutableStateOf("") }

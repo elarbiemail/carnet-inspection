@@ -257,10 +257,16 @@ fun PickField(label: String, value: String, onClick: () -> Unit) {
 @Composable
 fun ScreenScaffold(title: String, onBack: (() -> Unit)?, actions: @Composable RowScope.() -> Unit = {},
                    fab: @Composable () -> Unit = {}, content: @Composable (PaddingValues) -> Unit) {
+    // écran affiché dans le menu principal : le bouton ☰ remplace le retour (sauf en mode sélection)
+    val drawer = LocalDrawer.current
+    val selecting = onBack != null && title.contains("sélectionné")
     Scaffold(
         topBar = {
             TopAppBar(title = { MarqueeText(title) },
-                navigationIcon = { if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Retour") } },
+                navigationIcon = {
+                    if (drawer != null && !selecting) IconButton(onClick = drawer) { Icon(Icons.Default.Menu, "Menu") }
+                    else if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Retour") }
+                },
                 actions = actions,
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Brand, titleContentColor = OnBrand,
                     navigationIconContentColor = OnBrand, actionIconContentColor = OnBrand))
@@ -270,6 +276,9 @@ fun ScreenScaffold(title: String, onBack: (() -> Unit)?, actions: @Composable Ro
         content = content
     )
 }
+
+/** Ouvre le menu principal (fourni seulement aux écrans affichés dans ce menu). */
+val LocalDrawer = staticCompositionLocalOf<(() -> Unit)?> { null }
 
 @Composable
 fun ConfirmDialog(title: String, text: String, confirm: String = "Supprimer", onDismiss: () -> Unit, onConfirm: () -> Unit) {

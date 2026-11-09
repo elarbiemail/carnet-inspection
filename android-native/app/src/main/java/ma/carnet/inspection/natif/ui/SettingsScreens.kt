@@ -49,11 +49,11 @@ val SETTINGS_TABS = linkedMapOf(
 )
 
 @Composable
-fun SettingsScreen(initial: String) {
-    var tab by remember { mutableStateOf(initial) }
-    ScreenScaffold("Paramètres", { Nav.pop() }, actions = { HelpButton("parametres") }) { pad ->
+fun SettingsScreen(initial: String, showTabs: Boolean = true) {
+    var tab by remember(initial) { mutableStateOf(initial) }
+    ScreenScaffold(if (showTabs) "Paramètres" else (SETTINGS_TABS[tab] ?: "Paramètres"), { Nav.pop() }, actions = { HelpButton("parametres") }) { pad ->
         Column(Modifier.padding(pad).fillMaxSize()) {
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 10.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (showTabs) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 10.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 SETTINGS_TABS.forEach { (k, l) -> FilterChip(selected = tab == k, onClick = { tab = k }, label = { Text(l) }) }
             }
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 14.dp)) {
@@ -202,7 +202,7 @@ fun GoogleAccountCard() {
                     Text(GoogleAccount.email(ctx), color = InkFaint, fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+            Row(Modifier.horizontalScroll(rememberScrollState()).padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { SyncHolder.fn(true) }) { Text("Synchroniser", maxLines = 1, softWrap = false) }
                 OutlinedButton(onClick = { if (act != null) scope.launch { GoogleAccount.signOut(act); toast(ctx, "Compte Google déconnecté.") } }) { Text("Se déconnecter", maxLines = 1, softWrap = false) }
             }
