@@ -253,6 +253,7 @@ fun TaskDetailScreen(id: String) {
                 SectionTitle("Invité(e)s (${inv.size})")
                 CardBox { inv.forEach { i -> Text("• " + i.s("nom") + i.s("ppr").let { if (it.isEmpty()) "" else "  (PPR $it)" }, fontSize = 13.5.sp, modifier = Modifier.padding(vertical = 2.dp)) } }
             }
+            if (Ref.type(t) in Ref.TEAMS) TeamsSummary(t)
             if (Ref.type(t) == "validation_ts") TsSection(t)
             TaskDocsSection(t)
             AttachmentsSection("tasks", id)
@@ -314,7 +315,9 @@ fun TaskEditScreen(id: String?, etabId: String?, ensId: String?) {
             }
             TextFieldRow("Lieu", g("lieu"), { set("lieu", it) })
             PickField("Établissement", g("etablissementNom").ifEmpty { etabName(g("etablissementId")) }) { pickEtab = true }
-            PickField("Enseignant(e)", g("enseignantNom").ifEmpty { ensName(g("enseignantId")) }) { pickEns = true }
+            val ty = g("taskType").ifEmpty { "inspection" }
+            if (ty !in Ref.TEAMS && (ty !in Ref.MULTI_INV || ty == "cours_experimental"))
+                PickField(if (ty == "cours_experimental") "Enseignant(e) qui présente la leçon" else "Enseignant(e)", g("enseignantNom").ifEmpty { ensName(g("enseignantId")) }) { pickEns = true }
             SelectField("Statut", Ref.WORKFLOW, Ref.statut(t.value).also { tick }, { set("statut", it) })
             SelectField("Priorité", Ref.PRIORITES, g("priorite").ifEmpty { "moyenne" }, { set("priorite", it) })
             if (g("taskType") == "inspection") SelectField("Appréciation globale", Ref.NOTE_SCALE.associateWith { it }, g("noteGlobale"), { set("noteGlobale", it) }, allowEmpty = true)
@@ -328,6 +331,8 @@ fun TaskEditScreen(id: String?, etabId: String?, ensId: String?) {
                 listOf("objectifs" to "الأهداف — Objectifs (notes)", "axes" to "المحاور — Axes / programme", "deroulement" to "Déroulement / activités réalisées")
                     .forEach { (k, l) -> TextFieldRow(l, fo.s(k).also { tick }, { fo.put(k, it); tick++ }, multiline = true) }
             }
+            if (ty in Ref.TEAMS) { TeamsEditor(t.value, tick) { tick++ }; SubtasksEditor(t.value, tick) { tick++ } }
+            if (ty !in Ref.SINGLE_ENS && ty !in Ref.TEAMS) {
             SectionTitle("Invité(e)s (${t.value.arr("invites").size.also { tick }})")
             CardBox {
                 t.value.arr("invites").forEachIndexed { i, iv ->
@@ -342,6 +347,7 @@ fun TaskEditScreen(id: String?, etabId: String?, ensId: String?) {
                     }
                 }
                 OutlinedButton(onClick = { pickInv = true }) { Icon(Icons.Default.Person, null); Spacer(Modifier.width(6.dp)); Text("Choisir les invité(e)s") }
+            }
             }
             Spacer(Modifier.height(40.dp))
         }

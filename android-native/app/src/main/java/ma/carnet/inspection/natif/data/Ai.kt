@@ -203,6 +203,8 @@ object Ai {
             t.arr("invites").let { if (it.isNotEmpty()) "Invité(e)s (${it.size}) : " + it.joinToString(", ") { i -> i.s("nom") } else "" },
             t.optJSONObject("formation")?.s("sujet")?.let { if (it.isNotEmpty()) "Thème de la formation : $it" else "" } ?: "",
             t.optJSONObject("formation")?.s("deroulement")?.let { if (it.isNotEmpty()) "Déroulement : $it" else "" } ?: "",
+            t.arr("equipes").let { eq -> if (eq.isEmpty()) "" else "Équipes :\n" + eq.joinToString("\n") { e -> "- " + e.s("nom") + (if (e.s("theme").isNotEmpty()) " (" + e.s("theme") + ")" else "") + " : " + e.arr("membres").joinToString(", ") { it.s("nom") } } },
+            t.arr("sousTaches").let { st -> if (st.isEmpty()) "" else "Sous-tâches :\n" + st.joinToString("\n") { x -> "- " + x.s("titre") + " [" + (Ref.SUB_STATUTS[x.s("statut")] ?: "À faire") + "]" + (if (x.s("echeance").isNotEmpty()) " échéance " + fmtDate(x.s("echeance")) else "") } },
             if (t.s("description").isNotEmpty()) "Notes de l'inspecteur(trice) :\n${t.s("description")}" else ""
         ).filter { it.isNotEmpty() }.joinToString("\n")
     }

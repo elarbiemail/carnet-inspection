@@ -8,6 +8,13 @@ import java.util.Locale
 
 /** Référentiels et libellés, identiques à ceux du carnet web. */
 object Ref {
+    /** Un(e) seul(e) enseignant(e) concerné(e). */
+    val SINGLE_ENS = setOf("inspection", "visite_conseil")
+    /** Plusieurs invité(e)s. */
+    val MULTI_INV = setOf("reunion_pedagogique", "cours_experimental", "formation", "reunion_distance")
+    /** Équipes et sous-tâches. */
+    val TEAMS = setOf("recherche_action")
+    val SUB_STATUTS = linkedMapOf("a_faire" to "À faire", "en_cours" to "En cours", "terminee" to "Terminée")
     val TASK_TYPES = linkedMapOf(
         "inspection" to "Inspection", "visite_conseil" to "Visite conseil",
         "reunion_pedagogique" to "Réunion pédagogique", "cours_experimental" to "Cours expérimental",
