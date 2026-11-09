@@ -20,6 +20,7 @@
 <body>
 <main>
   <h1>Carnet d'Inspection</h1>
+  <p id="ua" style="font-size:13px"></p>
   <p>Autorisez l'application Android à enregistrer vos données dans <b>votre</b> Google Drive (même sauvegarde que le carnet web). Aucune donnée ne passe par un serveur tiers.</p>
   <button class="g" id="go" type="button">Choisir le compte Google</button>
   <a class="btn back" id="back" href="#" hidden>Revenir à l'application</a>
@@ -35,6 +36,7 @@
   var prompt = q.has('prompt') ? q.get('prompt') : 'select_account';
   var PKG = 'net.fm6education.carnetinspection.natif';
   var msg = document.getElementById('msg'), back = document.getElementById('back'), go = document.getElementById('go');
+  if (!/Chrome\//.test(navigator.userAgent) || /MiuiBrowser|XiaoMi|SamsungBrowser|OPR\//.test(navigator.userAgent)) document.getElementById('ua').textContent = "Conseil : si la fenêtre Google ne s'ouvre pas, ouvrez cette page dans Google Chrome.";
   function say(t, err){ msg.textContent = t; msg.className = err ? 'err' : ''; }
   if(!cid){ say("Identifiant client Google manquant : relancez la connexion depuis l'application.", true); go.disabled = true; return; }
   function toApp(params){
@@ -53,9 +55,15 @@
       hint: (prompt === '' && hint) ? hint : undefined,
       callback: function(r){
         if(r && r.access_token){ say('Autorisation reçue : retour à l’application…'); toApp({ token: r.access_token, exp: r.expires_in || 3600 }); }
-        else { say('Autorisation refusée : ' + ((r && (r.error_description || r.error)) || 'inconnue'), true); toApp({ error: (r && r.error) || 'refus' }); }
+        else { say('Autorisation non obtenue (' + ((r && (r.error_description || r.error)) || 'inconnue') + '). Touchez de nouveau « Choisir le compte Google ».', true); go.textContent = 'Réessayer : choisir le compte Google'; }
       },
-      error_callback: function(e){ say('Connexion interrompue : ' + ((e && (e.message || e.type)) || ''), true); }
+      error_callback: function(e){
+        var t = (e && (e.type || e.message)) || '';
+        if (t === 'popup_failed_to_open') say("Le navigateur a bloqué la fenêtre Google. Autorisez les fenêtres pop-up pour ce site, ou ouvrez cette page dans Chrome, puis réessayez.", true);
+        else if (t === 'popup_closed') say("La fenêtre Google a été fermée avant la fin. Touchez de nouveau le bouton et choisissez votre compte.", true);
+        else say('Connexion interrompue : ' + t + '. Réessayez.', true);
+        go.textContent = 'Réessayer : choisir le compte Google';
+      }
     });
     tc.requestAccessToken({ prompt: prompt });
   };

@@ -64,7 +64,7 @@ object DriveSync {
     fun setAuthMode(ctx: Context, v: String) = prefs(ctx).edit().putString("authMode", v).apply()
     const val WEB_AUTH = "https://elarbiemail.github.io/carnet-inspection/natif-auth.html"
     /** chooseAccount = true : Google propose le choix du compte ; sinon renouvellement discret avec le compte déjà choisi. */
-    fun webAuthUrl(ctx: Context, chooseAccount: Boolean) = WEB_AUTH + "?cid=" + q(clientId(ctx)) +
+    fun webAuthUrl(ctx: Context, chooseAccount: Boolean) = WEB_AUTH + "?t=" + System.currentTimeMillis() + "&cid=" + q(clientId(ctx)) +
         (if (chooseAccount || GoogleAccount.email(ctx).isEmpty()) "&prompt=select_account" else "&prompt=&hint=" + q(GoogleAccount.email(ctx)))
     var forceChoose = false
 
