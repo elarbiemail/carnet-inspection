@@ -202,7 +202,7 @@ fun GoogleAccountCard() {
                     Text(GoogleAccount.email(ctx), color = InkFaint, fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+            Row(Modifier.horizontalScroll(rememberScrollState()).padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { SyncHolder.fn(true) }) { Text("Synchroniser", maxLines = 1, softWrap = false) }
                 OutlinedButton(onClick = { if (act != null) scope.launch { GoogleAccount.signOut(act); toast(ctx, "Compte Google déconnecté.") } }) { Text("Se déconnecter", maxLines = 1, softWrap = false) }
             }

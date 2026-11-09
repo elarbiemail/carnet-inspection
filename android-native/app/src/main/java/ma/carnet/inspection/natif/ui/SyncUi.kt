@@ -169,7 +169,7 @@ fun DriveCard(sync: (Boolean) -> Unit) {
         CopyRow("Nom du package", DriveSync.PACKAGE) { clip.setText(AnnotatedString(it)); toast(ctx, "Copié.") }
         CopyRow("Empreinte SHA-1", DriveSync.SHA1) { clip.setText(AnnotatedString(it)); toast(ctx, "Copié.") }
         Text("4. Enregistrez, attendez quelques minutes, puis touchez « Connecter et synchroniser ». L'API Google Drive est déjà activée pour le carnet web.", fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
+        Row(Modifier.horizontalScroll(rememberScrollState()).padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = { openUri(ctx, "https://console.cloud.google.com/apis/credentials" + (if (proj.isNotEmpty()) "?project=$proj" else "")) }) { Text("Ouvrir Google Cloud", maxLines = 1, softWrap = false) }
         }
         HorizontalDivider(Modifier.padding(vertical = 10.dp))
