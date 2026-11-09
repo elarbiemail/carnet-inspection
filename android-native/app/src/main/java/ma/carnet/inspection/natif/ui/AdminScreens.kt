@@ -102,8 +102,8 @@ fun NotesScreen() {
             item {
                 ZoneFilterBar()
                 PickField("Établissement", if (etab.isEmpty()) "Tous (zones sélectionnées)" else etabName(etab)) { pick = true }
-                if (etab.isNotEmpty()) TextButton(onClick = { etab = "" }) { Text("Tous les établissements") }
-                Button(onClick = { showHtml("Notes d'inspection", notesHtml(ctx, ens, etab)) }, modifier = Modifier.fillMaxWidth()) { Text("Fiche synthèse imprimable (${ens.size})") }
+                if (etab.isNotEmpty()) TextButton(onClick = { etab = "" }) { Text("Tous les établissements", maxLines = 1, softWrap = false) }
+                Button(onClick = { showHtml("Notes d'inspection", notesHtml(ctx, ens, etab)) }, modifier = Modifier.fillMaxWidth()) { MarqueeText("Fiche synthèse imprimable (${ens.size})", center = true) }
             }
             items(ens, key = { it.s("id") }) { e ->
                 val last = ensInspections(e).firstOrNull()
@@ -241,7 +241,7 @@ fun ProgrammeScreen() {
                             TextButton(onClick = { rows.put(JSONObject().put("id", UUID.randomUUID().toString()).put("sujet", "").put("description", "").put("mois", JSONObject().apply { MOIS.forEach { put(it, 0) } })); ch() }) { Icon(Icons.Default.Add, null); Text("Activité") }
                         }
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = { groups.put(JSONObject().put("id", UUID.randomUUID().toString()).put("typeActivite", "").put("rows", JSONArray())); ch() }) { Icon(Icons.Default.Add, null); Text("Type d'activité") }
                         TextButton(onClick = { pa.put("categories", cats.without(ci)); tab = -1; ch() }) { Text("Supprimer la catégorie", color = Danger) }
                     }

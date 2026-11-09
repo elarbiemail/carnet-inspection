@@ -2,6 +2,7 @@
 
 package ma.carnet.inspection.natif.ui
 
+import androidx.compose.foundation.horizontalScroll
 import android.content.Context
 import android.print.PrintAttributes
 import android.print.PrintManager
@@ -198,7 +199,7 @@ fun DocEditScreen(docId: String?, taskId: String, type: String, tplId: String?) 
                         }
                     }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = { arr.put(JSONObject().apply { L.cols.forEach { c -> put(c.key, "") } }); tick++ }) { Icon(Icons.Default.Add, null); Text("Ajouter une ligne") }
                     if (L.fromTeachers) OutlinedButton(onClick = { pickTeachers = L.key }) { Icon(Icons.Default.Person, null); Text("Des enseignant(e)s") }
                 }
@@ -221,7 +222,7 @@ fun DocEditScreen(docId: String?, taskId: String, type: String, tplId: String?) 
                 }
             }
             Spacer(Modifier.height(10.dp))
-            Button(onClick = { val id = save(); Nav.replace(Scr.DocPreview(id)) }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Search, null); Spacer(Modifier.width(6.dp)); Text("Enregistrer et voir l'aperçu") }
+            Button(onClick = { val id = save(); Nav.replace(Scr.DocPreview(id)) }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Search, null); Spacer(Modifier.width(6.dp)); MarqueeText("Enregistrer et voir l'aperçu", center = true) }
             Spacer(Modifier.height(40.dp))
         }
     }
@@ -329,7 +330,7 @@ fun PreviewWithExport(title: String, html: String, name: String, landscape: Bool
                         }
                     }
                 }
-                OutlinedButton(onClick = { web?.let { printWeb(ctx, it, name) } }) { Text("Imprimer") }
+                OutlinedButton(onClick = { web?.let { printWeb(ctx, it, name) } }) { Text("Imprimer", maxLines = 1, softWrap = false) }
             }
             AndroidView(factory = { c ->
                 WebView(c).apply {
@@ -395,7 +396,7 @@ fun MultiTeacherPicker(initial: Set<String>, etabId: String, onDismiss: () -> Un
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Fermer") }
                     Text("Choisir des enseignant(e)s (${sel.size})", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                    TextButton(onClick = { onDone(all.filter { it.s("id") in sel }) }) { Text("Valider") }
+                    TextButton(onClick = { onDone(all.filter { it.s("id") in sel }) }) { Text("Valider", maxLines = 1, softWrap = false) }
                 }
                 SearchField(q, { q = it }, "Rechercher…")
                 if (zones.isNotEmpty()) SelectField("Zone", zones.associate { it.s("id") to it.s("nom") }, zone, { zone = it; if (etab.isNotEmpty() && zone.isNotEmpty() && etabZone[etab] != zone) etab = "" }, allowEmpty = true)
@@ -411,8 +412,8 @@ fun MultiTeacherPicker(initial: Set<String>, etabId: String, onDismiss: () -> Un
                     (nq.isEmpty() || norm(e.s("nom") + " " + e.s("ppr") + " " + etabName(eid)).contains(nq))
                 }.sortedBy { norm(it.s("nom")) }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = { list.forEach { if (it.s("id") !in sel) sel.add(it.s("id")) } }) { Text("Tout cocher (${list.size})") }
-                    TextButton(onClick = { val ids = list.map { it.s("id") }.toSet(); sel.removeAll { it in ids } }) { Text("Tout décocher") }
+                    TextButton(onClick = { list.forEach { if (it.s("id") !in sel) sel.add(it.s("id")) } }) { Text("Tout cocher (${list.size})", maxLines = 1, softWrap = false) }
+                    TextButton(onClick = { val ids = list.map { it.s("id") }.toSet(); sel.removeAll { it in ids } }) { Text("Tout décocher", maxLines = 1, softWrap = false) }
                     Spacer(Modifier.weight(1f))
                     Checkbox(checked = onlySel, onCheckedChange = { onlySel = it }); Text("Cochés", fontSize = 13.sp)
                 }

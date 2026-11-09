@@ -158,7 +158,7 @@ fun HelpScreen(topicId: String) {
                     Text("Capture réelle de l'écran « ${t.title} » sur votre téléphone.", color = InkFaint, fontSize = 11.5.sp, modifier = Modifier.fillMaxWidth().padding(top = 4.dp))
                 } else CardBox {
                     Text("La capture de cet écran apparaîtra ici après votre première visite de l'écran.", color = InkFaint, fontSize = 12.5.sp)
-                    t.open?.let { s -> TextButton(onClick = { Nav.push(s) }) { Text("Ouvrir l'écran") } }
+                    t.open?.let { s -> TextButton(onClick = { Nav.push(s) }) { Text("Ouvrir l'écran", maxLines = 1, softWrap = false) } }
                 }
             }
             items(t.steps.size) { i ->
@@ -172,8 +172,8 @@ fun HelpScreen(topicId: String) {
                     OutlinedButton(onClick = {
                         val sf = if (f.exists()) f else Shots.file(ctx, "signalement").also { try { Shots.save(view.rootView, it) } catch (_: Throwable) {} }
                         if (sf.exists()) Shots.share(ctx, sf, "Carnet d'Inspection — ${t.title}")
-                    }) { Icon(Icons.Default.Share, null); Spacer(Modifier.width(6.dp)); Text("Signaler avec une capture") }
-                    TextButton(onClick = { Nav.push(Scr.Help("")) }) { Text("Toute l'aide") }
+                    }) { Icon(Icons.Default.Share, null); Spacer(Modifier.width(6.dp)); Text("Signaler avec une capture", maxLines = 1, softWrap = false) }
+                    TextButton(onClick = { Nav.push(Scr.Help("")) }) { Text("Toute l'aide", maxLines = 1, softWrap = false) }
                 }
                 Spacer(Modifier.height(40.dp))
             }
@@ -207,7 +207,7 @@ fun HelpCenter() {
                 CardBox {
                     Text("El Arbi EL ADLOUNI", fontWeight = FontWeight.Bold)
                     ContactButtons("0700024598", "El Arbi EL ADLOUNI", "elarbi.eladlouni@fm6education.net")
-                    TextButton(onClick = { mail(ctx, "elarbi.eladlouni@taalim.ma", "Carnet d'Inspection") }) { Text("elarbi.eladlouni@taalim.ma") }
+                    TextButton(onClick = { mail(ctx, "elarbi.eladlouni@taalim.ma", "Carnet d'Inspection") }) { Text("elarbi.eladlouni@taalim.ma", maxLines = 1, softWrap = false) }
                 }
                 Spacer(Modifier.height(40.dp))
             }

@@ -99,7 +99,7 @@ fun HomeScreen() {
                 CardBox {
                     Text("Bienvenue !", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     Text("Importez votre sauvegarde du carnet web (fichier sauvegarde-donnees.json dans votre Google Drive) pour retrouver toutes vos données.", fontSize = 13.5.sp, modifier = Modifier.padding(vertical = 6.dp))
-                    Button(onClick = { Nav.push(Scr.Data) }) { Text("Importer mes données") }
+                    Button(onClick = { Nav.push(Scr.Data) }) { Text("Importer mes données", maxLines = 1, softWrap = false) }
                 }
             }
             Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -221,7 +221,7 @@ fun TaskDetailScreen(id: String) {
                 InfoRow("Enseignant(e)", taskEnsName(t))
                 InfoRow("Priorité", Ref.PRIORITES[t.s("priorite")] ?: "")
                 if (t.s("noteGlobale").isNotEmpty()) InfoRow("Appréciation", t.s("noteGlobale"))
-                if (t.s("lienConnexion").isNotEmpty()) TextButton(onClick = { openUri(ctx, t.s("lienConnexion")) }) { Text("Rejoindre la réunion") }
+                if (t.s("lienConnexion").isNotEmpty()) TextButton(onClick = { openUri(ctx, t.s("lienConnexion")) }) { Text("Rejoindre la réunion", maxLines = 1, softWrap = false) }
             }
             val ens = Store.byId("enseignants", t.s("enseignantId"))
             if (ens != null) {
@@ -346,7 +346,7 @@ fun TaskEditScreen(id: String?, etabId: String?, ensId: String?) {
                         }) { Icon(Icons.Default.Delete, "Retirer", tint = Danger) }
                     }
                 }
-                OutlinedButton(onClick = { pickInv = true }) { Icon(Icons.Default.Person, null); Spacer(Modifier.width(6.dp)); Text("Choisir les invité(e)s") }
+                OutlinedButton(onClick = { pickInv = true }) { Icon(Icons.Default.Person, null); Spacer(Modifier.width(6.dp)); Text("Choisir les invité(e)s", maxLines = 1, softWrap = false) }
             }
             }
             Spacer(Modifier.height(40.dp))

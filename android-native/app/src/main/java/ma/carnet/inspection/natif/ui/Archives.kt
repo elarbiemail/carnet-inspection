@@ -95,7 +95,7 @@ fun ArchivesScreen(initialColl: String) {
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("${list.size} opération(s)", color = InkFaint, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                        TextButton(onClick = { exportJournalCsv(ctx, list) }) { Text("Exporter en CSV") }
+                        TextButton(onClick = { exportJournalCsv(ctx, list) }) { Text("Exporter en CSV", maxLines = 1, softWrap = false) }
                     }
                 }
                 if (list.isEmpty()) item { EmptyState("Aucune opération.") }
@@ -148,7 +148,7 @@ fun ArchiveViewScreen(coll: String, id: String) {
         ScreenScaffold("Fiche", { Nav.pop() }) { pad ->
             Column(Modifier.padding(pad)) {
                 EmptyState(if (live != null) "Cette fiche a été restaurée." else "Fiche introuvable dans les archives.")
-                if (live != null) TextButton(onClick = { Nav.replace(when (coll) { "enseignants" -> Scr.EnsDetail(id); "etablissements" -> Scr.EtabDetail(id); "tasks" -> Scr.TaskDetail(id); else -> Scr.DocPreview(id) }) }) { Text("Ouvrir la fiche") }
+                if (live != null) TextButton(onClick = { Nav.replace(when (coll) { "enseignants" -> Scr.EnsDetail(id); "etablissements" -> Scr.EtabDetail(id); "tasks" -> Scr.TaskDetail(id); else -> Scr.DocPreview(id) }) }) { Text("Ouvrir la fiche", maxLines = 1, softWrap = false) }
             }
         }
         return
@@ -157,7 +157,7 @@ fun ArchiveViewScreen(coll: String, id: String) {
         Column(Modifier.padding(pad).verticalScroll(rememberScrollState()).padding(14.dp)) {
             CardBox {
                 Text("Fiche supprimée le " + stamp(r.s("deletedAt")) + " — consultation seule", color = Danger, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                Button(onClick = { askRestore = true }, modifier = Modifier.padding(top = 8.dp)) { Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(6.dp)); Text("Restaurer cette fiche") }
+                Button(onClick = { askRestore = true }, modifier = Modifier.padding(top = 8.dp)) { Icon(Icons.Default.Refresh, null); Spacer(Modifier.width(6.dp)); Text("Restaurer cette fiche", maxLines = 1, softWrap = false) }
             }
             CardBox {
                 InfoRow("Établissement", r.s("etablissementNom").ifEmpty { nameAny("etablissements", r.s("etablissementId")) })

@@ -126,8 +126,8 @@ fun ImagePickField(key: String, label: String, square: Boolean) {
         Column(Modifier.weight(1f).padding(start = 12.dp)) {
             Text(label, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Row(Modifier.horizontalScroll(rememberScrollState())) {
-                TextButton(onClick = { pick.launch("image/*") }) { Text("Importer") }
-                TextButton(onClick = { cam() }) { Text("Appareil photo") }
+                TextButton(onClick = { pick.launch("image/*") }) { Text("Importer", maxLines = 1, softWrap = false) }
+                TextButton(onClick = { cam() }) { Text("Appareil photo", maxLines = 1, softWrap = false) }
                 if (img != null) TextButton(onClick = { ProfileImages.remove(ctx, key); tick++ }) { Text("Retirer", color = Danger) }
             }
         }
@@ -168,7 +168,7 @@ fun ProfilTab() {
             vals.forEach { (k, x) -> np.put(k, x.trim()) }
             tpl.put("profil", np); tpl.put("updatedAt", Store.now()); Store.save()
             toast(ctx, "Profil enregistré.")
-        }, modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) { Text("Enregistrer le profil") }
+        }, modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) { Text("Enregistrer le profil", maxLines = 1, softWrap = false) }
     }
     v
 }
@@ -202,9 +202,9 @@ fun GoogleAccountCard() {
                     Text(GoogleAccount.email(ctx), color = InkFaint, fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
-                Button(onClick = { SyncHolder.fn(true) }) { Text("Synchroniser") }
-                OutlinedButton(onClick = { if (act != null) scope.launch { GoogleAccount.signOut(act); toast(ctx, "Compte Google déconnecté.") } }) { Text("Se déconnecter") }
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+                Button(onClick = { SyncHolder.fn(true) }) { Text("Synchroniser", maxLines = 1, softWrap = false) }
+                OutlinedButton(onClick = { if (act != null) scope.launch { GoogleAccount.signOut(act); toast(ctx, "Compte Google déconnecté.") } }) { Text("Se déconnecter", maxLines = 1, softWrap = false) }
             }
         } else {
             Text("Connectez-vous avec votre compte Google : vos données sont enregistrées sur votre Google Drive et partagées avec le carnet web.", fontSize = 13.sp)
@@ -217,7 +217,7 @@ fun GoogleAccountCard() {
                     SyncHolder.fn(true)
                 }
             }
-            OutlinedButton(onClick = { DriveSync.setAuthMode(ctx, "web"); DriveSync.forceChoose = true; DriveSync.forget(ctx); DriveSync.setEnabled(ctx, true); SyncHolder.fn(true) }, modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) { Text("Se connecter par le navigateur (sans Google Cloud)") }
+            OutlinedButton(onClick = { DriveSync.setAuthMode(ctx, "web"); DriveSync.forceChoose = true; DriveSync.forget(ctx); DriveSync.setEnabled(ctx, true); SyncHolder.fn(true) }, modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) { MarqueeText("Se connecter par le navigateur (sans Google Cloud)", center = true) }
             Text("Utilise l'identifiant client Web du carnet : aucune configuration dans Google Cloud n'est nécessaire.", color = InkFaint, fontSize = 11.5.sp)
             if (err.isNotEmpty()) Text(err, color = Danger, fontSize = 12.5.sp)
         }
@@ -277,9 +277,9 @@ fun IaTab() {
                 var key by remember { mutableStateOf(Ai.key(ctx)) }
                 Text("Clé d'API Gemini gratuite (aistudio.google.com → Get API key). Elle reste sur ce téléphone. Gemini lit aussi les photos (import de fiches).", fontSize = 12.5.sp, color = InkFaint)
                 SecretField("Clé Gemini", key) { key = it; Ai.setKey(ctx, it) }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { Ai.setKey(ctx, key); test() }, enabled = !busy && key.isNotBlank()) { Text("Enregistrer et tester") }
-                    TextButton(onClick = { openUri(ctx, "https://aistudio.google.com/app/apikey") }) { Text("Obtenir une clé") }
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { Ai.setKey(ctx, key); test() }, enabled = !busy && key.isNotBlank()) { Text("Enregistrer et tester", maxLines = 1, softWrap = false) }
+                    TextButton(onClick = { openUri(ctx, "https://aistudio.google.com/app/apikey") }) { Text("Obtenir une clé", maxLines = 1, softWrap = false) }
                 }
             }
         }
@@ -324,14 +324,14 @@ fun CloudAiCard(test: () -> Unit) {
     CardBox {
         SelectField("Fournisseur", Ai.CLOUD.associate { it.id to it.label + if (Ai.cloudKey(ctx, it.id).isNotBlank()) " ✓" else "" }, pid, { pid = it; Ai.setCloudPreset(ctx, it) })
         Text(pr.note, color = InkFaint, fontSize = 12.sp)
-        if (pr.keyUrl.isNotEmpty()) TextButton(onClick = { openUri(ctx, pr.keyUrl) }) { Text("Créer une clé ${pr.label}") }
+        if (pr.keyUrl.isNotEmpty()) TextButton(onClick = { openUri(ctx, pr.keyUrl) }) { Text("Créer une clé ${pr.label}", maxLines = 1, softWrap = false) }
         if (pr.id == "custom") TextFieldRow("Adresse de l'API (…/v1)", base, { base = it; Ai.setCloudBase(ctx, it) })
         SecretField("Clé API ${pr.label}", key) { key = it; Ai.setCloudKey(ctx, pid, it) }
         TextFieldRow("Modèle", model, { model = it; Ai.setCloudModel(ctx, pid, it) })
         ModelPicker(models, model) { model = it; Ai.setCloudModel(ctx, pid, it) }
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { err = ""; scope.launch { try { models = Ai.listModels(ctx, false); if (models.isEmpty()) err = "Aucun modèle listé." } catch (e: Throwable) { err = e.message ?: "Erreur" } } }) { Text("Lister les modèles") }
-            Button(onClick = test) { Text("Tester") }
+            OutlinedButton(onClick = { err = ""; scope.launch { try { models = Ai.listModels(ctx, false); if (models.isEmpty()) err = "Aucun modèle listé." } catch (e: Throwable) { err = e.message ?: "Erreur" } } }) { Text("Lister les modèles", maxLines = 1, softWrap = false) }
+            Button(onClick = test) { Text("Tester", maxLines = 1, softWrap = false) }
         }
         if (err.isNotEmpty()) Text(err, color = Danger, fontSize = 12.sp)
         Text("Les quotas gratuits sont fixés par chaque fournisseur. Si l'un est épuisé, passez à un autre : chaque clé reste enregistrée.", color = InkFaint, fontSize = 11.5.sp)
@@ -358,9 +358,9 @@ fun ServerAiCard(test: () -> Unit) {
         TextFieldRow("Modèle (vide = celui chargé)", model, { model = it; Ai.setServerModel(ctx, it) })
         ModelPicker(models, model) { model = it; Ai.setServerModel(ctx, it) }
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { err = "Recherche du serveur…"; scope.launch { val (u, m) = Ai.detectServer(ctx); if (u != null) { url = u; model = Ai.serverModel(ctx); try { models = Ai.listModels(ctx, true) } catch (_: Throwable) {} }; err = m } }) { Text("Détecter le serveur") }
-            OutlinedButton(onClick = { err = ""; scope.launch { try { models = Ai.listModels(ctx, true) } catch (e: Throwable) { err = e.message ?: "Serveur injoignable" } } }) { Text("Modèles") }
-            OutlinedButton(onClick = test) { Text("Tester") }
+            Button(onClick = { err = "Recherche du serveur…"; scope.launch { val (u, m) = Ai.detectServer(ctx); if (u != null) { url = u; model = Ai.serverModel(ctx); try { models = Ai.listModels(ctx, true) } catch (_: Throwable) {} }; err = m } }) { Text("Détecter le serveur", maxLines = 1, softWrap = false) }
+            OutlinedButton(onClick = { err = ""; scope.launch { try { models = Ai.listModels(ctx, true) } catch (e: Throwable) { err = e.message ?: "Serveur injoignable" } } }) { Text("Modèles", maxLines = 1, softWrap = false) }
+            OutlinedButton(onClick = test) { Text("Tester", maxLines = 1, softWrap = false) }
         }
         if (err.isNotEmpty()) Text(err, color = if (err.startsWith("Serveur trouvé")) Brand else Danger, fontSize = 12.sp)
         Text("Dans Termux (sur ce téléphone) : pkg install ollama, puis « ollama serve & » et « ollama pull qwen2.5:1.5b » ; ou avec llama.cpp : pkg install llama-cpp, puis « llama-server -m modele.gguf --port 8080 ». Gardez Termux ouvert (termux-wake-lock).", color = InkFaint, fontSize = 11.5.sp)
@@ -403,8 +403,8 @@ fun DeviceAiCard(test: () -> Unit) {
         Text("Le texte est rédigé par un petit modèle installé sur le téléphone, sans Internet (moteur MediaPipe de Google). Téléchargez un modèle au format .task (par exemple Gemma 3 1B ou Qwen 2.5 1.5B, dossier « litert-community » sur Hugging Face), puis importez-le ici. Comptez 0,5 à 2 Go et un téléphone récent.", fontSize = 12.5.sp, color = InkFaint)
         InfoRow("Modèle", if (f.exists()) "$name (${f.length() shr 20} Mo)" else "Aucun")
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { pick.launch(arrayOf("*/*")) }, enabled = !busy) { Text("Importer un fichier .task") }
-            OutlinedButton(onClick = { openUri(ctx, "https://huggingface.co/litert-community") }) { Text("Trouver un modèle") }
+            Button(onClick = { pick.launch(arrayOf("*/*")) }, enabled = !busy) { Text("Importer un fichier .task", maxLines = 1, softWrap = false) }
+            OutlinedButton(onClick = { openUri(ctx, "https://huggingface.co/litert-community") }) { Text("Trouver un modèle", maxLines = 1, softWrap = false) }
         }
         TextFieldRow("Ou adresse de téléchargement directe (.task)", url, { url = it })
         OutlinedButton(enabled = !busy && url.startsWith("http"), onClick = {
@@ -412,10 +412,10 @@ fun DeviceAiCard(test: () -> Unit) {
                 val c = withContext(Dispatchers.IO) { (java.net.URL(url).openConnection() as java.net.HttpURLConnection).apply { instanceFollowRedirects = true; connectTimeout = 20000; readTimeout = 60000 } }
                 install({ c.inputStream }, url.substringAfterLast('/').substringBefore('?'), withContext(Dispatchers.IO) { try { c.contentLengthLong } catch (_: Throwable) { -1L } })
             }
-        }) { Text("Télécharger") }
+        }) { Text("Télécharger", maxLines = 1, softWrap = false) }
         if (progress.isNotEmpty()) Text(progress, fontSize = 12.5.sp, color = if (progress.startsWith("Échec")) Danger else Brand)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = test, enabled = f.exists() && !busy) { Text("Tester") }
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = test, enabled = f.exists() && !busy) { Text("Tester", maxLines = 1, softWrap = false) }
             if (f.exists()) TextButton(onClick = { OnDeviceClient.release(ctx); f.delete(); name = ""; Ai.setDeviceModelName(ctx, ""); progress = "Modèle supprimé." }) { Text("Supprimer le modèle", color = Danger) }
         }
         Text("L'IA du téléphone ne lit pas les photos : l'import de fiches par photo utilise Gemini.", color = InkFaint, fontSize = 11.5.sp)
@@ -462,7 +462,7 @@ fun ApparenceTab() {
         { ThemeState.scale.floatValue = it.toFloatOrNull() ?: 1f; save() }, null)
     SectionTitle("Coins")
     ChipRow(mapOf("droit" to "Droits", "" to "Du thème", "rond" to "Très arrondis"), ThemeState.corners.value, { ThemeState.corners.value = it; save() }, null)
-    TextButton(onClick = { ThemeState.reset(ctx) }, modifier = Modifier.padding(top = 10.dp)) { Text("Rétablir l'apparence par défaut") }
+    TextButton(onClick = { ThemeState.reset(ctx) }, modifier = Modifier.padding(top = 10.dp)) { Text("Rétablir l'apparence par défaut", maxLines = 1, softWrap = false) }
     Text("Ces réglages ne concernent que ce téléphone et n'affectent pas les documents imprimés ou exportés.", color = InkFaint, fontSize = 12.sp)
     FontsSection()
 }

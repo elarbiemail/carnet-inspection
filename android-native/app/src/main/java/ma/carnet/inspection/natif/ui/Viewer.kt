@@ -196,7 +196,7 @@ fun ViewerScreen() {
                 Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Default.Search, null, tint = Brand, modifier = Modifier.size(48.dp))
                     Text("Ouvrez un PDF, un document Word, un classeur Excel, une présentation, une image ou un fichier texte.", color = InkFaint, modifier = Modifier.padding(16.dp))
-                    Button(onClick = { pick.launch(arrayOf("*/*")) }) { Text("Ouvrir un fichier") }
+                    Button(onClick = { pick.launch(arrayOf("*/*")) }) { Text("Ouvrir un fichier", maxLines = 1, softWrap = false) }
                 }
             } else {
                 val kind = Reader.kind(f.name.ifEmpty { title }, mime).let { if (it == "autre") Reader.kind(title, mime) else it }
@@ -205,14 +205,14 @@ fun ViewerScreen() {
                     "image" -> ZoomImage(f)
                     "autre" -> Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Ce format ne peut pas être affiché ici.", color = InkFaint)
-                        Button(onClick = { FileOps.openWith(ctx, f) }) { Text("Ouvrir avec une autre application") }
+                        Button(onClick = { FileOps.openWith(ctx, f) }) { Text("Ouvrir avec une autre application", maxLines = 1, softWrap = false) }
                     }
                     else -> {
                         var html by remember(f) { mutableStateOf<String?>(null) }
                         var err by remember(f) { mutableStateOf("") }
                         LaunchedEffect(f) { try { html = withContext(Dispatchers.IO) { Reader.toHtml(f, kind) } } catch (e: Throwable) { err = "Lecture impossible : " + (e.message ?: "") } }
                         when {
-                            err.isNotEmpty() -> Column(Modifier.padding(24.dp)) { Text(err, color = Danger); Button(onClick = { FileOps.openWith(ctx, f) }) { Text("Ouvrir avec une autre application") } }
+                            err.isNotEmpty() -> Column(Modifier.padding(24.dp)) { Text(err, color = Danger); Button(onClick = { FileOps.openWith(ctx, f) }) { Text("Ouvrir avec une autre application", maxLines = 1, softWrap = false) } }
                             html == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                             else -> AndroidView(factory = { c -> WebView(c).apply {
                                 settings.builtInZoomControls = true; settings.displayZoomControls = false; settings.loadWithOverviewMode = true; settings.useWideViewPort = kind == "html"
@@ -261,7 +261,7 @@ fun PdfView(f: File) {
     }
     DisposableEffect(f) { onDispose { val r = holder[0]; val p = pfdHolder[0]; holder[0] = null
         kotlinx.coroutines.CoroutineScope(PdfPages.dispatcher).launch { try { r?.close() } catch (_: Throwable) {}; try { p?.close() } catch (_: Throwable) {} } } }
-    if (err.isNotEmpty()) { Column(Modifier.padding(24.dp)) { Text(err, color = Danger); Button(onClick = { FileOps.openWith(ctx, f) }) { Text("Ouvrir avec une autre application") } }; return }
+    if (err.isNotEmpty()) { Column(Modifier.padding(24.dp)) { Text(err, color = Danger); Button(onClick = { FileOps.openWith(ctx, f) }) { Text("Ouvrir avec une autre application", maxLines = 1, softWrap = false) } }; return }
     if (count < 0) { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }; return }
     var zoom by remember { mutableFloatStateOf(1f) }
     val width = ctx.resources.displayMetrics.widthPixels
@@ -347,8 +347,8 @@ fun AttachmentsSection(coll: String, recId: String) {
             }
         }
         Row(Modifier.horizontalScrollRow(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { pick.launch(arrayOf("*/*")) }) { Icon(Icons.Default.Add, null); Spacer(Modifier.width(4.dp)); Text("Importer des fichiers") }
-            OutlinedButton(onClick = { cam() }) { Icon(Icons.Default.Face, null); Spacer(Modifier.width(4.dp)); Text("Photo") }
+            OutlinedButton(onClick = { pick.launch(arrayOf("*/*")) }) { Icon(Icons.Default.Add, null); Spacer(Modifier.width(4.dp)); Text("Importer des fichiers", maxLines = 1, softWrap = false) }
+            OutlinedButton(onClick = { cam() }) { Icon(Icons.Default.Face, null); Spacer(Modifier.width(4.dp)); Text("Photo", maxLines = 1, softWrap = false) }
         }
     }
     del?.let { a -> ConfirmDialog("Retirer « ${a.s("titre")} » ?", "Le fichier est retiré de cette fiche (la copie sur Drive est conservée).", onDismiss = { del = null }) { Attach.remove(ctx, coll, recId, a.s("id")); del = null } }

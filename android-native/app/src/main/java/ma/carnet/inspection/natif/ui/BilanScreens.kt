@@ -236,7 +236,7 @@ fun BilanScreen() {
                     synth = Ai.generate(ctx, "Tu es inspecteur(trice) pédagogique au Maroc. Rédige en français la synthèse (10 à 15 lignes, ton administratif) de ton bilan d'activité « ${p.label} », à partir de ces chiffres, sans en inventer d'autres. Retourne uniquement le texte.\n\nTâches : ${list.size}, réalisées : $done.\n$stats" + (if (synth.isNotBlank()) "\n\nBrouillon : $synth" else ""))
                 }
             }
-            Button(onClick = { showHtml("Bilan " + p.label, bilanHtml(ctx, p, true, synth)) }, modifier = Modifier.fillMaxWidth().padding(top = 10.dp)) { Text("Produire le bilan (PDF, Word, Excel)") }
+            Button(onClick = { showHtml("Bilan " + p.label, bilanHtml(ctx, p, true, synth)) }, modifier = Modifier.fillMaxWidth().padding(top = 10.dp)) { MarqueeText("Produire le bilan (PDF, Word, Excel)", center = true) }
             Spacer(Modifier.height(40.dp))
         }
     }
@@ -257,8 +257,8 @@ fun BilanScreen() {
                 cf.put("data", data).put("type", type).put("titre", titre.trim()).put("export", exp)
                 val l = charts.toMutableList(); val i = l.indexOfFirst { it.s("id") == cf.s("id") }; if (i >= 0) l[i] = cf else l.add(cf)
                 charts = l; setBilanCharts(l); edit = null
-            }) { Text("Enregistrer") }
-        }, dismissButton = { TextButton(onClick = { edit = null }) { Text("Annuler") } })
+            }) { Text("Enregistrer", maxLines = 1, softWrap = false) }
+        }, dismissButton = { TextButton(onClick = { edit = null }) { Text("Annuler", maxLines = 1, softWrap = false) } })
     }
 }
 

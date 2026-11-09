@@ -112,7 +112,7 @@ fun EtabDetailScreen(id: String) {
                     if (e.optBoolean("pionnier")) Tag("Collège pionnier", Color(0xFF7A5BB5))
                 }
                 InfoRow("Zone", zoneName(e.s("zoneId"))); InfoRow("Code MASSAR", e.s("codeMassar")); InfoRow("Adresse", e.s("adresse")); InfoRow("Téléphone", e.s("telephone"))
-                if (e.s("telephone").isNotEmpty()) TextButton(onClick = { dial(ctx, e.s("telephone")) }) { Icon(Icons.Default.Call, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Appeler l'établissement") }
+                if (e.s("telephone").isNotEmpty()) TextButton(onClick = { dial(ctx, e.s("telephone")) }) { Icon(Icons.Default.Call, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Appeler l'établissement", maxLines = 1, softWrap = false) }
                 if (e.s("latitude").isNotEmpty() && e.s("longitude").isNotEmpty())
                     TextButton(onClick = { openUri(ctx, "geo:${e.s("latitude")},${e.s("longitude")}?q=${e.s("latitude")},${e.s("longitude")}(" + Uri.encode(e.s("nom")) + ")") }) {
                         Icon(Icons.Default.LocationOn, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("Voir sur la carte")
@@ -139,9 +139,9 @@ fun EtabDetailScreen(id: String) {
             SectionTitle("Documents de l'établissement")
             val ctx2 = LocalContext.current
             Row(Modifier.horizontalScrollRow(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton(onClick = { showHtml("Emploi du temps - " + e.s("nom"), etabTimetableHtml(ctx2, id), true) }) { Text("Emploi du temps hebdomadaire") }
-                OutlinedButton(onClick = { showHtml("Notes d'inspection - " + e.s("nom"), notesHtml(ctx2, Store.list("enseignants").filter { it.s("etablissementId") == id }.sortedBy { norm(it.s("nom")) }, id)) }) { Text("Fiche synthèse des notes") }
-                OutlinedButton(onClick = { Nav.push(Scr.TaskEdit(null, etabId = id)) }) { Text("Validation des tableaux de service") }
+                OutlinedButton(onClick = { showHtml("Emploi du temps - " + e.s("nom"), etabTimetableHtml(ctx2, id), true) }) { Text("Emploi du temps hebdomadaire", maxLines = 1, softWrap = false) }
+                OutlinedButton(onClick = { showHtml("Notes d'inspection - " + e.s("nom"), notesHtml(ctx2, Store.list("enseignants").filter { it.s("etablissementId") == id }.sortedBy { norm(it.s("nom")) }, id)) }) { Text("Fiche synthèse des notes", maxLines = 1, softWrap = false) }
+                OutlinedButton(onClick = { Nav.push(Scr.TaskEdit(null, etabId = id)) }) { Text("Validation des tableaux de service", maxLines = 1, softWrap = false) }
             }
             val tsT = Store.list("tasks").filter { Ref.type(it) == "validation_ts" && it.s("etablissementId") == id }.maxByOrNull { it.s("echeance") }
             if (tsT != null) CardBox(onClick = { Nav.push(Scr.TaskDetail(tsT.s("id"))) }) {

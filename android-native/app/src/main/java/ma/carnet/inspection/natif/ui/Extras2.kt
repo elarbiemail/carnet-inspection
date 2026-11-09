@@ -59,16 +59,16 @@ fun InspectAppTab() {
                     "Données du carnet envoyées." + (r?.let { "\n" + it.text() } ?: "")
                 SyncState.ok.value = true; SyncState.msg.value = "Échange avec InspectApp terminé."
             }
-        }, modifier = Modifier.padding(top = 6.dp)) { Text("Échanger maintenant") }
+        }, modifier = Modifier.padding(top = 6.dp)) { Text("Échanger maintenant", maxLines = 1, softWrap = false) }
         Row(verticalAlignment = Alignment.CenterVertically) { Switch(auto, { auto = it; Exchange.setAuto(ctx, it) }); Text("Échanger automatiquement à chaque synchronisation", Modifier.padding(start = 8.dp), fontSize = 13.sp) }
     }
     CardBox {
         Text("Par fichier", fontWeight = FontWeight.SemiBold)
         Text("Pour une clé USB, un courriel ou un partage : le même format, lu et produit par les deux applications.", fontSize = 12.5.sp)
         Row(Modifier.horizontalScrollRow(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { save.launch("Echange_Carnet_vers_InspectApp_${java.time.LocalDate.now()}.json") }) { Text("Exporter vers InspectApp") }
-            OutlinedButton(onClick = { open.launch(arrayOf("application/json", "*/*")) }) { Text("Importer depuis InspectApp") }
-            OutlinedButton(onClick = { scope.launch { val f = withContext(Dispatchers.IO) { File(Export.outDir(ctx), "Echange_Carnet_vers_InspectApp.json").also { it.writeText(Exchange.payload().toString(2)) } }; FileOps.share(ctx, f) } }) { Text("Partager") }
+            OutlinedButton(onClick = { save.launch("Echange_Carnet_vers_InspectApp_${java.time.LocalDate.now()}.json") }) { Text("Exporter vers InspectApp", maxLines = 1, softWrap = false) }
+            OutlinedButton(onClick = { open.launch(arrayOf("application/json", "*/*")) }) { Text("Importer depuis InspectApp", maxLines = 1, softWrap = false) }
+            OutlinedButton(onClick = { scope.launch { val f = withContext(Dispatchers.IO) { File(Export.outDir(ctx), "Echange_Carnet_vers_InspectApp.json").also { it.writeText(Exchange.payload().toString(2)) } }; FileOps.share(ctx, f) } }) { Text("Partager", maxLines = 1, softWrap = false) }
         }
     }
     CardBox {
@@ -82,8 +82,8 @@ fun InspectAppTab() {
     preview?.let { r ->
         AlertDialog(onDismissRequest = { preview = null; pending = null }, title = { Text("Importer ces données ?") },
             text = { Text(r.text() + "\n\nAucune donnée locale ne sera supprimée.") },
-            confirmButton = { TextButton(onClick = { val d = pending; if (d != null) { val rr = Exchange.apply(d, false); Exchange.markImport(ctx); msg = "Import terminé — ${rr.total()} élément(s) ajouté(s) ou mis à jour." }; preview = null; pending = null }) { Text("Importer") } },
-            dismissButton = { TextButton(onClick = { preview = null; pending = null }) { Text("Annuler") } })
+            confirmButton = { TextButton(onClick = { val d = pending; if (d != null) { val rr = Exchange.apply(d, false); Exchange.markImport(ctx); msg = "Import terminé — ${rr.total()} élément(s) ajouté(s) ou mis à jour." }; preview = null; pending = null }) { Text("Importer", maxLines = 1, softWrap = false) } },
+            dismissButton = { TextButton(onClick = { preview = null; pending = null }) { Text("Annuler", maxLines = 1, softWrap = false) } })
     }
 }
 
@@ -116,7 +116,7 @@ fun FontsSection() {
                 IconButton(onClick = { f.delete(); tick++ }) { Icon(Icons.Default.Delete, "Supprimer", tint = Danger) }
             }
         }
-        OutlinedButton(onClick = { pick.launch(arrayOf("font/*", "application/x-font-ttf", "application/octet-stream", "*/*")) }) { Text("Installer une police (.ttf, .otf, .woff2)") }
+        OutlinedButton(onClick = { pick.launch(arrayOf("font/*", "application/x-font-ttf", "application/octet-stream", "*/*")) }) { Text("Installer une police (.ttf, .otf, .woff2)", maxLines = 1, softWrap = false) }
         Text("Polices libres à télécharger :", fontSize = 12.5.sp, modifier = Modifier.padding(top = 6.dp))
         Row(Modifier.horizontalScrollRow(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Fonts.DOWNLOADS.forEach { (fam, url) ->
@@ -126,7 +126,7 @@ fun FontsSection() {
                 }, label = { Text(fam) })
             }
         }
-        TextButton(onClick = { openUri(ctx, "https://sourceforge.net/projects/maghribifonts/") }) { Text("Police maghribi « Rabat » : où la trouver ?") }
+        TextButton(onClick = { openUri(ctx, "https://sourceforge.net/projects/maghribifonts/") }) { Text("Police maghribi « Rabat » : où la trouver ?", maxLines = 1, softWrap = false) }
         if (msg.isNotEmpty()) Text(msg, color = Brand, fontSize = 12.5.sp)
     }
 }
@@ -140,7 +140,7 @@ fun EtabMergeCard(targetId: String) {
     SectionTitle("Fusionner avec un doublon")
     CardBox {
         Text("Choisissez l'établissement en double : ses enseignant(e)s, tâches, documents et pièces jointes sont rattachés à celui-ci, les informations manquantes sont reprises, puis le doublon est supprimé.", fontSize = 12.5.sp, color = InkFaint)
-        OutlinedButton(onClick = { pick = true }) { Text("Choisir le doublon…") }
+        OutlinedButton(onClick = { pick = true }) { Text("Choisir le doublon…", maxLines = 1, softWrap = false) }
     }
     if (pick) PickerDialog("Établissement en double", Store.list("etablissements").filter { it.s("id") != targetId }.sortedBy { norm(it.s("nom")) },
         { it.s("nom") }, { listOf(zoneName(it.s("zoneId")), it.s("codeMassar")).filter { s -> s.isNotEmpty() }.joinToString(" · ") }, { pick = false }) { src = it; pick = false }
@@ -198,7 +198,7 @@ fun SheetsCard() {
                 }
                 msg = "Feuilles mises à jour : " + done.joinToString(", "); SyncState.ok.value = true; SyncState.msg.value = msg
             }
-        }) { Text("Mettre à jour les feuilles") }
+        }) { Text("Mettre à jour les feuilles", maxLines = 1, softWrap = false) }
         Row(Modifier.horizontalScrollRow(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             tables.keys.forEach { name -> prefs.getString("sheet_$name", null)?.let { id -> AssistChip(onClick = { openUri(ctx, "https://docs.google.com/spreadsheets/d/$id/edit") }, label = { Text("Ouvrir : $name") }) } }
         }

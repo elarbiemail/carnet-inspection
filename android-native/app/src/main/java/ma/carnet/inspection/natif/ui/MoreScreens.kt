@@ -176,7 +176,7 @@ fun AboutScreen() {
             CardBox {
                 Text("El Arbi EL ADLOUNI", fontWeight = FontWeight.SemiBold)
                 ContactButtons("0700024598", "El Arbi", "elarbi.eladlouni@fm6education.net")
-                TextButton(onClick = { mail(ctx, "elarbi.eladlouni@taalim.ma", "Carnet d'Inspection") }) { Text("elarbi.eladlouni@taalim.ma") }
+                TextButton(onClick = { mail(ctx, "elarbi.eladlouni@taalim.ma", "Carnet d'Inspection") }) { Text("elarbi.eladlouni@taalim.ma", maxLines = 1, softWrap = false) }
             }
         }
     }

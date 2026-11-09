@@ -63,16 +63,16 @@ fun PhotoButton(id: String, tel: String, name: String = "") {
                 // qui, elle, peut être partagée depuis la discussion vers le Carnet
                 whatsapp(ctx, tel, greeting(name).trimEnd() + " Pourriez-vous m'envoyer ici une photo de vous (portrait) pour votre fiche ? Merci.")
                 toast(ctx, "Quand la photo arrive : appuyez longuement dessus dans WhatsApp → Partager → Carnet natif.")
-            }) { Text("Demander sa photo par WhatsApp") }
-            TextButton(onClick = { open = false; cam() }) { Text("Prendre une photo") }
-            TextButton(onClick = { open = false; pick.launch("image/*") }) { Text("Choisir dans la galerie (ou une capture d'écran)") }
+            }) { Text("Demander sa photo par WhatsApp", maxLines = 1, softWrap = false) }
+            TextButton(onClick = { open = false; cam() }) { Text("Prendre une photo", maxLines = 1, softWrap = false) }
+            TextButton(onClick = { open = false; pick.launch("image/*") }) { Text("Choisir dans la galerie (ou une capture d'écran)", maxLines = 1, softWrap = false) }
             if (tel.isNotBlank()) TextButton(onClick = {
                 open = false
                 if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) fromContacts() else perm.launch(Manifest.permission.READ_CONTACTS)
-            }) { Text("Depuis mes contacts") }
-            if (Photos.has(ctx, id)) TextButton(onClick = { open = false; Photos.remove(ctx, id); Store.version.intValue++ }) { Text("Supprimer la photo") }
+            }) { Text("Depuis mes contacts", maxLines = 1, softWrap = false) }
+            if (Photos.has(ctx, id)) TextButton(onClick = { open = false; Photos.remove(ctx, id); Store.version.intValue++ }) { Text("Supprimer la photo", maxLines = 1, softWrap = false) }
         } },
-        dismissButton = { TextButton(onClick = { open = false }) { Text("Fermer") } })
+        dismissButton = { TextButton(onClick = { open = false }) { Text("Fermer", maxLines = 1, softWrap = false) } })
 }
 
 
@@ -128,8 +128,8 @@ fun SharedPhotoDialog() {
                     TextButton(onClick = { pickWho = true }) { Text(if (who == null) "Choisir" else "Changer") }
                 }
                 Row {
-                    TextButton(onClick = { SharedPhoto.pending.value = null }) { Text("Annuler") }
-                    Button(enabled = who != null, onClick = { val ok = try { SharedPhoto.assignBitmap(ctx, who!!, crop()) } catch (_: Throwable) { false }; toast(ctx, if (ok) "Photo de profil actualisée." else "Recadrage impossible.") }) { Text("Enregistrer") }
+                    TextButton(onClick = { SharedPhoto.pending.value = null }) { Text("Annuler", maxLines = 1, softWrap = false) }
+                    Button(enabled = who != null, onClick = { val ok = try { SharedPhoto.assignBitmap(ctx, who!!, crop()) } catch (_: Throwable) { false }; toast(ctx, if (ok) "Photo de profil actualisée." else "Recadrage impossible.") }) { Text("Enregistrer", maxLines = 1, softWrap = false) }
                 }
             }
         }

@@ -226,7 +226,7 @@ fun PickerDialog(title: String, items: List<JSONObject>, label: (JSONObject) -> 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, "Fermer") }
                     Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    TextButton(onClick = { onPick(null) }) { Text("Aucun") }
+                    TextButton(onClick = { onPick(null) }) { Text("Aucun", maxLines = 1, softWrap = false) }
                 }
                 SearchField(q, { q = it }, "Rechercher…")
                 val nq = norm(q)
@@ -275,7 +275,7 @@ fun ScreenScaffold(title: String, onBack: (() -> Unit)?, actions: @Composable Ro
 fun ConfirmDialog(title: String, text: String, confirm: String = "Supprimer", onDismiss: () -> Unit, onConfirm: () -> Unit) {
     AlertDialog(onDismissRequest = onDismiss, title = { Text(title) }, text = { Text(text) },
         confirmButton = { TextButton(onClick = { onConfirm(); onDismiss() }) { Text(confirm, color = Danger) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler") } })
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Annuler", maxLines = 1, softWrap = false) } })
 }
 
 /** Filtre global de zones (cases à cocher). */

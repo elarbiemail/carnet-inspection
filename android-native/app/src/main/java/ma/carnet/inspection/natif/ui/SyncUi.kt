@@ -2,6 +2,8 @@
 
 package ma.carnet.inspection.natif.ui
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
@@ -137,7 +139,7 @@ fun SyncStatusLine(sync: (Boolean) -> Unit) {
             if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp) else Icon(Icons.Default.Refresh, null, tint = if (SyncState.ok.value) Brand else Danger)
             Text(msg.ifEmpty { "Google Drive : dernière synchronisation " + DriveSync.lastSync(ctx).let { if (it.isEmpty()) "jamais" else fmtDate(it) + " " + it.substring(11, 16) } },
                 fontSize = 12.5.sp, modifier = Modifier.weight(1f).padding(horizontal = 10.dp), color = if (SyncState.ok.value) InkFaint else Danger)
-            TextButton(onClick = { sync(true) }, enabled = !busy) { Text("Synchroniser") }
+            TextButton(onClick = { sync(true) }, enabled = !busy) { Text("Synchroniser", maxLines = 1, softWrap = false) }
         }
     }
 }
@@ -167,16 +169,16 @@ fun DriveCard(sync: (Boolean) -> Unit) {
         CopyRow("Nom du package", DriveSync.PACKAGE) { clip.setText(AnnotatedString(it)); toast(ctx, "Copié.") }
         CopyRow("Empreinte SHA-1", DriveSync.SHA1) { clip.setText(AnnotatedString(it)); toast(ctx, "Copié.") }
         Text("4. Enregistrez, attendez quelques minutes, puis touchez « Connecter et synchroniser ». L'API Google Drive est déjà activée pour le carnet web.", fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
-            OutlinedButton(onClick = { openUri(ctx, "https://console.cloud.google.com/apis/credentials" + (if (proj.isNotEmpty()) "?project=$proj" else "")) }) { Text("Ouvrir Google Cloud") }
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
+            OutlinedButton(onClick = { openUri(ctx, "https://console.cloud.google.com/apis/credentials" + (if (proj.isNotEmpty()) "?project=$proj" else "")) }) { Text("Ouvrir Google Cloud", maxLines = 1, softWrap = false) }
         }
         HorizontalDivider(Modifier.padding(vertical = 10.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { sync(true); enabled = true }, enabled = !busy) {
                 if (busy) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = OnBrand) else Icon(Icons.Default.Refresh, null)
                 Spacer(Modifier.width(6.dp)); Text(if (enabled) "Synchroniser" else "Connecter et synchroniser")
             }
-            if (enabled) OutlinedButton(onClick = { DriveSync.forget(ctx); enabled = false; SyncState.msg.value = "Synchronisation automatique désactivée." }) { Text("Déconnecter") }
+            if (enabled) OutlinedButton(onClick = { DriveSync.forget(ctx); enabled = false; SyncState.msg.value = "Synchronisation automatique désactivée." }) { Text("Déconnecter", maxLines = 1, softWrap = false) }
         }
         if (enabled) Text("Synchronisation automatique à l'ouverture de l'application. Dernière : " + DriveSync.lastSync(ctx).let { if (it.isEmpty()) "jamais" else fmtDate(it) + " " + it.substring(11, 16) },
             color = InkFaint, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
