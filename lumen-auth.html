@@ -5,68 +5,101 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Connexion Google — Lumen Liseuse</title>
 <style>
-  :root { --brand:#a0522d; --ink:#2b2118; --faint:#7a6a5a; --bg:#f6f1e7; }
+  :root { --brand:#a0522d; --ink:#2b2118; --faint:#7a6a5a; --bg:#f6f1e7; --ok:#2e7d4f; --err:#B3261E; }
   body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background:var(--bg); color:var(--ink); }
-  main { max-width:440px; margin:0 auto; padding:32px 18px; text-align:center; }
-  h1 { font-size:22px; margin:10px 0 6px; font-family: Georgia, serif; }
-  p { color:var(--faint); line-height:1.5; font-size:15px; }
-  button, a.btn { display:block; width:100%; box-sizing:border-box; margin:14px 0 0; padding:15px; border:0; border-radius:12px; font-size:16px; font-weight:600; text-decoration:none; cursor:pointer; }
-  .g { background:#fff; color:#1f1f1f; border:1px solid #dadce0; }
-  .back { background:var(--brand); color:#fff; }
-  #msg { margin-top:16px; font-size:14px; color:var(--ink); }
-  .err { color:#B3261E !important; }
+  main { max-width:440px; margin:0 auto; padding:28px 18px; text-align:center; }
+  h1 { font-size:22px; margin:6px 0 4px; font-family: Georgia, serif; }
+  p { color:var(--faint); line-height:1.5; font-size:15px; margin:8px 0; }
+  .card { background:#fff; border:1px solid #e3d8c6; border-radius:16px; padding:16px; margin-top:14px; }
+  button, a.btn { display:block; width:100%; box-sizing:border-box; margin:12px 0 0; padding:15px; border:0; border-radius:12px; font-size:16px; font-weight:600; text-decoration:none; cursor:pointer; }
+  .g { background:#fff; color:#1f1f1f; border:1px solid #dadce0; display:flex; align-items:center; justify-content:center; gap:10px; }
+  .primary { background:var(--brand); color:#fff; }
+  .link { background:none; color:var(--brand); padding:8px; font-weight:500; font-size:14px; }
+  .steps { text-align:left; font-size:14px; color:var(--faint); padding-left:20px; }
+  .steps li.on { color:var(--ink); font-weight:600; }
+  #msg { margin-top:14px; font-size:14px; color:var(--ink); min-height:20px; }
+  .err { color:var(--err) !important; } .ok { color:var(--ok) !important; font-weight:600; }
+  .acct { font-weight:600; color:var(--ink); }
 </style>
 </head>
 <body>
 <main>
+  <div style="font-size:42px">📚</div>
   <h1>Lumen Liseuse</h1>
-  <p id="ua" style="font-size:13px"></p>
-  <p>Autorisez la liseuse Lumen à lire, classer et ranger les livres PDF de <b>votre</b> Google Drive. Aucune donnée ne passe par un serveur tiers.</p>
-  <button class="g" id="go" type="button">Choisir le compte Google</button>
-  <a class="btn back" id="back" href="#" hidden>Revenir à Lumen</a>
-  <div id="msg"></div>
+  <p>Autorisez la liseuse à lire, classer et ranger les livres de <b>votre</b> Google Drive. Aucune donnée ne passe par un serveur tiers.</p>
+  <div class="card">
+    <ol class="steps"><li class="on" id="s1">Choisir le compte Google</li><li id="s2">Autoriser l’accès à Google Drive</li><li id="s3">Retour automatique dans Lumen</li></ol>
+    <p id="ua" class="err" hidden></p>
+    <button class="g" id="go" type="button"><svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.6l6.7-6.7C35.6 2.4 30.2 0 24 0 14.6 0 6.6 5.4 2.7 13.3l7.8 6C12.4 13.7 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.1 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.4c-.5 2.9-2.2 5.3-4.6 6.9l7.4 5.7c4.3-4 6.9-9.9 6.9-17.1z"/><path fill="#FBBC05" d="M10.5 28.7c-.5-1.4-.8-3-.8-4.7s.3-3.3.8-4.7l-7.8-6C1 16.6 0 20.2 0 24s1 7.4 2.7 10.7l7.8-6z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.4-5.7c-2.1 1.4-4.8 2.3-8.5 2.3-6.3 0-11.6-4.2-13.5-9.9l-7.8 6C6.6 42.6 14.6 48 24 48z"/></svg><span id="goLabel">Choisir le compte Google</span></button>
+    <button class="link" id="other" type="button" hidden>Utiliser un autre compte</button>
+    <a class="btn primary" id="back" href="#" hidden>Revenir à Lumen</a>
+    <div id="msg"></div>
+  </div>
 </main>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script>
 (function(){
-  // Même méthode que natif-auth.html (carnet d'inspection), adaptée à l'application Lumen
+  // v2 — même méthode que natif-auth.html (carnet d'inspection), adaptée à l'application Lumen
   var q = new URLSearchParams(location.search);
   var cid = q.get('client_id') || q.get('cid') || '';
   var state = q.get('state') || '';
   var scope = q.get('scope') || 'https://www.googleapis.com/auth/drive email';
-  var prompt = q.has('prompt') ? q.get('prompt') : 'select_account';
+  var hint = q.get('hint') || '';
+  var prompt = q.has('prompt') ? q.get('prompt') : (hint ? '' : 'select_account');
   var PKG = 'com.elarbi.lumen';
-  var msg = document.getElementById('msg'), back = document.getElementById('back'), go = document.getElementById('go');
-  if (!/Chrome\//.test(navigator.userAgent) || /MiuiBrowser|XiaoMi|SamsungBrowser|OPR\//.test(navigator.userAgent)) document.getElementById('ua').textContent = "Conseil : si la fenêtre Google ne s'ouvre pas, ouvrez cette page dans Google Chrome.";
-  function say(t, err){ msg.textContent = t; msg.className = err ? 'err' : ''; }
-  if(!cid){ say("Identifiant client Google manquant : relancez la connexion depuis Lumen (Drive → Se connecter).", true); go.disabled = true; return; }
+  var $ = function(id){ return document.getElementById(id); };
+  var msg = $('msg'), back = $('back'), go = $('go');
+  function say(t, cls){ msg.innerHTML = t; msg.className = cls || ''; }
+  function step(n){ ['s1','s2','s3'].forEach(function(id, i){ $(id).className = i < n ? 'on' : ''; }); }
+  if(!cid){ say("Identifiant client Google manquant : relancez la connexion depuis Lumen (Drive → Se connecter).", 'err'); go.disabled = true; return; }
+  if(hint){ $('goLabel').innerHTML = 'Continuer avec <span class="acct">'+hint.replace(/[<>&"]/g,'')+'</span>'; $('other').hidden = false; }
+  // Navigateurs qui bloquent la fenêtre Google (MIUI, Samsung, Opera, navigateurs intégrés) : proposer Chrome
+  var ua = navigator.userAgent;
+  var notChrome = !/Chrome\//.test(ua) || /MiuiBrowser|XiaoMi|SamsungBrowser|OPR\/|EdgA|; wv\)|FBAN|Instagram/.test(ua);
+  if(notChrome && /Android/i.test(ua)){
+    var u = $('ua'); u.hidden = false;
+    var chromeUrl = 'intent://' + location.host + location.pathname + location.search + '#Intent;scheme=https;package=com.android.chrome;end';
+    u.innerHTML = 'Ce navigateur peut bloquer la fenêtre Google. <a href="'+chromeUrl+'"><b>Ouvrir cette page dans Chrome</b></a>';
+  }
   function toApp(params){
     params.state = state;
     var s = Object.keys(params).map(function(k){ return k+'='+encodeURIComponent(params[k]); }).join('&');
     var url = 'intent://auth?'+s+'#Intent;scheme=lumen;package='+PKG+';end';
-    back.href = url; back.hidden = false;
-    try { location.href = url; } catch (e) {}
+    back.href = url; back.hidden = false; go.hidden = true; $('other').hidden = true;
+    try { location.href = url; } catch(e){}
   }
-  go.onclick = function(){
-    if(!(window.google && google.accounts && google.accounts.oauth2)){ say('Chargement de Google… réessayez dans un instant.', true); return; }
-    say('Fenêtre Google ouverte…');
+  function run(useHint){
+    if(!(window.google && google.accounts && google.accounts.oauth2)){ say('Chargement de Google… réessayez dans un instant.', 'err'); return; }
+    step(2); say('Fenêtre Google ouverte : choisissez le compte puis autorisez l’accès à Drive…');
     var tc = google.accounts.oauth2.initTokenClient({
-      client_id: cid,
-      scope: scope,
+      client_id: cid, scope: scope, include_granted_scopes: true,
+      hint: useHint ? hint : undefined,
       callback: function(r){
-        if(r && r.access_token){ say('Autorisation reçue : retour à Lumen…'); toApp({ access_token: r.access_token, expires_in: r.expires_in || 3600 }); }
-        else { say('Autorisation non obtenue (' + ((r && (r.error_description || r.error)) || 'inconnue') + '). Touchez de nouveau « Choisir le compte Google ».', true); go.textContent = 'Réessayer : choisir le compte Google'; }
+        if(!(r && r.access_token)){
+          say('Autorisation non obtenue (' + ((r && (r.error_description || r.error)) || 'inconnue') + '). Touchez de nouveau le bouton.', 'err');
+          step(1); return;
+        }
+        if(google.accounts.oauth2.hasGrantedAllScopes && !google.accounts.oauth2.hasGrantedAllScopes(r, 'https://www.googleapis.com/auth/drive')){
+          say('L’accès à <b>Google Drive</b> n’a pas été coché. Touchez de nouveau le bouton et cochez la case « Voir, modifier, créer et supprimer… ».', 'err');
+          step(1); return;
+        }
+        step(3); say('✓ Autorisation reçue : retour à Lumen…', 'ok');
+        var done = function(email){ toApp({ access_token: r.access_token, expires_in: r.expires_in || 3600, scope: r.scope || scope, email: email || '' }); };
+        fetch('https://www.googleapis.com/oauth2/v3/userinfo', { headers: { Authorization: 'Bearer ' + r.access_token } })
+          .then(function(x){ return x.ok ? x.json() : {}; }).then(function(j){ done(j.email); }, function(){ done(''); });
       },
       error_callback: function(e){
         var t = (e && (e.type || e.message)) || '';
-        if (t === 'popup_failed_to_open') say("Le navigateur a bloqué la fenêtre Google. Autorisez les fenêtres pop-up pour ce site, ou ouvrez cette page dans Chrome, puis réessayez.", true);
-        else if (t === 'popup_closed') say("La fenêtre Google a été fermée avant la fin. Touchez de nouveau le bouton et choisissez votre compte.", true);
-        else say('Connexion interrompue : ' + t + '. Réessayez.', true);
-        go.textContent = 'Réessayer : choisir le compte Google';
+        if (t === 'popup_failed_to_open') say("Le navigateur a bloqué la fenêtre Google. Ouvrez cette page dans Chrome (lien ci-dessus) ou autorisez les fenêtres pop-up, puis réessayez.", 'err');
+        else if (t === 'popup_closed') say("La fenêtre Google a été fermée avant la fin. Touchez de nouveau le bouton.", 'err');
+        else say('Connexion interrompue : ' + t + '. Réessayez.', 'err');
+        step(1);
       }
     });
-    tc.requestAccessToken({ prompt: prompt });
-  };
+    tc.requestAccessToken({ prompt: useHint ? prompt : 'select_account', login_hint: useHint && hint ? hint : undefined });
+  }
+  go.onclick = function(){ run(true); };
+  $('other').onclick = function(){ hint = ''; run(false); };
 })();
 </script>
 </body>
