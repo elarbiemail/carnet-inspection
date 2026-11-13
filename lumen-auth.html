@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connexion Google — Lumen Liseuse</title>
+<style>
+  :root { --brand:#a0522d; --ink:#2b2118; --faint:#7a6a5a; --bg:#f6f1e7; }
+  body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background:var(--bg); color:var(--ink); }
+  main { max-width:440px; margin:0 auto; padding:32px 18px; text-align:center; }
+  h1 { font-size:22px; margin:10px 0 6px; font-family: Georgia, serif; }
+  p { color:var(--faint); line-height:1.5; font-size:15px; }
+  button, a.btn { display:block; width:100%; box-sizing:border-box; margin:14px 0 0; padding:15px; border:0; border-radius:12px; font-size:16px; font-weight:600; text-decoration:none; cursor:pointer; }
+  .g { background:#fff; color:#1f1f1f; border:1px solid #dadce0; }
+  .back { background:var(--brand); color:#fff; }
+  #msg { margin-top:16px; font-size:14px; color:var(--ink); }
+  .err { color:#B3261E !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Lumen Liseuse</h1>
+  <p id="ua" style="font-size:13px"></p>
+  <p>Autorisez la liseuse Lumen à lire, classer et ranger les livres PDF de <b>votre</b> Google Drive. Aucune donnée ne passe par un serveur tiers.</p>
+  <button class="g" id="go" type="button">Choisir le compte Google</button>
+  <a class="btn back" id="back" href="#" hidden>Revenir à Lumen</a>
+  <div id="msg"></div>
+</main>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script>
+(function(){
+  // Même méthode que natif-auth.html (carnet d'inspection), adaptée à l'application Lumen
+  var q = new URLSearchParams(location.search);
+  var cid = q.get('client_id') || q.get('cid') || '';
+  var state = q.get('state') || '';
+  var scope = q.get('scope') || 'https://www.googleapis.com/auth/drive email';
+  var prompt = q.has('prompt') ? q.get('prompt') : 'select_account';
+  var PKG = 'com.elarbi.lumen';
+  var msg = document.getElementById('msg'), back = document.getElementById('back'), go = document.getElementById('go');
+  if (!/Chrome\//.test(navigator.userAgent) || /MiuiBrowser|XiaoMi|SamsungBrowser|OPR\//.test(navigator.userAgent)) document.getElementById('ua').textContent = "Conseil : si la fenêtre Google ne s'ouvre pas, ouvrez cette page dans Google Chrome.";
+  function say(t, err){ msg.textContent = t; msg.className = err ? 'err' : ''; }
+  if(!cid){ say("Identifiant client Google manquant : relancez la connexion depuis Lumen (Drive → Se connecter).", true); go.disabled = true; return; }
+  function toApp(params){
+    params.state = state;
+    var s = Object.keys(params).map(function(k){ return k+'='+encodeURIComponent(params[k]); }).join('&');
+    var url = 'intent://auth?'+s+'#Intent;scheme=lumen;package='+PKG+';end';
+    back.href = url; back.hidden = false;
+    try { location.href = url; } catch (e) {}
+  }
+  go.onclick = function(){
+    if(!(window.google && google.accounts && google.accounts.oauth2)){ say('Chargement de Google… réessayez dans un instant.', true); return; }
+    say('Fenêtre Google ouverte…');
+    var tc = google.accounts.oauth2.initTokenClient({
+      client_id: cid,
+      scope: scope,
+      callback: function(r){
+        if(r && r.access_token){ say('Autorisation reçue : retour à Lumen…'); toApp({ access_token: r.access_token, expires_in: r.expires_in || 3600 }); }
+        else { say('Autorisation non obtenue (' + ((r && (r.error_description || r.error)) || 'inconnue') + '). Touchez de nouveau « Choisir le compte Google ».', true); go.textContent = 'Réessayer : choisir le compte Google'; }
+      },
+      error_callback: function(e){
+        var t = (e && (e.type || e.message)) || '';
+        if (t === 'popup_failed_to_open') say("Le navigateur a bloqué la fenêtre Google. Autorisez les fenêtres pop-up pour ce site, ou ouvrez cette page dans Chrome, puis réessayez.", true);
+        else if (t === 'popup_closed') say("La fenêtre Google a été fermée avant la fin. Touchez de nouveau le bouton et choisissez votre compte.", true);
+        else say('Connexion interrompue : ' + t + '. Réessayez.', true);
+        go.textContent = 'Réessayer : choisir le compte Google';
+      }
+    });
+    tc.requestAccessToken({ prompt: prompt });
+  };
+})();
+</script>
+</body>
+</html>
