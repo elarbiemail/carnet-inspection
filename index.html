@@ -4397,7 +4397,7 @@
     var assetsIndex = {};
     Object.keys(state.assets).forEach(function(id){
       var a = state.assets[id];
-      if(a && a.driveFileId) assetsIndex[id] = {driveFileId:a.driveFileId, driveUrl:a.driveUrl||'', type:a.type||'', name:a.name||''};
+      if(a && a.driveFileId) assetsIndex[id] = {driveFileId:a.driveFileId, driveUrl:a.driveUrl||'', type:a.type||'', name:a.name||'', rotatedAt:a.rotatedAt||''};
     });
     var data = {
       exportedAt: nowIso(), zones: state.zones, etablissements: state.etablissements,
@@ -4500,6 +4500,7 @@
         var ra = remote.assetsIndex[id], la = state.assets[id];
         if(!la){ state.assets[id] = {dataUrl:'', type:ra.type||'', name:ra.name||'', driveFileId:ra.driveFileId, driveUrl:ra.driveUrl||''}; assetsChanged = true; }
         else if(!la.driveFileId && ra.driveFileId){ la.driveFileId = ra.driveFileId; la.driveUrl = ra.driveUrl||''; assetsChanged = true; }
+        else if(ra.rotatedAt && ra.driveFileId && ra.driveFileId!==la.driveFileId && (!la.rotatedAt || ra.rotatedAt > la.rotatedAt)){ la.dataUrl = ''; la.driveFileId = ra.driveFileId; la.driveUrl = ra.driveUrl||''; la.rotatedAt = ra.rotatedAt; la.type = ra.type||la.type; delete assetFetchFailed[id]; assetsChanged = true; }
       });
       if(assetsChanged) saveLocal('assets');
     }
@@ -13251,6 +13252,138 @@
       if(document.visibilityState==='visible') checkAllNotifications();
     });
   }
+  /* ============ Rotation des images ============
+     1) À l'import : toute image choisie (photo, logo, cachet, signature, pièce jointe, feuille…) passe d'abord
+        par une fenêtre « Faire pivoter » avant d'être traitée par l'écran qui l'a demandée.
+     2) Après coup : appui long (téléphone) ou clic droit (ordinateur) sur une image enregistrée → pivoter. */
+  var ROT_SKIP = /image\/(svg\+xml|gif)/;
+  function rotIsImage(f){ return f && /^image\//.test(f.type||'') && !ROT_SKIP.test(f.type||''); }
+  function rotCanvas(src, deg){
+    return new Promise(function(res, rej){
+      var draw = function(img, w, h){
+        var q = ((deg % 360) + 360) % 360, c = document.createElement('canvas');
+        c.width = (q===90||q===270) ? h : w; c.height = (q===90||q===270) ? w : h;
+        var g = c.getContext('2d'); g.translate(c.width/2, c.height/2); g.rotate(q*Math.PI/180); g.drawImage(img, -w/2, -h/2, w, h);
+        res(c);
+      };
+      if(src instanceof Blob && typeof createImageBitmap==='function'){
+        createImageBitmap(src, {imageOrientation:'from-image'}).then(function(b){ draw(b, b.width, b.height); }).catch(function(){ viaImg(URL.createObjectURL(src)); });
+      } else viaImg(src instanceof Blob ? URL.createObjectURL(src) : src);
+      function viaImg(u){ var im = new Image(); im.onload = function(){ draw(im, im.naturalWidth, im.naturalHeight); }; im.onerror = rej; im.src = u; }
+    });
+  }
+  function rotOutType(t){ return /png|webp/.test(t||'') ? (/webp/.test(t) ? 'image/webp' : 'image/png') : 'image/jpeg'; }
+  function rotFile(f, deg){
+    return rotCanvas(f, deg).then(function(c){
+      var t = rotOutType(f.type);
+      return new Promise(function(res){ c.toBlob(function(b){ res(b ? new File([b], f.name || 'image', {type:t, lastModified:Date.now()}) : f); }, t, 0.92); });
+    });
+  }
+  var rotCss = false;
+  function rotStyles(){
+    if(rotCss) return; rotCss = true;
+    var s = document.createElement('style');
+    s.textContent = '.rot-back{position:fixed;inset:0;z-index:100000;background:rgba(10,14,20,.7);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:16px}'+
+      '.rot-box{background:linear-gradient(var(--surface),var(--surface)),var(--bg);color:var(--ink);border-radius:var(--radius);box-shadow:var(--shadow);width:min(440px,100%);max-height:94vh;display:flex;flex-direction:column;overflow:hidden}'+
+      '.rot-box h3{margin:0;padding:14px 16px 4px;font-size:16px}.rot-sub{padding:0 16px;color:var(--ink-soft);font-size:13px}'+
+      '.rot-prev{flex:1;min-height:200px;display:flex;align-items:center;justify-content:center;padding:12px;background:var(--surface-2);margin:10px 16px;border-radius:var(--radius-sm)}'+
+      '.rot-prev img{max-width:100%;max-height:46vh;transition:transform .25s ease;object-fit:contain}'+
+      '.rot-tools{display:flex;gap:8px;justify-content:center;padding:4px 16px}.rot-tools button{font-size:15px;min-width:64px}'+
+      '.rot-acts{display:flex;flex-wrap:wrap;gap:8px;justify-content:flex-end;padding:12px 16px 16px}'+
+      '.rot-menu{position:fixed;z-index:100000;background:linear-gradient(var(--surface),var(--surface)),var(--bg);border:1px solid var(--line);border-radius:var(--radius-sm);box-shadow:var(--shadow);padding:4px;display:flex;flex-direction:column}'+
+      '.rot-menu button{background:none;border:0;color:var(--ink);text-align:left;padding:10px 14px;font:inherit;font-size:14px;cursor:pointer;border-radius:6px}.rot-menu button:hover{background:var(--accent-soft)}';
+    document.head.appendChild(s);
+  }
+  /* Fenêtre de rotation. Résout { deg, all } ; deg = 0 si « Garder telle quelle ». */
+  function rotDialog(src, title, idx, total){
+    rotStyles();
+    return new Promise(function(resolve){
+      var deg = 0, url = src instanceof Blob ? URL.createObjectURL(src) : src;
+      var back = document.createElement('div'); back.className = 'rot-back';
+      back.innerHTML = '<div class="rot-box" role="dialog" aria-modal="true" aria-label="Faire pivoter l\'image">'+
+        '<h3>Faire pivoter l\'image</h3><div class="rot-sub">'+esc(title||'')+(total>1 ? ' — image '+(idx+1)+' sur '+total : '')+'</div>'+
+        '<div class="rot-prev"><img alt="Aperçu"></div>'+
+        '<div class="rot-tools"><button class="btn ghost sm" data-r="-90" type="button" title="Pivoter à gauche">↺ 90°</button>'+
+        '<button class="btn ghost sm" data-r="180" type="button" title="Retourner">↻ 180°</button>'+
+        '<button class="btn ghost sm" data-r="90" type="button" title="Pivoter à droite">↻ 90°</button></div>'+
+        '<div class="rot-acts">'+(total>1 ? '<button class="btn ghost sm" data-a="keepall" type="button">Garder toutes telles quelles</button>' : '')+
+        '<button class="btn ghost sm" data-a="keep" type="button">Garder telle quelle</button>'+
+        (total>1 ? '<button class="btn ghost sm" data-a="all" type="button">Appliquer à toutes</button>' : '')+
+        '<button class="btn sm" data-a="ok" type="button">Valider</button></div></div>';
+      var img = back.querySelector('img'); img.src = url;
+      function close(r){ document.removeEventListener('keydown', onKey); back.remove(); if(src instanceof Blob) URL.revokeObjectURL(url); resolve(r); }
+      function onKey(e){ if(e.key==='Escape') close({deg:0}); else if(e.key==='ArrowRight'){ deg+=90; upd(); } else if(e.key==='ArrowLeft'){ deg-=90; upd(); } else if(e.key==='Enter') close({deg:deg}); }
+      function upd(){ img.style.transform = 'rotate('+deg+'deg)'; var q = ((deg%360)+360)%360; img.style.maxHeight = (q===90||q===270) ? 'min(46vh, 380px)' : ''; }
+      back.querySelectorAll('[data-r]').forEach(function(b){ b.onclick = function(){ deg += Number(b.getAttribute('data-r')); upd(); }; });
+      back.querySelector('[data-a="ok"]').onclick = function(){ close({deg:deg}); };
+      back.querySelector('[data-a="keep"]').onclick = function(){ close({deg:0}); };
+      var ka = back.querySelector('[data-a="keepall"]'); if(ka) ka.onclick = function(){ close({deg:0, all:true}); };
+      var aa = back.querySelector('[data-a="all"]'); if(aa) aa.onclick = function(){ close({deg:deg, all:true}); };
+      back.addEventListener('click', function(e){ if(e.target===back) close({deg:0}); });
+      document.addEventListener('keydown', onKey);
+      document.body.appendChild(back);
+    });
+  }
+  /* 1) Interception des sélecteurs de fichiers : la rotation passe avant le traitement normal. */
+  document.addEventListener('change', function(e){
+    var inp = e.target;
+    if(!inp || inp.tagName!=='INPUT' || inp.type!=='file' || inp._rotPass || !inp.files || !inp.files.length) return;
+    var files = Array.prototype.slice.call(inp.files);
+    var imgs = files.filter(rotIsImage);
+    if(!imgs.length || typeof DataTransfer!=='function') return;
+    e.stopImmediatePropagation(); e.stopPropagation();
+    var out = [], all = null, k = 0;
+    files.reduce(function(p, f){
+      return p.then(function(){
+        if(!rotIsImage(f)){ out.push(f); return; }
+        var i = k++;
+        var step = all ? Promise.resolve(all) : rotDialog(f, f.name, i, imgs.length).then(function(r){ if(r.all) all = r; return r; });
+        return step.then(function(r){ return r.deg % 360 ? rotFile(f, r.deg) : f; }).then(function(nf){ out.push(nf); });
+      });
+    }, Promise.resolve()).then(function(){
+      try{
+        var dt = new DataTransfer(); out.forEach(function(f){ dt.items.add(f); });
+        inp.files = dt.files;
+      }catch(err){}
+      inp._rotPass = true;
+      try{ inp.dispatchEvent(new Event('change', {bubbles:true})); } finally { inp._rotPass = false; }
+    });
+  }, true);
+  /* 2) Images déjà enregistrées : appui long / clic droit → menu « Pivoter ». */
+  function rotAssetIdFor(src){
+    if(!src || src.indexOf('data:image')!==0) return null;
+    var ids = Object.keys(state.assets||{});
+    for(var i=0;i<ids.length;i++){ var a = state.assets[ids[i]]; if(a && a.dataUrl===src) return ids[i]; }
+    return null;
+  }
+  function rotateAsset(id, deg){
+    var a = state.assets[id]; if(!a || !a.dataUrl) { toast('Image indisponible sur cet appareil.'); return; }
+    rotCanvas(a.dataUrl, deg).then(function(c){
+      var t = rotOutType(a.type), old = a.driveFileId, prev = a.dataUrl;
+      a.dataUrl = c.toDataURL(t, 0.92); a.type = t; a.driveFileId = null; a.driveUrl = null; a.rotatedAt = new Date().toISOString();
+      try{ saveLocal('assets'); }catch(e){ a.dataUrl = prev; a.driveFileId = old; toast("Espace de stockage de l'application atteint."); return; }
+      /* nouvelle copie sur Drive ; l'ancienne va à la corbeille. Les autres appareils la retéléchargent (rotatedAt). */
+      Promise.resolve(uploadAssetToDrive(id)).then(function(){ if(old && state.mcpReady && a.driveFileId && a.driveFileId!==old) mcpCall('trash_file', {fileId:old}).catch(function(){}); if(typeof scheduleBackup==='function') try{ scheduleBackup(); }catch(e){} });
+      render(); toast('Image pivotée.');
+    }).catch(function(){ toast('Impossible de pivoter cette image.'); });
+  }
+  function rotMenu(x, y, id){
+    rotStyles();
+    var old = document.querySelector('.rot-menu'); if(old) old.remove();
+    var m = document.createElement('div'); m.className = 'rot-menu';
+    m.innerHTML = '<button data-r="90" type="button">↻ Pivoter à droite</button><button data-r="-90" type="button">↺ Pivoter à gauche</button><button data-r="180" type="button">⟲ Retourner (180°)</button>';
+    m.style.left = Math.max(8, Math.min(x, innerWidth-220))+'px'; m.style.top = Math.max(8, Math.min(y, innerHeight-150))+'px';
+    m.querySelectorAll('button').forEach(function(b){ b.onclick = function(ev){ ev.stopPropagation(); m.remove(); rotateAsset(id, Number(b.getAttribute('data-r'))); }; });
+    document.body.appendChild(m);
+    setTimeout(function(){ document.addEventListener('click', function h(){ m.remove(); document.removeEventListener('click', h, true); }, true); }, 0);
+  }
+  document.addEventListener('contextmenu', function(e){
+    var el = e.target, src = '';
+    if(el && el.tagName==='IMG') src = el.currentSrc || el.src;
+    else if(el && el.style && /url\(/.test(el.style.backgroundImage||'')) src = (el.style.backgroundImage.match(/url\(["']?(.*?)["']?\)$/)||[])[1] || '';
+    var id = rotAssetIdFor(src); if(!id) return;
+    e.preventDefault(); rotMenu(e.clientX, e.clientY, id);
+  });
   start();
 })();
 </script>
