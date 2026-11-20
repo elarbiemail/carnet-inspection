@@ -78,20 +78,27 @@ fun HomeScreen() {
         .sortedBy { it.s("echeance") + taskTime(it) }
     val late = tasks.filter { isLate(it) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-        Row(Modifier.fillMaxWidth().background(Brand).statusBarsPadding().padding(horizontal = 18.dp, vertical = 18.dp), verticalAlignment = Alignment.CenterVertically) {
-            LocalDrawer.current?.let { open -> IconButton(onClick = open, modifier = Modifier.padding(end = 6.dp)) { Icon(Icons.Default.Menu, "Menu", tint = OnBrand) } }
-            Column(Modifier.weight(1f)) {
-                Text("Carnet d'Inspection", color = OnBrand.copy(alpha = 0.8f), fontSize = 13.sp)
-                Text("Bonjour" + p.s("nomSignature").ifEmpty { p.s("nom") }.ifEmpty { GoogleAccount.name(LocalContext.current) }.let { if (it.isEmpty()) "" else ", $it" },
-                    color = OnBrand, fontSize = 21.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(fmtLong(today.toString()), color = OnBrand.copy(alpha = 0.85f), fontSize = 13.sp)
-                Row {
-                    IconButton(onClick = { Nav.push(Scr.Search) }) { Icon(Icons.Default.Search, "Rechercher", tint = OnBrand) }
-                    IconButton(onClick = { Nav.push(Scr.Help("accueil")) }) { Icon(Icons.Default.Info, "Aide", tint = OnBrand) }
-                    IconButton(onClick = { SyncHolder.fn(true) }) { Icon(Icons.Default.Refresh, "Synchroniser", tint = OnBrand) }
-                }
+        // bandeau coloré : la photo de profil occupe toute la hauteur du rectangle, à droite, fondue dans la couleur
+        Box(Modifier.fillMaxWidth().background(Brand)) {
+            Row(Modifier.matchParentSize()) {
+                Spacer(Modifier.weight(1f))
+                HeroAvatar(Modifier.fillMaxHeight().fillMaxWidth(0.40f)) { Nav.push(Scr.Settings("profil")) }
             }
-            ProfileAvatar(84) { Nav.push(Scr.Settings("profil")) }
+            Row(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 12.dp, top = 14.dp, bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                LocalDrawer.current?.let { open -> IconButton(onClick = open, modifier = Modifier.padding(end = 4.dp)) { Icon(Icons.Default.Menu, "Menu", tint = OnBrand) } }
+                Column(Modifier.weight(1f)) {
+                    Text("Carnet d'Inspection", color = OnBrand.copy(alpha = 0.8f), fontSize = 13.sp)
+                    Text("Bonjour" + p.s("nomSignature").ifEmpty { p.s("nom") }.ifEmpty { GoogleAccount.name(LocalContext.current) }.let { if (it.isEmpty()) "" else ", $it" },
+                        color = OnBrand, fontSize = 21.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(fmtLong(today.toString()), color = OnBrand.copy(alpha = 0.85f), fontSize = 13.sp)
+                    Row {
+                        IconButton(onClick = { Nav.push(Scr.Search) }) { Icon(Icons.Default.Search, "Rechercher", tint = OnBrand) }
+                        IconButton(onClick = { Nav.push(Scr.Help("accueil")) }) { Icon(Icons.Default.Info, "Aide", tint = OnBrand) }
+                        IconButton(onClick = { SyncHolder.fn(true) }) { Icon(Icons.Default.Refresh, "Synchroniser", tint = OnBrand) }
+                    }
+                }
+                Spacer(Modifier.fillMaxWidth(0.52f))
+            }
         }
         Column(Modifier.padding(horizontal = 14.dp)) {
             Row(Modifier.padding(top = 10.dp)) { ZoneFilterBar() }

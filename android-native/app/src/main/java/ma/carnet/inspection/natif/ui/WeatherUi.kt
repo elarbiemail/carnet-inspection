@@ -30,6 +30,8 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -158,44 +160,39 @@ fun WeatherBlock() {
                         }
                     }
                     val today = d.days.firstOrNull()
-                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Detail(Icons.Outlined.Accessibility, "Ressenti", fmt(d.feels))
-                        Detail(Icons.Outlined.Opacity, "Humidité", "${d.humidity} %")
-                        Detail(Icons.Outlined.Navigation, "Vent", "${d.wind.roundToInt()} km/h ${Weather.windDir(d.windDir)}", rot = d.windDir + 180f)
-                        Detail(Icons.Outlined.Umbrella, "Pluie", if (today != null) "${today.pop} %" else "${d.precip} mm")
-                        Detail(Icons.Outlined.Cloud, "Nuages", "${d.clouds} %")
-                        if (d.pressure > 0) Detail(Icons.Outlined.Speed, "Pression", "${d.pressure} hPa")
-                        if (!today?.sunrise.isNullOrEmpty()) Detail(Icons.Outlined.WbSunny, "Lever", today!!.sunrise)
-                        if (!today?.sunset.isNullOrEmpty()) Detail(Icons.Outlined.NightsStay, "Coucher", today!!.sunset)
+                    // détails : grille régulière de tuiles (4 par ligne)
+                    val tiles = buildList {
+                        add(Triple(Icons.Outlined.Accessibility, "Ressenti", fmt(d.feels)))
+                        add(Triple(Icons.Outlined.Opacity, "Humidité", "${d.humidity} %"))
+                        add(Triple(Icons.Outlined.Navigation, "Vent", "${d.wind.roundToInt()} km/h"))
+                        add(Triple(Icons.Outlined.Explore, "Direction", Weather.windDir(d.windDir)))
+                        add(Triple(Icons.Outlined.Umbrella, "Pluie", if (today != null) "${today.pop} %" else "${d.precip} mm"))
+                        add(Triple(Icons.Outlined.Cloud, "Nuages", "${d.clouds} %"))
+                        if (!today?.sunrise.isNullOrEmpty()) add(Triple(Icons.Outlined.WbSunny, "Lever", today!!.sunrise))
+                        if (!today?.sunset.isNullOrEmpty()) add(Triple(Icons.Outlined.NightsStay, "Coucher", today!!.sunset))
+                    }
+                    Column(Modifier.fillMaxWidth().padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        tiles.chunked(4).forEach { row ->
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                row.forEach { (ic, l, v) -> Detail(ic, l, v, Modifier.weight(1f), rot = if (l == "Vent") d.windDir + 180f else 0f) }
+                                repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
+                            }
+                        }
                     }
                     Text("${d.provider} · mis à jour à ${d.at}" + if (err.isNotEmpty()) " · hors ligne" else "", color = Color.White.copy(alpha = 0.8f), fontSize = 11.sp, modifier = Modifier.padding(top = 6.dp))
                 }
             }
         }
     }
-    if (d != null && d.days.size > 1) {
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            d.days.forEachIndexed { i, day ->
-                Card(Modifier.width(78.dp).height(132.dp), colors = CardDefaults.cardColors(containerColor = Surface), elevation = CardDefaults.cardElevation(1.dp)) {
-                    Column(Modifier.fillMaxSize().padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.SpaceEvenly) {
-                        Text(if (i == 0) "Auj." else day.date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.FRENCH).replaceFirstChar { it.uppercase() }, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, maxLines = 1)
-                        Text(day.date.dayOfMonth.toString() + "/" + day.date.monthValue, color = InkFaint, fontSize = 11.sp)
-                        Icon(skyIcon(day.sky), day.sky.label, tint = when (day.sky) { Sky.CLEAR -> Color(0xFFF2A900); Sky.STORM -> Color(0xFF6A5ACD); Sky.RAIN, Sky.DRIZZLE -> Color(0xFF3D7CC9); else -> InkFaint }, modifier = Modifier.size(26.dp))
-                        Text("${fmt(day.tmax)} / ${fmt(day.tmin)}", fontSize = 12.sp, maxLines = 1)
-                        Text("${day.pop} %", color = Color(0xFF3D7CC9), fontSize = 11.sp)
-                    }
-                }
-            }
-        }
-    }
+    if (d != null && d.days.size > 1) WeekChart(d.days)
 }
 
 @Composable
-private fun Detail(icon: ImageVector, label: String, value: String, rot: Float = 0f) {
-    Column(Modifier.clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = 0.18f)).padding(horizontal = 10.dp, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Icon(icon, null, tint = Color.White, modifier = Modifier.size(16.dp).rotate(rot))
-        Text(value, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-        Text(label, color = Color.White.copy(alpha = 0.85f), fontSize = 10.5.sp, maxLines = 1)
+private fun Detail(icon: ImageVector, label: String, value: String, modifier: Modifier = Modifier, rot: Float = 0f) {
+    Column(modifier.clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = 0.20f)).padding(vertical = 7.dp, horizontal = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Icon(icon, null, tint = Color.White, modifier = Modifier.size(17.dp).rotate(rot))
+        Text(value, color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(label, color = Color.White.copy(alpha = 0.85f), fontSize = 10.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -265,4 +262,79 @@ fun MeteoTab() {
     if (msg.isNotEmpty()) Text(msg, color = Brand, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp))
     SectionTitle("Aperçu")
     WeatherBlock()
+}
+
+/** Prévisions de la semaine en graphique : courbes des maximales et minimales, plage colorée, risque de pluie en barres. */
+@Composable
+fun WeekChart(days: List<Weather.Day>) {
+    val tm = rememberTextMeasurer()
+    val hot = Color(0xFFE8833A); val cold = Color(0xFF3D7CC9); val ink = Ink; val faint = InkFaint
+    Card(Modifier.fillMaxWidth().padding(vertical = 6.dp), colors = CardDefaults.cardColors(containerColor = Surface), shape = RoundedCornerShape(18.dp), elevation = CardDefaults.cardElevation(1.dp)) {
+        Column(Modifier.padding(vertical = 12.dp, horizontal = 8.dp)) {
+            Row(Modifier.padding(start = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Prévisions sur ${days.size} jours", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                Box(Modifier.size(8.dp).clip(RoundedCornerShape(2.dp)).background(hot)); Text(" max", fontSize = 11.sp, color = faint)
+                Spacer(Modifier.width(8.dp))
+                Box(Modifier.size(8.dp).clip(RoundedCornerShape(2.dp)).background(cold)); Text(" min", fontSize = 11.sp, color = faint)
+            }
+            // jours + pictogrammes
+            Row(Modifier.fillMaxWidth()) {
+                days.forEachIndexed { i, day ->
+                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(if (i == 0) "Auj." else day.date.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.FRENCH).replaceFirstChar { it.uppercase() }.trimEnd('.'),
+                            fontWeight = if (i == 0) FontWeight.Bold else FontWeight.SemiBold, fontSize = 12.sp, color = if (i == 0) Brand else ink, maxLines = 1)
+                        Text("${day.date.dayOfMonth}", fontSize = 10.5.sp, color = faint)
+                        Icon(skyIcon(day.sky), day.sky.label, tint = when (day.sky) { Sky.CLEAR -> Color(0xFFF2A900); Sky.STORM -> Color(0xFF6A5ACD); Sky.RAIN, Sky.DRIZZLE -> cold; Sky.SNOW -> Color(0xFF7FA7C9); else -> faint },
+                            modifier = Modifier.padding(top = 4.dp).size(24.dp))
+                    }
+                }
+            }
+            // courbes de température
+            val maxs = days.map { it.tmax }; val mins = days.map { it.tmin }
+            val hi = (maxs.filter { !it.isNaN() }.maxOrNull() ?: 30.0); val lo = (mins.filter { !it.isNaN() }.minOrNull() ?: 0.0)
+            Canvas(Modifier.fillMaxWidth().height(130.dp).padding(top = 4.dp)) {
+                val n = days.size; val cw = size.width / n
+                val top = 22.dp.toPx(); val bot = size.height - 22.dp.toPx()
+                fun y(t: Double) = if (hi == lo) (top + bot) / 2 else (bot - ((t - lo) / (hi - lo)).toFloat() * (bot - top))
+                fun x(i: Int) = cw * i + cw / 2
+                fun curve(v: List<Double>): Path = Path().apply {
+                    v.forEachIndexed { i, t -> val px = x(i); val py = y(t)
+                        if (i == 0) moveTo(px, py) else { val ppx = x(i - 1); val ppy = y(v[i - 1]); val mx = (ppx + px) / 2; cubicTo(mx, ppy, mx, py, px, py) } }
+                }
+                // plage entre min et max
+                val band = Path().apply {
+                    addPath(curve(maxs))
+                    for (i in n - 1 downTo 0) { val px = x(i); val py = y(mins[i]); if (i == n - 1) lineTo(px, py) else { val nx = x(i + 1); val ny = y(mins[i + 1]); val mx = (nx + px) / 2; cubicTo(mx, ny, mx, py, px, py) } }
+                    close()
+                }
+                drawPath(band, Brush.verticalGradient(listOf(hot.copy(alpha = 0.22f), cold.copy(alpha = 0.18f)), top, bot))
+                // repères verticaux discrets
+                for (i in 0 until n) drawLine(faint.copy(alpha = 0.12f), Offset(x(i), top - 6f), Offset(x(i), bot + 6f), 1f)
+                drawPath(curve(maxs), hot, style = Stroke(3.dp.toPx(), cap = StrokeCap.Round))
+                drawPath(curve(mins), cold, style = Stroke(3.dp.toPx(), cap = StrokeCap.Round))
+                days.forEachIndexed { i, day ->
+                    listOf(day.tmax to hot, day.tmin to cold).forEachIndexed { k, (t, c) ->
+                        val p = Offset(x(i), y(t))
+                        drawCircle(Color.White, 4.5.dp.toPx(), p); drawCircle(c, 3.dp.toPx(), p)
+                        val lay = tm.measure(fmt(t), androidx.compose.ui.text.TextStyle(fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = c))
+                        drawText(lay, topLeft = Offset(p.x - lay.size.width / 2f, if (k == 0) p.y - lay.size.height - 5.dp.toPx() else p.y + 5.dp.toPx()))
+                    }
+                }
+            }
+            // risque de pluie
+            Row(Modifier.fillMaxWidth().padding(top = 2.dp), verticalAlignment = Alignment.Bottom) {
+                days.forEach { day ->
+                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(Modifier.width(14.dp).height(28.dp).clip(RoundedCornerShape(4.dp)).background(cold.copy(alpha = 0.10f)), contentAlignment = Alignment.BottomCenter) {
+                            Box(Modifier.fillMaxWidth().fillMaxHeight((day.pop.coerceIn(0, 100) / 100f).coerceAtLeast(0.04f)).background(cold.copy(alpha = 0.75f)))
+                        }
+                        Text("${day.pop} %", fontSize = 10.5.sp, color = cold, modifier = Modifier.padding(top = 2.dp))
+                    }
+                }
+            }
+            Row(Modifier.padding(start = 6.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.Umbrella, null, tint = faint, modifier = Modifier.size(13.dp)); Text(" Risque de pluie", fontSize = 11.sp, color = faint)
+            }
+        }
+    }
 }

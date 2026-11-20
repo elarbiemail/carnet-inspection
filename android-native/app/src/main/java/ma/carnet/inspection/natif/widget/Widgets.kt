@@ -219,7 +219,8 @@ private fun MonthView(ctx: Context, ym: YearMonth, today: LocalDate) {
                     if (n == 0) Spacer(GlanceModifier.defaultWeight())
                     else {
                         val d = ym.atDay(n); val k = counts[n] ?: 0
-                        Column(GlanceModifier.defaultWeight().fillMaxHeight().padding(1.dp).background(c(if (d == today) BRAND else if (k > 0) Color(0xFFE3F0EC) else CARD)).cornerRadius(8.dp)
+                        val per = ma.carnet.inspection.natif.ui.Feries.on(d); val fer = per.any { ma.carnet.inspection.natif.ui.Feries.isHoliday(it) }
+                        Column(GlanceModifier.defaultWeight().fillMaxHeight().padding(1.dp).background(c(if (d == today) BRAND else if (fer) Color(0xFFF6D5D2) else if (per.isNotEmpty()) Color(0xFFEDE6D6) else if (k > 0) Color(0xFFE3F0EC) else CARD)).cornerRadius(8.dp)
                             .clickable(actionStartActivity(openApp(ctx, "jour", d.toString()))), horizontalAlignment = Alignment.CenterHorizontally, verticalAlignment = Alignment.CenterVertically) {
                             Text(n.toString(), style = ts(12, if (d == today) Color.White else INK, bold = k > 0, center = true))
                             if (k > 0) Text(if (k > 3) "•••+" else "•".repeat(k), style = ts(9, if (d == today) Color.White else BRAND, bold = true, center = true))
@@ -255,6 +256,8 @@ private fun WeekView(ctx: Context, mon: LocalDate, today: LocalDate) {
 @Composable
 private fun DayView(ctx: Context, d: LocalDate) {
     val l = tasksOn(d)
+    val per = ma.carnet.inspection.natif.ui.Feries.on(d)
+    if (per.isNotEmpty()) Text(per.joinToString(" · ") { it.s("nom") }, GlanceModifier.padding(horizontal = 12.dp, vertical = 2.dp), style = ts(12, if (per.any { ma.carnet.inspection.natif.ui.Feries.isHoliday(it) }) DANGER else Color(0xFF6A5D3F), bold = true), maxLines = 2)
     if (l.isEmpty()) { Text("Aucune tâche ce jour.", GlanceModifier.padding(12.dp), style = ts(13, FAINT)); return }
     LazyColumn(GlanceModifier.fillMaxSize().padding(horizontal = 8.dp)) {
         items(l, itemId = { it.s("id").hashCode().toLong() }) { t ->
