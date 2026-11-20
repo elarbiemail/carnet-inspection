@@ -98,6 +98,22 @@ fun ProfileAvatar(size: Int, onClick: (() -> Unit)? = null) {
     }
 }
 
+/** Photo de profil en grand, sur toute la hauteur du bandeau d'accueil, fondue à gauche dans la couleur du thème. */
+@Composable
+fun HeroAvatar(modifier: Modifier, onClick: () -> Unit) {
+    val ctx = LocalContext.current
+    val p = Store.profil()
+    val img = rememberImg(Docs.imgFile(ctx, "avatar")) ?: rememberImg(GoogleAccount.photoFile(ctx))
+    Box(modifier.clickable { onClick() }) {
+        if (img != null) Image(img, "Photo de profil", Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alignment = Alignment.TopCenter)
+        else Box(Modifier.fillMaxSize().background(OnBrand.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
+            Text(initials(p.s("nomSignature").ifEmpty { p.s("nom") }.ifEmpty { GoogleAccount.name(ctx) }.ifEmpty { "?" }), color = OnBrand, fontWeight = FontWeight.Bold, fontSize = 44.sp)
+        }
+        // fondu vers la couleur du bandeau, pour que le texte reste lisible
+        Box(Modifier.fillMaxHeight().width(48.dp).background(androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(Brand, Brand.copy(alpha = 0f)))))
+    }
+}
+
 @Composable
 fun ImagePickField(key: String, label: String, square: Boolean) {
     val ctx = LocalContext.current

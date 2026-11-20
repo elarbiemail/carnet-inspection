@@ -4,6 +4,7 @@ package ma.carnet.inspection.natif.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -215,13 +216,17 @@ fun CalendarScreen() {
                 cells.chunked(7).forEach { week ->
                     Row(Modifier.fillMaxWidth()) {
                         week.forEach { d ->
+                            val per = if (d != null) Feries.on(d) else emptyList()
+                            val main = per.firstOrNull(); val mk = main?.let { Feries.kind(it) }
+                            val tint = mk?.let { Feries.color(it) }
                             Box(Modifier.weight(1f).aspectRatio(1f).padding(2.dp).clip(RoundedCornerShape(10.dp))
-                                .background(when { d == null -> androidx.compose.ui.graphics.Color.Transparent; d == day -> Brand; d == LocalDate.now() -> BrandSoft; else -> Surface })
+                                .background(when { d == null -> androidx.compose.ui.graphics.Color.Transparent; d == day -> Brand; tint != null -> tint.copy(alpha = if (Feries.isHoliday(main!!)) 0.20f else 0.12f); d == LocalDate.now() -> BrandSoft; else -> Surface })
+                                .let { if (d != null && d == LocalDate.now() && d != day) it.border(1.5.dp, Brand, RoundedCornerShape(10.dp)) else it }
                                 .let { if (d != null) it.clickable { day = d } else it }, contentAlignment = Alignment.Center) {
                                 if (d != null) {
-                                    val vac = Reminders.vacanceFor(d.toString()) != null
+                                    if (per.any { Feries.isHoliday(it) }) Icon(Feries.icon(Feries.kind(per.first { Feries.isHoliday(it) })), null, Modifier.align(Alignment.TopEnd).padding(3.dp).size(11.dp), tint = if (d == day) OnBrand else Feries.color(Feries.kind(per.first { Feries.isHoliday(it) })))
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Text("${d.dayOfMonth}", color = if (d == day) OnBrand else if (vac) Earth else Ink, fontWeight = if (d == LocalDate.now()) FontWeight.Bold else null, fontSize = 14.sp)
+                                        Text("${d.dayOfMonth}", color = if (d == day) OnBrand else tint ?: Ink, fontWeight = if (d == LocalDate.now() || (main != null && Feries.isHoliday(main))) FontWeight.Bold else null, fontSize = 14.sp)
                                         val c = byDay[d]?.size ?: 0
                                         if (c > 0) Row { repeat(minOf(c, 3)) { Box(Modifier.padding(1.dp).size(5.dp).clip(CircleShape).background(if (d == day) OnBrand else Brand)) } }
                                     }
@@ -230,7 +235,16 @@ fun CalendarScreen() {
                         }
                     }
                 }
-                SectionTitle(fmtLong(day.toString()) + (Reminders.vacanceFor(day.toString())?.let { " — " + it.s("nom") } ?: ""))
+                FeriesLegend()
+                // jours fériés et vacances du mois
+                val monthPer = remember(v, ym) { Store.list("vacances").filter { x -> val a = parseDate(x.s("dateDebut")); val b = parseDate(x.s("dateFin")) ?: a
+                    a != null && b != null && !b.isBefore(ym.atDay(1)) && !a.isAfter(ym.atEndOfMonth()) }.sortedBy { it.s("dateDebut") } }
+                if (monthPer.isNotEmpty()) {
+                    Text("Ce mois-ci : " + monthPer.joinToString(" · ") { x -> x.s("nom").replace(Regex("\\s*\\(date estimée[^)]*\\)", RegexOption.IGNORE_CASE), "") + " (" + parseDate(x.s("dateDebut"))!!.dayOfMonth + (if (x.s("dateFin") != x.s("dateDebut")) "–" + (parseDate(x.s("dateFin"))?.dayOfMonth ?: "") else "") + ")" },
+                        fontSize = 12.sp, color = InkFaint, modifier = Modifier.padding(bottom = 4.dp))
+                }
+                SectionTitle(fmtLong(day.toString()))
+                Feries.on(day).forEach { FerieCard(it, byDay[day]?.size ?: 0) }
             }
             val l = (byDay[day] ?: emptyList()).sortedBy { taskTime(it) }
             if (l.isEmpty()) item { EmptyState("Aucune tâche ce jour-là.") }
