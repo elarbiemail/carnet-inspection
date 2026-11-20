@@ -62,6 +62,11 @@ fun App() {
     LaunchedEffect(Unit) { if (ma.carnet.inspection.natif.data.DriveSync.enabled(ctx)) sync(false) }
     val ver by ma.carnet.inspection.natif.data.Store.version
     LaunchedEffect(ver) { kotlinx.coroutines.delay(800); try { ma.carnet.inspection.natif.data.Reminders.schedule(ctx) } catch (_: Throwable) {} }
+    LaunchedEffect(Unit) {
+        // calendrier officiel des vacances 2026-2027 : ajouté une fois sur cet appareil
+        val pr = ctx.getSharedPreferences("carnet", android.content.Context.MODE_PRIVATE)
+        if (!pr.getBoolean("vacOff2627", false)) { try { Vacances.seedOfficielles(ctx) } catch (_: Throwable) {}; pr.edit().putBoolean("vacOff2627", true).apply() }
+    }
     LaunchedEffect(ver) { kotlinx.coroutines.delay(1500); try { ma.carnet.inspection.natif.widget.Widgets.refresh(ctx) } catch (_: Throwable) {} }
     var welcome by remember { mutableStateOf(!ma.carnet.inspection.natif.data.GoogleAccount.welcomeDone(ctx)) }
     if (welcome) { WelcomeScreen { welcome = false }; return }

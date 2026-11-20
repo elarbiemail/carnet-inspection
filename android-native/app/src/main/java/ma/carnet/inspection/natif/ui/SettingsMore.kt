@@ -385,7 +385,7 @@ fun VacancesTab() {
     SectionTitle("Calendrier officiel (Maroc)")
     CardBox {
         Text("Vacances scolaires et jours fériés 2026-2027 (enseignement public). Les fêtes religieuses sont à des dates estimées : corrigez-les dès leur annonce officielle.", fontSize = 12.5.sp, color = InkFaint)
-        Button(onClick = { add(Vacances.OFFICIELLES_2026_2027, "officiel") }) { BtnText("Ajouter le calendrier 2026-2027", maxLines = 1, softWrap = false) }
+        Button(onClick = { val n = Vacances.seedOfficielles(ctx); msg = if (n == 0) "Le calendrier officiel est déjà complet." else "$n date(s) du calendrier officiel ajoutée(s)." }) { BtnText("Ajouter le calendrier 2026-2027", maxLines = 1, softWrap = false) }
         if (msg.isNotEmpty()) Text(msg, color = Brand, fontSize = 12.5.sp)
     }
     SectionTitle("Ajouter manuellement")
@@ -438,6 +438,20 @@ object Vacances {
         Triple("Aïd Al-Adha (date estimée, selon le croissant lunaire)", "2027-05-16", "2027-05-18"),
         Triple("Nouvel An de l'Hégire (date estimée)", "2027-06-06", "2027-06-06")
     )
+    /** Ajoute le calendrier officiel avec des identifiants fixes (pas de doublon entre appareils ; une date supprimée ne revient pas). */
+    fun seedOfficielles(ctx: android.content.Context): Int {
+        val tomb = ma.carnet.inspection.natif.data.Store.tombstones("vacances")
+        var n = 0
+        OFFICIELLES_2026_2027.forEachIndexed { i, (nom, a, b) ->
+            val id = "officiel-2026-2027-${i + 1}"
+            if (id in tomb || ma.carnet.inspection.natif.data.Store.list("vacances").any { it.s("id") == id || (it.s("dateDebut") == a && it.s("dateFin") == b) }) return@forEachIndexed
+            ma.carnet.inspection.natif.data.Store.insertRaw("vacances", JSONObject().put("id", id).put("nom", nom).put("dateDebut", a).put("dateFin", b)
+                .put("source", "officiel").put("createdAt", "2026-09-01T00:00:00.000Z").put("updatedAt", "2026-09-01T00:00:00.000Z"))
+            n++
+        }
+        if (n > 0) ma.carnet.inspection.natif.data.Reminders.schedule(ctx)
+        return n
+    }
     private fun iso(s: String): String {
         val t = s.trim().take(10)
         Regex("^(\\d{4})(\\d{2})(\\d{2})").find(s.trim())?.let { return "${it.groupValues[1]}-${it.groupValues[2]}-${it.groupValues[3]}" }
