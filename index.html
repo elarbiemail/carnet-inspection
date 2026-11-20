@@ -1013,6 +1013,20 @@
      fois) n'empile jamais les mêmes vacances plusieurs fois. */
   /* Calendrier officiel 2026-2027 (arrêté n° 047.26, ministère de l'Éducation nationale) — fêtes religieuses : dates estimées. */
   var VACANCES_OFFICIELLES_2026_2027 = [{"nom": "Vacances – 1re période intermédiaire", "dateDebut": "2026-10-18", "dateFin": "2026-10-25"}, {"nom": "Fête de l'Unité", "dateDebut": "2026-10-31", "dateFin": "2026-10-31"}, {"nom": "Anniversaire de la Marche Verte", "dateDebut": "2026-11-06", "dateFin": "2026-11-06"}, {"nom": "Fête de l'Indépendance", "dateDebut": "2026-11-18", "dateFin": "2026-11-18"}, {"nom": "Vacances – 2e période intermédiaire", "dateDebut": "2026-12-06", "dateFin": "2026-12-13"}, {"nom": "Nouvel An", "dateDebut": "2027-01-01", "dateFin": "2027-01-01"}, {"nom": "Manifeste de l'Indépendance", "dateDebut": "2027-01-11", "dateFin": "2027-01-11"}, {"nom": "Nouvel An amazigh", "dateDebut": "2027-01-14", "dateFin": "2027-01-14"}, {"nom": "Vacances de mi-année", "dateDebut": "2027-01-24", "dateFin": "2027-01-31"}, {"nom": "Aïd Al-Fitr (date estimée, selon le croissant lunaire)", "dateDebut": "2027-03-09", "dateFin": "2027-03-11"}, {"nom": "Vacances – 3e période intermédiaire", "dateDebut": "2027-03-21", "dateFin": "2027-03-28"}, {"nom": "Fête du Travail", "dateDebut": "2027-05-01", "dateFin": "2027-05-01"}, {"nom": "Vacances – 4e période intermédiaire", "dateDebut": "2027-05-09", "dateFin": "2027-05-16"}, {"nom": "Aïd Al-Adha (date estimée, selon le croissant lunaire)", "dateDebut": "2027-05-16", "dateFin": "2027-05-18"}, {"nom": "Nouvel An de l'Hégire (date estimée)", "dateDebut": "2027-06-06", "dateFin": "2027-06-06"}];
+  /* Ajoute le calendrier officiel avec des identifiants fixes : deux appareils qui l'ajoutent chacun ne créent pas de
+     doublons à la synchronisation, et une période supprimée volontairement (tombstone) ne revient pas. */
+  function seedVacancesOfficielles(silent){
+    var added = 0, tomb = (state.tombstones && state.tombstones.vacances) || {};
+    VACANCES_OFFICIELLES_2026_2027.forEach(function(v, i){
+      var id = 'officiel-2026-2027-'+(i+1);
+      if(tomb[id] || state.vacances.some(function(x){ return x.id===id || (x.dateDebut===v.dateDebut && x.dateFin===v.dateFin); })) return;
+      state.vacances.push({ id:id, nom:v.nom, dateDebut:v.dateDebut, dateFin:v.dateFin, source:'officiel', createdAt:'2026-09-01T00:00:00.000Z', updatedAt:'2026-09-01T00:00:00.000Z' });
+      added++;
+    });
+    if(added) saveLocal('vacances');
+    if(!silent){ render(); toast(added ? added+' date(s) du calendrier officiel ajoutée(s).' : 'Le calendrier officiel est déjà complet.'); }
+    return added;
+  }
   function importVacancesList(list, source){
     var added = 0, skipped = 0;
     (list||[]).forEach(function(v){
@@ -12144,7 +12158,7 @@
     };
 
     /* -- vacances (voir Réglages → Vacances, vacanceSet/vacanceDelete et le bloc d'import plus haut) -- */
-    var btnVacOff = $('btnVacOfficielles'); if(btnVacOff) btnVacOff.onclick = function(){ importVacancesList(VACANCES_OFFICIELLES_2026_2027, 'officiel'); };
+    var btnVacOff = $('btnVacOfficielles'); if(btnVacOff) btnVacOff.onclick = function(){ seedVacancesOfficielles(false); };
     var btnAddVacance = $('btnAddVacance');
     if(btnAddVacance) btnAddVacance.onclick = function(){
       var nom = ($('vacNom')||{}).value||'', debut = ($('vacDebut')||{}).value||'', fin = ($('vacFin')||{}).value||'';
@@ -13275,6 +13289,8 @@
   /* ================= boot ================= */
   function start(){
     initCapabilities();
+    /* calendrier officiel 2026-2027 ajouté automatiquement une fois sur chaque appareil */
+    if(!state.config.vacOff2627){ try{ seedVacancesOfficielles(true); }catch(e){} configSet({vacOff2627:true}); }
     if(!state.config.googleClientId && !state.config.driveSetupSeen){ pushModal({type:'driveSetup'}); }
     render();
     autosaveOfferCheck();
