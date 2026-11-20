@@ -382,6 +382,12 @@ fun VacancesTab() {
             }
         }
     }
+    SectionTitle("Calendrier officiel (Maroc)")
+    CardBox {
+        Text("Vacances scolaires et jours fériés 2026-2027 (enseignement public). Les fêtes religieuses sont à des dates estimées : corrigez-les dès leur annonce officielle.", fontSize = 12.5.sp, color = InkFaint)
+        Button(onClick = { val n = Vacances.seedOfficielles(ctx); msg = if (n == 0) "Le calendrier officiel est déjà complet." else "$n date(s) du calendrier officiel ajoutée(s)." }) { BtnText("Ajouter le calendrier 2026-2027", maxLines = 1, softWrap = false) }
+        if (msg.isNotEmpty()) Text(msg, color = Brand, fontSize = 12.5.sp)
+    }
     SectionTitle("Ajouter manuellement")
     CardBox {
         TextFieldRow("Nom", nom, { nom = it })
@@ -414,6 +420,38 @@ fun VacancesTab() {
 }
 
 object Vacances {
+    /** Calendrier officiel 2026-2027 (arrêté n° 047.26) — fêtes religieuses : dates estimées. */
+    val OFFICIELLES_2026_2027 = listOf(
+        Triple("Vacances – 1re période intermédiaire", "2026-10-18", "2026-10-25"),
+        Triple("Fête de l'Unité", "2026-10-31", "2026-10-31"),
+        Triple("Anniversaire de la Marche Verte", "2026-11-06", "2026-11-06"),
+        Triple("Fête de l'Indépendance", "2026-11-18", "2026-11-18"),
+        Triple("Vacances – 2e période intermédiaire", "2026-12-06", "2026-12-13"),
+        Triple("Nouvel An", "2027-01-01", "2027-01-01"),
+        Triple("Manifeste de l'Indépendance", "2027-01-11", "2027-01-11"),
+        Triple("Nouvel An amazigh", "2027-01-14", "2027-01-14"),
+        Triple("Vacances de mi-année", "2027-01-24", "2027-01-31"),
+        Triple("Aïd Al-Fitr (date estimée, selon le croissant lunaire)", "2027-03-09", "2027-03-11"),
+        Triple("Vacances – 3e période intermédiaire", "2027-03-21", "2027-03-28"),
+        Triple("Fête du Travail", "2027-05-01", "2027-05-01"),
+        Triple("Vacances – 4e période intermédiaire", "2027-05-09", "2027-05-16"),
+        Triple("Aïd Al-Adha (date estimée, selon le croissant lunaire)", "2027-05-16", "2027-05-18"),
+        Triple("Nouvel An de l'Hégire (date estimée)", "2027-06-06", "2027-06-06")
+    )
+    /** Ajoute le calendrier officiel avec des identifiants fixes (pas de doublon entre appareils ; une date supprimée ne revient pas). */
+    fun seedOfficielles(ctx: android.content.Context): Int {
+        val tomb = ma.carnet.inspection.natif.data.Store.tombstones("vacances")
+        var n = 0
+        OFFICIELLES_2026_2027.forEachIndexed { i, (nom, a, b) ->
+            val id = "officiel-2026-2027-${i + 1}"
+            if (id in tomb || ma.carnet.inspection.natif.data.Store.list("vacances").any { it.s("id") == id || (it.s("dateDebut") == a && it.s("dateFin") == b) }) return@forEachIndexed
+            ma.carnet.inspection.natif.data.Store.insertRaw("vacances", JSONObject().put("id", id).put("nom", nom).put("dateDebut", a).put("dateFin", b)
+                .put("source", "officiel").put("createdAt", "2026-09-01T00:00:00.000Z").put("updatedAt", "2026-09-01T00:00:00.000Z"))
+            n++
+        }
+        if (n > 0) ma.carnet.inspection.natif.data.Reminders.schedule(ctx)
+        return n
+    }
     private fun iso(s: String): String {
         val t = s.trim().take(10)
         Regex("^(\\d{4})(\\d{2})(\\d{2})").find(s.trim())?.let { return "${it.groupValues[1]}-${it.groupValues[2]}-${it.groupValues[3]}" }

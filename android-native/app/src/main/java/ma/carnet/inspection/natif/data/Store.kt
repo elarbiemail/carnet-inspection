@@ -83,6 +83,15 @@ object Store {
     }
 
     /** Ajoute ou remplace un enregistrement (par id) et enregistre. */
+    /** Ids supprimés (tombstones) d'une collection. */
+    fun tombstones(coll: String): Set<String> = root.optJSONObject("tombstones")?.optJSONObject(coll)?.keys()?.asSequence()?.toSet() ?: emptySet()
+
+    /** Ajoute un enregistrement tel quel (dates conservées), sans journal — pour les données de référence. */
+    fun insertRaw(coll: String, rec: JSONObject) {
+        val a = root.optJSONArray(coll) ?: JSONArray().also { root.put(coll, it) }
+        a.put(rec); save()
+    }
+
     fun upsert(coll: String, rec: JSONObject) {
         val ts = now()
         if (rec.s("id").isEmpty()) rec.put("id", UUID.randomUUID().toString())
