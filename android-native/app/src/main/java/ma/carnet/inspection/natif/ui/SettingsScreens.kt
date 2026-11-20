@@ -98,19 +98,21 @@ fun ProfileAvatar(size: Int, onClick: (() -> Unit)? = null) {
     }
 }
 
-/** Photo de profil en grand, sur toute la hauteur du bandeau d'accueil, fondue à gauche dans la couleur du thème. */
+/** Ombre portée du texte posé sur la photo du bandeau d'accueil. */
+val HeroShadow = androidx.compose.ui.text.TextStyle(shadow = androidx.compose.ui.graphics.Shadow(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.55f), androidx.compose.ui.geometry.Offset(0f, 2f), 6f))
+
+/** Photo de profil en arrière-plan du bandeau d'accueil, étirée sur toute la largeur, sous un voile dégradé. */
 @Composable
 fun HeroAvatar(modifier: Modifier, onClick: () -> Unit) {
     val ctx = LocalContext.current
-    val p = Store.profil()
     val img = rememberImg(Docs.imgFile(ctx, "avatar")) ?: rememberImg(GoogleAccount.photoFile(ctx))
     Box(modifier.clickable { onClick() }) {
-        if (img != null) Image(img, "Photo de profil", Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alignment = Alignment.TopCenter)
-        else Box(Modifier.fillMaxSize().background(OnBrand.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
-            Text(initials(p.s("nomSignature").ifEmpty { p.s("nom") }.ifEmpty { GoogleAccount.name(ctx) }.ifEmpty { "?" }), color = OnBrand, fontWeight = FontWeight.Bold, fontSize = 44.sp)
+        if (img != null) {
+            Image(img, "Photo de profil", Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alignment = androidx.compose.ui.BiasAlignment(0f, -0.35f))
+            // voile : couleur du thème à gauche (texte), photo bien visible à droite, assombri en bas
+            Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.horizontalGradient(0f to Brand.copy(alpha = 0.88f), 0.55f to Brand.copy(alpha = 0.45f), 1f to Brand.copy(alpha = 0.05f))))
+            Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Brush.verticalGradient(0.6f to androidx.compose.ui.graphics.Color.Transparent, 1f to androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.30f))))
         }
-        // fondu vers la couleur du bandeau, pour que le texte reste lisible
-        Box(Modifier.fillMaxHeight().width(48.dp).background(androidx.compose.ui.graphics.Brush.horizontalGradient(listOf(Brand, Brand.copy(alpha = 0f)))))
     }
 }
 
