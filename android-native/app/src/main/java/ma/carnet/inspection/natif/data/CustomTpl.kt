@@ -135,14 +135,19 @@ object CustomTpl {
         val v = values(d, t); val rtl = d.optBoolean("rtl")
         val ai = d.optJSONObject("aiValues") ?: JSONObject()
         val sb = StringBuilder()
-        d.s("corps").split("\n").forEach { raw ->
+        // le logo des Paramètres figure toujours en tête du document, même si le modèle ne contient pas {{logo}}
+        val corps = d.s("corps").let { c -> if (Regex("\\{\\{\\s*logo\\s*\\}\\}", RegexOption.IGNORE_CASE).containsMatchIn(c)) c else "{{logo}}\n$c" }
+        corps.split("\n").forEach { raw ->
             var tr = raw.trim()
             if (tr.isEmpty()) { sb.append("<div style=\"height:3mm\"></div>"); return@forEach }
             Regex("^\\{\\{\\s*(logo|entete|signature)\\s*\\}\\}$", RegexOption.IGNORE_CASE).find(tr)?.let {
                 when (it.groupValues[1].lowercase()) {
-                    "logo" -> sb.append("<div style=\"text-align:center\"><img src=\"entete-ministere.png\" style=\"width:100mm\"></div>")
+                    "logo" -> sb.append("<div style=\"text-align:center\">" + (Docs.imgData(ctx, "logo")?.let { "<img src=\"$it\" style=\"max-height:26mm;max-width:120mm\">" } ?: "<img src=\"entete-ministere.png\" style=\"width:100mm\">") + "</div>")
                     "entete" -> (Store.root.optJSONObject("templates")?.s("entete") ?: "").split("\n").filter { l -> l.isNotBlank() }.forEach { l -> sb.append("<p class=\"b\" style=\"text-align:center\">").append(Docs.h(l)).append("</p>") }
-                    else -> sb.append("<div style=\"margin-top:8mm;text-align:${if (rtl) "left" else "right"}\" class=\"b\">${Docs.h(v["profil.nom"] ?: "")}</div>")
+                    else -> {
+                        val imgs = listOfNotNull(Docs.imgData(ctx, "signature")?.let { "<img src=\"$it\" style=\"max-height:22mm;max-width:55mm\">" }, Docs.imgData(ctx, "cachet")?.let { "<img src=\"$it\" style=\"max-height:28mm;max-width:40mm\">" }).joinToString(" ")
+                        sb.append("<div style=\"margin-top:8mm;text-align:${if (rtl) "left" else "right"}\"><div class=\"b\">${Docs.h(v["profil.nom"] ?: "")}</div>$imgs</div>")
+                    }
                 }
                 return@forEach
             }

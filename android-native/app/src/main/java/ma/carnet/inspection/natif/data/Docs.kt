@@ -202,7 +202,7 @@ object Docs {
 
     /** Images du profil (logo, signature, cachet) récupérées depuis Drive (voir Paramètres). */
     fun imgFile(ctx: Context, key: String) = File(ctx.filesDir, "img_$key.bin")
-    private fun imgData(ctx: Context, key: String): String? {
+    fun imgData(ctx: Context, key: String): String? {
         val f = imgFile(ctx, key); if (!f.exists() || f.length() == 0L) return null
         val b = f.readBytes()
         val mime = if (b.size > 3 && b[0] == 0x89.toByte() && b[1] == 'P'.code.toByte()) "image/png" else "image/jpeg"
