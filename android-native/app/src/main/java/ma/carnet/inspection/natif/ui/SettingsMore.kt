@@ -382,6 +382,12 @@ fun VacancesTab() {
             }
         }
     }
+    SectionTitle("Calendrier officiel (Maroc)")
+    CardBox {
+        Text("Vacances scolaires et jours fériés 2026-2027 (enseignement public). Les fêtes religieuses sont à des dates estimées : corrigez-les dès leur annonce officielle.", fontSize = 12.5.sp, color = InkFaint)
+        Button(onClick = { add(Vacances.OFFICIELLES_2026_2027, "officiel") }) { BtnText("Ajouter le calendrier 2026-2027", maxLines = 1, softWrap = false) }
+        if (msg.isNotEmpty()) Text(msg, color = Brand, fontSize = 12.5.sp)
+    }
     SectionTitle("Ajouter manuellement")
     CardBox {
         TextFieldRow("Nom", nom, { nom = it })
@@ -414,6 +420,24 @@ fun VacancesTab() {
 }
 
 object Vacances {
+    /** Calendrier officiel 2026-2027 (arrêté n° 047.26) — fêtes religieuses : dates estimées. */
+    val OFFICIELLES_2026_2027 = listOf(
+        Triple("Vacances – 1re période intermédiaire", "2026-10-18", "2026-10-25"),
+        Triple("Fête de l'Unité", "2026-10-31", "2026-10-31"),
+        Triple("Anniversaire de la Marche Verte", "2026-11-06", "2026-11-06"),
+        Triple("Fête de l'Indépendance", "2026-11-18", "2026-11-18"),
+        Triple("Vacances – 2e période intermédiaire", "2026-12-06", "2026-12-13"),
+        Triple("Nouvel An", "2027-01-01", "2027-01-01"),
+        Triple("Manifeste de l'Indépendance", "2027-01-11", "2027-01-11"),
+        Triple("Nouvel An amazigh", "2027-01-14", "2027-01-14"),
+        Triple("Vacances de mi-année", "2027-01-24", "2027-01-31"),
+        Triple("Aïd Al-Fitr (date estimée, selon le croissant lunaire)", "2027-03-09", "2027-03-11"),
+        Triple("Vacances – 3e période intermédiaire", "2027-03-21", "2027-03-28"),
+        Triple("Fête du Travail", "2027-05-01", "2027-05-01"),
+        Triple("Vacances – 4e période intermédiaire", "2027-05-09", "2027-05-16"),
+        Triple("Aïd Al-Adha (date estimée, selon le croissant lunaire)", "2027-05-16", "2027-05-18"),
+        Triple("Nouvel An de l'Hégire (date estimée)", "2027-06-06", "2027-06-06")
+    )
     private fun iso(s: String): String {
         val t = s.trim().take(10)
         Regex("^(\\d{4})(\\d{2})(\\d{2})").find(s.trim())?.let { return "${it.groupValues[1]}-${it.groupValues[2]}-${it.groupValues[3]}" }
