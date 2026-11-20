@@ -4481,18 +4481,12 @@
     ['zones','etablissements','enseignants','documents','vacances'].forEach(function(coll){
       if(Array.isArray(remote[coll])){ state[coll] = mergeById(state[coll], remote[coll], state.tombstones[coll]); saveLocal(coll); }
     });
-    /* Tâches : fusionnées via la feuille CSV, qui ne transporte pas les pièces jointes. Celles ajoutées
-       depuis l'application Android (ou un autre navigateur) sont reprises ici depuis la sauvegarde JSON. */
+    /* Tâches : la feuille CSV ne porte que quelques colonnes. Les tâches complètes (créées ou modifiées
+       dans l'application Android ou un autre navigateur : enseignant(e), invités, équipes, sous-tâches,
+       pièces jointes…) arrivent par la sauvegarde JSON, fusionnées ici comme les autres collections. */
     if(Array.isArray(remote.tasks)){
-      var rById = {}; remote.tasks.forEach(function(r){ if(r && r.id) rById[r.id] = r; });
-      var tChanged = false;
-      state.tasks = state.tasks.map(function(t){
-        var r = rById[t.id]; if(!r) return t;
-        var m = mergeAttachments(t, r);
-        if(JSON.stringify(m.attachments||[]) !== JSON.stringify(t.attachments||[])){ tChanged = true; return m; }
-        return t;
-      });
-      if(tChanged) saveLocal('tasks');
+      state.tasks = mergeById(state.tasks, remote.tasks.filter(function(r){ return r && r.id; }), state.tombstones.tasks);
+      saveLocal('tasks');
     }
     if(Array.isArray(remote.regionsMaroc) && remote.regionsMarocUpdatedAt &&
        (!state.regionsMarocUpdatedAt || new Date(remote.regionsMarocUpdatedAt) > new Date(state.regionsMarocUpdatedAt))){
@@ -4570,7 +4564,7 @@
         var payload = res.payload || {};
         var csv = payload.content ? b64ToUtf8(payload.content) : '';
         var remote = csvToTasks(csv);
-        var merged = mergeById(state.tasks, remote, state.tombstones.tasks);
+        var merged = mergeById(state.tasks, remote, state.tombstones.tasks, true);
         return persistMergedLocally(merged).then(function(){ return merged; });
       })
       .then(function(merged){
@@ -4655,14 +4649,16 @@
     var rm = Object.keys(removed); if(rm.length) m.attRemoved = rm;
     return m;
   }
-  function mergeById(local, remote, tomb){
+  function mergeById(local, remote, tomb, overlay){
     tomb = tomb || {};
     var byId = {}; local.forEach(function(t){ byId[t.id] = t; });
     remote.forEach(function(r){
       var l = byId[r.id];
       if(!l){ byId[r.id] = r; return; }
       var lt = new Date(l.updatedAt||0).getTime(), rt = new Date(r.updatedAt||0).getTime();
-      byId[r.id] = rt > lt ? mergeAttachments(r, l) : mergeAttachments(l, r);
+      /* overlay : la feuille CSV ne porte que quelques colonnes — on les applique sur la tâche locale complète
+         au lieu de la remplacer (sinon enseignant(e), invités, équipes, pièces jointes… seraient perdus). */
+      byId[r.id] = rt > lt ? mergeAttachments(overlay ? Object.assign({}, l, r) : r, l) : mergeAttachments(l, r);
     });
     Object.keys(byId).forEach(function(id){
       var td = tomb[id]; if(!td) return;
