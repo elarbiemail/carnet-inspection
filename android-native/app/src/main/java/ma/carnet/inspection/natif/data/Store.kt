@@ -95,6 +95,7 @@ object Store {
             if (a.optJSONObject(i)?.optString("id") == rec.optString("id")) { old = JSONObject(a.optJSONObject(i).toString()); a.put(i, rec); replaced = true; break }
         }
         if (!replaced) a.put(rec)
+        if (old != null) trackRemovedAttachments(old, rec)
         if (old == null) log("création", coll, rec)
         else { val d = diff(old, rec); if (d.isNotEmpty()) log("modification", coll, rec, d) }
         save()
@@ -310,7 +311,8 @@ object Store {
                 if (tomb.isNotEmpty() && tomb >= r.s("updatedAt")) continue
                 val l = local[id]
                 if (l == null) { local[id] = r; added++ }
-                else if (r.s("updatedAt") > l.s("updatedAt")) { local[id] = r; updated++ }
+                else if (r.s("updatedAt") > l.s("updatedAt")) { local[id] = mergeAttachments(r, l); updated++ }
+                else { val m = mergeAttachments(l, r); if (m.optJSONArray("attachments")?.length() != l.optJSONArray("attachments")?.length()) updated++; local[id] = m }
             }
             val out = JSONArray()
             local.values.forEach { o ->
@@ -336,6 +338,39 @@ object Store {
         if (added + updated + removed > 0) log("synchronisation", "", null, "Fusion de données : $added ajout(s), $updated mise(s) à jour, $removed suppression(s)")
         save()
         return ImportReport(added, updated, removed)
+    }
+
+    /** Retient les pièces jointes retirées d'une fiche (« attRemoved »), pour que la fusion ne les fasse pas revenir. */
+    private fun trackRemovedAttachments(old: JSONObject, rec: JSONObject) {
+        val now = (rec.optJSONArray("attachments") ?: JSONArray()).let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it)?.s("id") }.toSet() }
+        val gone = (old.optJSONArray("attachments") ?: JSONArray()).let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it)?.s("id") } }.filter { it.isNotEmpty() && it !in now }
+        val prev = (old.optJSONArray("attRemoved") ?: JSONArray()).let { a -> (0 until a.length()).map { a.optString(it) } } +
+            (rec.optJSONArray("attRemoved") ?: JSONArray()).let { a -> (0 until a.length()).map { a.optString(it) } }
+        val all = (prev + gone).filter { it.isNotEmpty() }.distinct()
+        if (all.isNotEmpty()) rec.put("attRemoved", JSONArray(all))
+    }
+
+    /**
+     * Pièces jointes : la fiche la plus récente l'emporte, mais les pièces ajoutées sur l'autre appareil
+     * (carnet web ou téléphone) sont conservées, sauf celles retirées volontairement (« attRemoved »).
+     */
+    fun mergeAttachments(win: JSONObject, lose: JSONObject): JSONObject {
+        val wa = win.optJSONArray("attachments"); val la = lose.optJSONArray("attachments")
+        if ((la == null || la.length() == 0) && lose.optJSONArray("attRemoved") == null) return win
+        val removed = mutableSetOf<String>()
+        listOf(win, lose).forEach { o -> o.optJSONArray("attRemoved")?.let { a -> for (i in 0 until a.length()) removed.add(a.optString(i)) } }
+        val out = LinkedHashMap<String, JSONObject>()
+        fun add(a: JSONArray?) { if (a != null) for (i in 0 until a.length()) {
+            val o = a.optJSONObject(i) ?: continue; val id = o.s("id").ifEmpty { o.s("driveFileId").ifEmpty { o.s("titre") } }
+            if (id in removed) continue
+            val cur = out[id]
+            if (cur == null || (cur.s("driveFileId").isEmpty() && o.s("driveFileId").isNotEmpty())) out[id] = o
+        } }
+        add(wa); add(la)
+        val m = JSONObject(win.toString())
+        m.put("attachments", JSONArray(out.values.toList()))
+        if (removed.isNotEmpty()) m.put("attRemoved", JSONArray(removed.filter { it.isNotEmpty() }))
+        return m
     }
 
     /** Sauvegarde complète, au format attendu par le carnet web (Paramètres → InspectApp → Importer). */
