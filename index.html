@@ -7573,14 +7573,16 @@
     $('printRoot').innerHTML = '<div class="p-page" dir="'+(rtl?'rtl':'ltr')+'" lang="'+(rtl?'ar':'fr')+'">'+bodyHtml+'</div>';
     setTimeout(function(){ window.print(); }, 60);
   }
-  function printHead(titre, meta, photoUrl){
-    return '<div class="p-head">'+(photoUrl?'<img class="photo" src="'+photoUrl+'" alt="">':'')+'<div class="org">'+esc(state.templates.entete)+'</div><h1>'+esc(titre)+'</h1></div>'+
+  function printHead(titre, meta, photoUrl, logoId){
+    /* Logo : celui du modèle de ce type de document, sinon celui des Paramètres (Profil → Logo / en-tête). */
+    var pf = state.templates.profil || {}, logoUrl = (logoId ? assetUrl(logoId) : '') || (pf.logoAssetId ? assetUrl(pf.logoAssetId) : '');
+    return '<div class="p-head">'+(logoUrl?'<div style="text-align:center;margin-bottom:6px;"><img src="'+logoUrl+'" alt="" style="max-height:26mm;max-width:120mm;"></div>':'')+(photoUrl?'<img class="photo" src="'+photoUrl+'" alt="">':'')+'<div class="org">'+esc(state.templates.entete)+'</div><h1>'+esc(titre)+'</h1></div>'+
       '<div class="p-meta">'+meta.map(function(m){ return '<span><b>'+esc(m[0])+' :</b> '+esc(m[1]||'—')+'</span>'; }).join('')+'</div>';
   }
 
   function printFromSpec(spec){ printHTML(specToHtml(spec), !!spec.rtl); }
   function specToHtml(spec){
-    var html = printHead(spec.titre, spec.meta, spec.photoAssetId ? assetUrl(spec.photoAssetId) : '');
+    var html = printHead(spec.titre, spec.meta, spec.photoAssetId ? assetUrl(spec.photoAssetId) : '', spec.logoAssetId);
     var chartsHtml = (spec.charts||[]).map(function(ch){ return '<div class="p-section" style="break-inside:avoid;"><h3>'+esc(ch.heading)+'</h3><img src="'+ch.dataUrl+'" alt="" style="display:block;width:'+Math.min(100, Math.round(ch.w/340*82))+'%;margin:0 auto;"></div>'; }).join('');
     (spec.intro||[]).forEach(function(sec){
       html += '<div class="p-section">'+(sec.heading?'<h3>'+esc(sec.heading)+'</h3>':'')+'<p style="white-space:pre-line;">'+esc(sec.text||'')+'</p></div>';
@@ -10624,7 +10626,10 @@
   }
   function offCustomDoc(d, task){
     var rtl = !!d.rtl, blocks = [];
-    ctItems(d, task).forEach(function(it){
+    /* Le logo des Paramètres figure toujours en tête du document, même si le modèle ne contient pas {{logo}}. */
+    var items = ctItems(d, task);
+    if(!items.some(function(it){ return it.k==='logo'; })) items.unshift({k:'logo'});
+    items.forEach(function(it){
       if(it.k==='blank') blocks.push(P('', {size:6}));
       else if(it.k==='logo'){ var pf = offProfil(); blocks.push((pf.logoAssetId && assetUrl(pf.logoAssetId)) ? {t:'img', key:'logo', w:110, maxH:26, align:'center'} : {t:'img', key:'ministere', w:100, align:'center'}); }
       else if(it.k==='entete') String(state.templates.entete||'').split('\n').filter(Boolean).forEach(function(l){ blocks.push(P([R(l,{b:true})], {align:'center', size:10})); });
