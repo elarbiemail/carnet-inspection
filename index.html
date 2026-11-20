@@ -1818,6 +1818,7 @@
        Détecté ici (avant l'écrasement de l'ancien enregistrement) pour ne réagir qu'au moment précis
        où le statut DEVIENT clôturée, jamais à chaque simple ré-enregistrement d'une tâche déjà close. */
     var justClosed = (kind==='task' && obj.statut==='cloturee' && !(i>=0 && arr[i].statut==='cloturee'));
+    if(i>=0) trackRemovedAttachments(arr[i], obj);
     if(i>=0) arr[i]=obj; else arr.push(obj);
     saveLocal(coll); render();
     if(justClosed) ensureBordereauForTask(obj);
@@ -4480,6 +4481,19 @@
     ['zones','etablissements','enseignants','documents','vacances'].forEach(function(coll){
       if(Array.isArray(remote[coll])){ state[coll] = mergeById(state[coll], remote[coll], state.tombstones[coll]); saveLocal(coll); }
     });
+    /* Tâches : fusionnées via la feuille CSV, qui ne transporte pas les pièces jointes. Celles ajoutées
+       depuis l'application Android (ou un autre navigateur) sont reprises ici depuis la sauvegarde JSON. */
+    if(Array.isArray(remote.tasks)){
+      var rById = {}; remote.tasks.forEach(function(r){ if(r && r.id) rById[r.id] = r; });
+      var tChanged = false;
+      state.tasks = state.tasks.map(function(t){
+        var r = rById[t.id]; if(!r) return t;
+        var m = mergeAttachments(t, r);
+        if(JSON.stringify(m.attachments||[]) !== JSON.stringify(t.attachments||[])){ tChanged = true; return m; }
+        return t;
+      });
+      if(tChanged) saveLocal('tasks');
+    }
     if(Array.isArray(remote.regionsMaroc) && remote.regionsMarocUpdatedAt &&
        (!state.regionsMarocUpdatedAt || new Date(remote.regionsMarocUpdatedAt) > new Date(state.regionsMarocUpdatedAt))){
       state.regionsMaroc = remote.regionsMaroc; state.regionsMarocUpdatedAt = remote.regionsMarocUpdatedAt; saveLocal('regionsMaroc');
@@ -4618,6 +4632,29 @@
      l'enregistrement reste supprimé ; si une modification plus récente que la suppression arrive d'un
      autre appareil, elle l'emporte (cohérent avec la règle « le plus récent gagne » déjà appliquée aux
      modifications). */
+  /* Pièces jointes retirées d'une fiche : mémorisées (attRemoved) pour que la fusion avec un autre
+     appareil (carnet web ou application Android) ne les fasse pas réapparaître. */
+  function trackRemovedAttachments(old, obj){
+    var now = {}; (obj.attachments||[]).forEach(function(a){ if(a && a.id) now[a.id] = 1; });
+    var all = (old.attRemoved||[]).concat(obj.attRemoved||[]);
+    (old.attachments||[]).forEach(function(a){ if(a && a.id && !now[a.id]) all.push(a.id); });
+    all = all.filter(function(x, k){ return x && all.indexOf(x)===k; });
+    if(all.length) obj.attRemoved = all;
+  }
+  /* La fiche la plus récente l'emporte, mais les pièces jointes ajoutées sur l'autre appareil sont
+     conservées (union par id), sauf celles retirées volontairement. */
+  function mergeAttachments(win, lose){
+    if(!lose || (!(lose.attachments||[]).length && !(lose.attRemoved||[]).length)) return win;
+    var removed = {}; (win.attRemoved||[]).concat(lose.attRemoved||[]).forEach(function(x){ if(x) removed[x] = 1; });
+    var out = {}, order = [];
+    (win.attachments||[]).concat(lose.attachments||[]).forEach(function(a){
+      if(!a) return; var id = a.id || a.driveFileId || a.titre; if(removed[id]) return;
+      if(!out[id]){ out[id] = a; order.push(id); } else if(!out[id].driveFileId && a.driveFileId) out[id] = a;
+    });
+    var m = Object.assign({}, win, {attachments: order.map(function(k){ return out[k]; })});
+    var rm = Object.keys(removed); if(rm.length) m.attRemoved = rm;
+    return m;
+  }
   function mergeById(local, remote, tomb){
     tomb = tomb || {};
     var byId = {}; local.forEach(function(t){ byId[t.id] = t; });
@@ -4625,7 +4662,7 @@
       var l = byId[r.id];
       if(!l){ byId[r.id] = r; return; }
       var lt = new Date(l.updatedAt||0).getTime(), rt = new Date(r.updatedAt||0).getTime();
-      if(rt > lt) byId[r.id] = r;
+      byId[r.id] = rt > lt ? mergeAttachments(r, l) : mergeAttachments(l, r);
     });
     Object.keys(byId).forEach(function(id){
       var td = tomb[id]; if(!td) return;
