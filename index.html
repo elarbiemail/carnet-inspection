@@ -1011,6 +1011,8 @@
   /* Fusionne une liste de périodes importées dans state.vacances, en ignorant les doublons exacts
      (même nom/mêmes dates) déjà présents — pour qu'un ré-import (même fichier, même flux consulté deux
      fois) n'empile jamais les mêmes vacances plusieurs fois. */
+  /* Calendrier officiel 2026-2027 (arrêté n° 047.26, ministère de l'Éducation nationale) — fêtes religieuses : dates estimées. */
+  var VACANCES_OFFICIELLES_2026_2027 = [{"nom": "Vacances – 1re période intermédiaire", "dateDebut": "2026-10-18", "dateFin": "2026-10-25"}, {"nom": "Fête de l'Unité", "dateDebut": "2026-10-31", "dateFin": "2026-10-31"}, {"nom": "Anniversaire de la Marche Verte", "dateDebut": "2026-11-06", "dateFin": "2026-11-06"}, {"nom": "Fête de l'Indépendance", "dateDebut": "2026-11-18", "dateFin": "2026-11-18"}, {"nom": "Vacances – 2e période intermédiaire", "dateDebut": "2026-12-06", "dateFin": "2026-12-13"}, {"nom": "Nouvel An", "dateDebut": "2027-01-01", "dateFin": "2027-01-01"}, {"nom": "Manifeste de l'Indépendance", "dateDebut": "2027-01-11", "dateFin": "2027-01-11"}, {"nom": "Nouvel An amazigh", "dateDebut": "2027-01-14", "dateFin": "2027-01-14"}, {"nom": "Vacances de mi-année", "dateDebut": "2027-01-24", "dateFin": "2027-01-31"}, {"nom": "Aïd Al-Fitr (date estimée, selon le croissant lunaire)", "dateDebut": "2027-03-09", "dateFin": "2027-03-11"}, {"nom": "Vacances – 3e période intermédiaire", "dateDebut": "2027-03-21", "dateFin": "2027-03-28"}, {"nom": "Fête du Travail", "dateDebut": "2027-05-01", "dateFin": "2027-05-01"}, {"nom": "Vacances – 4e période intermédiaire", "dateDebut": "2027-05-09", "dateFin": "2027-05-16"}, {"nom": "Aïd Al-Adha (date estimée, selon le croissant lunaire)", "dateDebut": "2027-05-16", "dateFin": "2027-05-18"}, {"nom": "Nouvel An de l'Hégire (date estimée)", "dateDebut": "2027-06-06", "dateFin": "2027-06-06"}];
   function importVacancesList(list, source){
     var added = 0, skipped = 0;
     (list||[]).forEach(function(v){
@@ -9712,7 +9714,7 @@
      la fiche/carte — voir vacanceForDate). */
   function vacancesTabHtml(){
     var list = state.vacances.slice().sort(function(a,b){ return (a.dateDebut||'').localeCompare(b.dateDebut||''); });
-    var srcLabel = {manuel:'', csv:'CSV', url:'calendrier/API'};
+    var srcLabel = {manuel:'', csv:'CSV', url:'calendrier/API', officiel:'officiel'};
     var html = '<p style="font-size:11.5px;color:var(--ink-faint);margin-bottom:10px;">Renseignez ici les vacances scolaires (ou tout autre congé à éviter) : vous serez prévenu(e) à l\'approche de leur début, et toute tâche programmée pendant l\'une d\'elles sera signalée (dans son formulaire, sa fiche et sa carte).</p>';
     html += list.length ? '<div class="doc-list" style="margin-bottom:14px;">'+list.map(function(v){
       return '<div class="doc-row"><div class="doc-ico">'+ICONS.calendar+'</div>'+
@@ -9720,6 +9722,10 @@
         '<button class="icon-btn" data-delvac="'+v.id+'" style="width:30px;height:30px;color:var(--danger);" aria-label="Supprimer">'+ICONS.trash+'</button></div>';
     }).join('')+'</div>' : '<div class="empty" style="margin-bottom:14px;">Aucune période de vacances enregistrée pour l\'instant.</div>';
 
+    html += '<div class="section-label">Calendrier officiel (Maroc)</div>'+
+      '<p style="font-size:11.5px;color:var(--ink-faint);margin:2px 0 8px;">Vacances scolaires et jours fériés de l\'année 2026-2027 (enseignement public). Les dates des fêtes religieuses sont estimées : corrigez-les dès leur annonce officielle.</p>'+
+      '<div class="btn-row"><button class="btn primary sm" id="btnVacOfficielles" type="button">'+ICONS.calendar+' Ajouter le calendrier 2026-2027</button></div>'+
+      '<div class="side-divider" style="margin:16px 0;"></div>';
     html += '<div class="section-label">Ajouter manuellement</div>'+
       '<div class="field"><label for="vacNom">Nom</label><input type="text" id="vacNom" placeholder="Ex. Vacances de printemps"></div>'+
       '<div class="field-row"><div class="field"><label for="vacDebut">Début</label><input type="date" id="vacDebut"></div>'+
@@ -12138,6 +12144,7 @@
     };
 
     /* -- vacances (voir Réglages → Vacances, vacanceSet/vacanceDelete et le bloc d'import plus haut) -- */
+    var btnVacOff = $('btnVacOfficielles'); if(btnVacOff) btnVacOff.onclick = function(){ importVacancesList(VACANCES_OFFICIELLES_2026_2027, 'officiel'); };
     var btnAddVacance = $('btnAddVacance');
     if(btnAddVacance) btnAddVacance.onclick = function(){
       var nom = ($('vacNom')||{}).value||'', debut = ($('vacDebut')||{}).value||'', fin = ($('vacFin')||{}).value||'';
